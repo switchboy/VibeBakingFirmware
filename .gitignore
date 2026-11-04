@@ -22,3 +22,9 @@ aosp/
 # editor noise
 *.swp
 .DS_Store
+
+# local machine config and secrets — never commit credentials
+local.env
+*.env
+.env.*
+incoming/
