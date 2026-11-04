@@ -2,6 +2,9 @@
 # Paths are spelled out: $(LOCAL_DIR) inside an inherited product file points at the last
 # AndroidProducts.mk directory that kati read, not at this file's directory.
 # full_base.mk is base + product + generic_no_telephony - right for a head unit with no modem.
+# 64-bit primary + 32-bit secondary zygote, and both abis. Must be inherited before core_minimal.mk
+# in the chain, which is what full_base.mk pulls in.
+$(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit.mk)
 $(call inherit-product, $(SRC_TARGET_DIR)/product/full_base.mk)
 
 # LineageOS features: tablet-wifionly variant (no telephony stack, no SIM).
