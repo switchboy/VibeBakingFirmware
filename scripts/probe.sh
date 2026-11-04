@@ -12,12 +12,13 @@
 #
 # Nothing is written outside the chosen report file. No writes to /vendor, /system, /data.
 
-# Output location: the directory the script lives in (the SD card wherever it is mounted),
-# never a hard-coded global path. Override with: sh probe.sh <path/to/report.md>
+# Output location: explicit argument wins; else Termux's visible shared-storage Downloads
+# (~/storage/downloads == /sdcard/Download) if it exists; else the folder the script lives in
+# (the SD card on the head unit). Never a hard-coded global path. Override: sh probe.sh <path>
 OUT="${1:-}"
 if [ -z "$OUT" ]; then
   here=$(dirname "$0")
-  for cand in "$here/probe.md" ./probe.md; do
+  for cand in "$HOME/storage/downloads/probe.md" "$here/probe.md" ./probe.md; do
     d=$(dirname "$cand")
     if [ -d "$d" ] && [ -w "$d" ]; then OUT="$cand"; break; fi
   done
