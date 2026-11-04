@@ -1,0 +1,45 @@
+# M2b - repartitioning the eMMC (D8)
+
+Goal: `super` 3,263,168,512 -> **8,589,934,592** B and `userdata` 58,844,495,360 ->
+**53,517,729,280** B, so Android 14 has room (the vendor's Android 11 package needs a 4,890,558,464 B
+group, which does not fit today - that is the flash warning the owner saw).
+
+## What the table change does
+
+- `p1..p13` keep their exact LBAs, so uboot/trust/misc/dtb/dtbo/vbmeta/boot/recovery/backup/security/
+  cache/metadata/frp stay byte-identical and the bootloader keeps working.
+- `super` grows in place; `userdata` starts later by exactly the growth amount and keeps its last LBA,
+  so the disk's tail reserve (backup GPT area) does not move.
+- `userdata` content is discarded by design - the owner accepts a factory reset (D8/D10).
+
+## Build the blobs (on the NAS)
+
+    scripts/repartition_gpt.sh analysis/hu_partition_offsets.txt analysis/gpt
+
+Input is the probe section "Partition offsets for repartitioning" (`disk sectors:` plus
+`mmcblk2pN first_lba last_lba`, sysfs, no root needed). The script uses `sgdisk`, so the header and
+entry CRCs are computed by a real GPT implementation; it then extracts:
+
+- `gpt_head.bin` - protective MBR + primary header + 128 entries (34 LBAs, 17,408 B)
+- `gpt_tail.bin` - backup entries + backup header (33 LBAs, 16,896 B)
+
+Both blobs live entirely in the GPT areas, so writing them cannot touch any partition payload.
+The script prints the new table and refuses if super/userdata would overlap.
+
+## Applying it (needs a root shell: Rockchip Boot-ADB, or rkflash)
+
+1. Backup first: save the current head/tail bytes and p1-p13 (`dd` of the first 8 MiB, the last
+   16,896 B, and each of p1-p13). This is the restore path; losing accounts/apps is fine (D10).
+2. `dd if=gpt_head.bin of=/dev/block/mmcblk2 bs=1 count=17408 conv=notrunc`
+3. `dd if=gpt_tail.bin of=/dev/block/mmcblk2 bs=1 seek=<disk_bytes - 16896> conv=notrunc`
+4. Reboot so the kernel re-reads the table, confirm sizes via sysfs (no root needed), then
+   `mkfs.f2fs /dev/block/by-name/userdata`.
+5. Flash `super.img` (from `out/`, contains system/vendor/product/system_ext/odm as logical
+   partitions), then `boot.img` and `recovery.img`.
+
+Nothing in an ordinary upgrade touches the GPT: later updates are logical partitions only (D10).
+
+## Restore path if this goes wrong
+
+Write the saved head/tail blobs back, then re-flash p1-p13 and the old `super` from the backup, or
+install the owner's Daisaita Android 10 package. The unit goes to factory settings either way.

@@ -162,6 +162,19 @@ for p in /dev/block/by-name/*; do
 done
 printf '```\n' >> "$OUT"
 
+sec "Partition offsets for repartitioning (sysfs, no root)"
+printf '```\n' >> "$OUT"
+# sgdisk needs first/last LBA (512-byte sectors) per partition; sysfs exposes both without root.
+printf 'disk sectors: %s\n' "$(cat /sys/block/mmcblk2/size 2>/dev/null || echo unknown)" >> "$OUT"
+printf 'name first_lba last_lba\n' >> "$OUT"
+for p in /sys/block/mmcblk2/mmcblk2p*; do
+  [ -f "$p/start" ] && [ -f "$p/size" ] || continue
+  st=$(cat "$p/start")
+  sz=$(cat "$p/size")
+  printf '%s %s %s\n' "$(basename "$p")" "$st" "$((st + sz - 1))" >> "$OUT"
+done
+printf '```\n' >> "$OUT"
+
 sec "VINTF / HAL surface"
 cmd cat /vendor/etc/vintf/manifest.xml
 cmd cat /system/etc/vintf/compatibility_matrix.xml
