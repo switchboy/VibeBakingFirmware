@@ -44,7 +44,9 @@ delta=$(( SUPER - old_super ))
 [ "$delta" -gt 0 ] || { echo "super is not growing (old=$old_super new=$SUPER)"; exit 1; }
 new_user_first=$(( user_first + delta / 512 ))
 new_super_last=$(( super_first + SUPER / 512 - 1 ))
-[ "$new_user_first" -eq "$new_super_last" ] || { echo "super and userdata would overlap"; exit 1; }
+[ "$new_user_first" -eq $(( new_super_last + 1 )) ] || { echo "super and userdata would overlap"; exit 1; }
+new_user_size=$(( (user_last - new_user_first + 1) * 512 ))
+[ "$new_user_size" -ge $(( USERDATA )) ] || { echo "userdata would end up smaller than requested"; exit 1; }
 [ "$user_last" -le "$disk_sectors" ] || { echo "userdata last LBA beyond disk"; exit 1; }
 
 idx=1
