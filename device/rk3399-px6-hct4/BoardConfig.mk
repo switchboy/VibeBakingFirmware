@@ -20,6 +20,12 @@ TARGET_CPU_ABI_LIST_32_BIT := armeabi-v7a armeabi
 # through the HALs declared in the vendor manifest (target-level 5).
 BOARD_PREBUILT_VENDORIMAGE := vendor/hct4/vendor.img
 
+# board_config.mk refuses a vendor image unless the copy-out names are explicit.
+TARGET_COPY_OUT_VENDOR := vendor
+TARGET_COPY_OUT_SYSTEM_EXT := system_ext
+TARGET_COPY_OUT_PRODUCT := product
+TARGET_COPY_OUT_ODM := odm
+
 # ---- platform -----------------------------------------------------------------
 TARGET_NO_BOOTLOADER := true
 TARGET_BOARD_PLATFORM := rk3399
