@@ -82,10 +82,14 @@ Detailed milestone breakdown: `docs/plan.md`.
 | Ion vs dmabuf allocator path | graphics breakage | keep HIDL allocator/mapper 2.0 + vendor `libion` shim talking to `/dev/ion` (kernel 4.19 has Rockchip ion) |
 | Super partition too small for Android 14 | install fails | measure real partition sizes on unit; shrink modules (remove unused APEX/apps) or re-layout groups |
 | HCT apps depend on framework internals | features break | keep app layer from current firmware initially; test early on real car |
-| Bricking the unit | hardware loss | always keep a known-good `update.zip` + full partition dump; test on a spare unit if possible |
+| Bricking the unit | hardware loss | **only one unit**: keep the currently-installed Daisaita firmware zip (get it from the vendor) + the reference `update.zip`; never flash without a known-good recovery path |
+| Installed firmware ≠ reference firmware (unit runs Daisaita, not this Hal9k/HCT4 ROM) | our vendor assumptions (HAL set, `mtc-*` nodes, DSP/tuner mapping) may be wrong | M1 probe compares installed vendor with `analysis/vintf/vendor_manifest.xml`; if it differs, flash the reference Android 10 firmware first, or re-target our shims to the installed vendor |
+| No root on the unit | partition sizes, kernel config, SELinux contexts unavailable | `scripts/probe.sh` degrades gracefully; ask owner to run it with a root terminal if their firmware ships one |
+| Wireless CarPlay/AA needs 5 GHz, chip exposes 2.4 GHz only | feature cannot be validated | M9: driver/HAL band exposure; wireless-AA→USB stick as fallback (owner has none) |
 | Payload signing / upgrade app rejects our zip | cannot install | keep the same custom update-binary mechanism; verify signature handling before release |
 
 ## Next action
 
-Answer D1–D7 with the owner, then run P1 (device data collection) and P2 (gap analysis) against the
-chosen base.
+1. Owner runs `scripts/probe.sh` from the SD card and places the resulting `probe.md` in the repo root.
+2. Compare the installed vendor against the reference vendor; confirm partition sizes (D8).
+3. Build the device-tree skeleton, then sync LineageOS 21 into the prepared tree (space-lean order).

@@ -21,13 +21,32 @@ Everything Android 14 needs that the old vendor lacks is added **in our own part
 | fstab | Android 14 variant pointing at the same block names, keeping F2FS `/data` |
 | super layout | rewritten `dynamic_partitions_op_list` (sizes + possibly `vendor_ramdisk`) |
 
+## Pre-flight (mandatory before any flashing)
+
+The unit currently runs **Daisaita/Daitsun firmware**, not this reference Hal9k/HCT4 firmware, and is
+**not rooted**. Consequences:
+
+1. We do not know whether the installed `vendor` partition matches the reference firmware's vendor
+   (same HAL set, same `mtc-*` nodes, same DSP/tuner mapping). Our whole plan assumes the reference
+   vendor. So M1 must compare the installed vendor with `analysis/vintf/vendor_manifest.xml`.
+2. **Backup before touching anything**: obtain the currently installed firmware zip from the unit
+   vendor (Daisaita support) and keep the reference `update.zip`. With a single unit there is no
+   hardware fallback, so a failed flash must always be recoverable with a known-good zip.
+3. Data collection happens through `scripts/probe.sh`, which writes `probe.md` **next to itself** on
+   the SD card (no absolute mount points assumed). The owner copies that file into the repo root.
+   No adb, no root required (root adds partition sizes, `/proc/config.gz`, dmesg, SELinux contexts).
+
 ## Milestones
 
 ### M1 — facts from the live unit (blocks everything else)
-Run `scripts/device_inspect.sh` on the unit (root shell, or via `adb`). Needed output:
-`getprop`, `uname`, `/proc/cmdline`, `/proc/partitions`, `blockdev --getsize64 /dev/block/by-name/super`,
-`ls /dev/block/by-name/`, `ls /proc/config.gz`, `getenforce`, `ps -Z`, `service list`, vintf files,
-MCU version, `/dev/mtc*` permissions, Magisk version. Deliverable: `analysis/device-report.txt`.
+Run `scripts/probe.sh` on the unit (no root needed; a root terminal would add partition sizes,
+`/proc/config.gz`, dmesg, SELinux contexts). Deliverable: `probe.md` placed in the repo root by the
+owner. Decisions we can make from it:
+- real `super` size and whether Android 14 images fit (D8)
+- installed firmware identity + vendor HAL set vs reference
+- WiFi chip + whether 5 GHz is physically supported (M9)
+- MCU type/version (MTCD/MTCE) and whether it needs its own update
+- whether `/proc/config.gz` exists (VINTF kernel check)
 
 ### M2 — environment + device tree skeleton
 - Workstation: ~120 GB free for the Lineage 21 tree + ~30 GB for build output (we have 518 GB free).
@@ -84,6 +103,17 @@ MCU version, `/dev/mtc*` permissions, Magisk version. Deliverable: `analysis/dev
 ### M8 — release engineering
 Reproducible build script, changelog, unit-support matrix (which HCT/MTCD variants boot), test report,
 and a documented "restore to Hal9k Android 10" procedure.
+
+### M9 — WiFi 5 GHz for wireless CarPlay / Android Auto
+Wireless CarPlay/AA need a 5 GHz AP; the unit's WiFi chip currently exposes only 2.4 GHz (sloppy
+vendor drivers / HAL capability flags). Two independent angles:
+- **Driver level**: identify the chip from M1 (`/sys/class/net/wlan0/device/modalias`, `lsmod`,
+  dmesg). If it is dual-band (e.g. Realtek 8822BS/8822CS/RTL8192FS), enable 5 GHz channels in the
+  driver/module parameters and country/regulatory settings.
+- **HAL/framework level**: `wifi@1.0` HAL + `wpa_supplicant`/`hostapd` configs must report the 5 GHz
+  band (`iw list`, `WifiCapabilities`), otherwise Android filters it out of the AP list.
+Fallback that still works: wireless-AA→USB adapter stick (owner has none yet; keep as documented
+option). This is a side-track, not a blocker for the Android 14 upgrade.
 
 ## Order of work right now
 

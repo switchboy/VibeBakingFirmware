@@ -51,7 +51,8 @@ VibeBakingFirmware/
 ├── device/            → AOSP/Lineage device tree for this unit (to be created)
 ├── hal/               → HAL wrappers / shims for the legacy vendor blobs
 ├── rom/               → ROM-level config, sepolicy overlays, packaging recipes
-└── scripts/           → build / flash / device-inspection helper scripts
+├── scripts/           → build / flash / device-inspection helper scripts
+│   └── probe.sh        run it on the SD card; writes probe.md next to itself (no adb/root needed)
 ```
 
 The payload itself (`update.zip`, 1.2 GB, and its extracted copy) is the **unaltered reference
@@ -67,4 +68,7 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
 - Phase 0 (firmware inventory): **done** — `docs/firmware-analysis.md`.
 - Phase 1 (feasibility): **done** — `docs/feasibility.md`; Android 14 is the ceiling, framework-only upgrade path chosen.
 - Design decisions D1–D7: **answered** — `docs/decisions.md`.
-- Next: M1 (collect data from the live unit), M2 (Lineage 21 tree + build environment), M3 (framework-only boot test) — see `docs/plan.md`.
+- Next: M1 (collect data from the live unit via `scripts/probe.sh`), M2 (Lineage 21 tree + build
+  environment), M3 (framework-only boot test) — see `docs/plan.md`.
+- Note: the unit is currently running **Daisaita/Daitsun firmware**, not this reference ROM, and is not
+  rooted. M1 must verify how close the installed vendor is to the reference vendor before we flash anything.
