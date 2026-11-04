@@ -36,6 +36,15 @@ The unit currently runs **Daisaita/Daitsun firmware**, not this reference Hal9k/
    the SD card (no absolute mount points assumed). The owner copies that file into the repo root.
    No adb, no root required (root adds partition sizes, `/proc/config.gz`, dmesg, SELinux contexts).
 
+### M1b — getting the report back to the PC (no SD-card shuffling)
+Workstation runs `scripts/upload_server.py` (LAN HTTP endpoint, writes into `incoming/`, gitignored).
+Phone/unit side: `scripts/upload_client.sh` (needs `pkg install curl` in Termux).
+Firewall: ufw is enabled, so a **runtime-only** rule is open while the server runs
+(`sudo ufw allow 8765/tcp`); close it afterwards with `sudo ufw delete allow 8765/tcp`.
+The shared token lives outside the repo (`/tmp/opencode/upload_token.txt`) — never commit credentials.
+Fallback if the endpoint is not running: `scp probe.md Daan@192.168.1.161:.../incoming/`
+(password prompted interactively, not stored anywhere).
+
 ## Milestones
 
 ### M1 — facts from the live unit (blocks everything else)
