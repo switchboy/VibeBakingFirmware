@@ -1,0 +1,24 @@
+# Generated analysis artefacts (large, reproducible via tools/)
+analysis/
+
+# Reference firmware payload: 1.2 GB, kept on disk but never committed
+update.zip
+extracted update.zip/
+
+# Partition payloads / rebuilt images
+*.new.dat
+*.new.dat.br
+*.patch.dat
+*.transfer.list
+*.img
+
+# AOSP / Lineage build trees and output (cloned separately, huge)
+out/
+prebuilts/
+.AOSP
+lineage/
+aosp/
+
+# editor noise
+*.swp
+.DS_Store
