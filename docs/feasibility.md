@@ -60,13 +60,25 @@ over reimplementations → **K1 to get a first boot, then K2 as the security upg
 
 ## Storage constraint
 
-`dynamic_partitions_op_list` creates group `rockchip_dynamic_partitions` with max size
-**3 258 974 208 B (3.1 GB)** holding system 1.44 GB + product 0.93 GB + vendor 0.33 GB + odm 0.56 GB
-= 3.1 GB (already at the limit). An Android 14 system+product (with APEX modules) is bigger than
-Android 10's. Before building we must measure the *real* `super` partition size on the unit
-(`blockdev --size /dev/block/by-name/super`) and either re-layout the groups (our zip can rewrite
-the op-list) or trim modules (drop unused APEX/apps/fonts). `/data` stays F2FS; userdata is untouched.
+The reference payload's `dynamic_partitions_op_list` creates group `rockchip_dynamic_partitions`
+with max size **3 258 974 208 B** holding system 1.44 GB + product 0.93 GB + vendor 0.33 GB +
+odm 0.56 GB - already at the limit.
 
+**Measured on the unit** (`docs/head-unit-findings.md`): `super` = `mmcblk2p14` =
+**3,263,168,512 B**, currently holding system 1.02 GiB + product 0.90 GiB + vendor 0.28 GiB +
+odm 0.17 GiB = 2.35 GiB, so about **730 MB free**. `userdata` (`mmcblk2p15`) is 54.8 GiB with
+5.4 GiB used, and the whole eMMC is 58.5 GiB.
+
+An Android 14 build (LineageOS 21, no Google apps) needs roughly 3.0-3.2 GiB, so the options are:
+- **Trim to fit 3.04 GiB**: strip Google apps, preinstalled apps, unused APEX/fonts; flash through
+  recovery with direct image writes (Android 14's OTA snapshot mechanism needs free super space we
+  do not have). Tight, and every added feature costs megabytes we may not have.
+- **Re-layout the eMMC**: shrink `userdata` and grow `super` to 5-6 GiB. Comfortable, but it means
+  rewriting the GPT and reflashing every partition, so a byte-exact backup of uboot/trust/dtb/dtbo/
+  vbmeta/boot/recovery/super plus the 5.4 GiB of userdata content is mandatory first.
+
+`/data` stays F2FS either way; boot/recovery/bootloader partitions stay untouched (their contents
+are inherited from the current firmware).
 ## Delivery/flash constraint
 
 The unit installs firmware via `Update.zip` on FAT32 USB/SD using its built-in upgrade path, driven

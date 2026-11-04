@@ -47,15 +47,18 @@ Fallback if the endpoint is not running: `scp probe.md Daan@192.168.1.161:.../in
 
 ## Milestones
 
-### M1 — facts from the live unit (blocks everything else)
-Run `scripts/probe.sh` on the unit (no root needed; a root terminal would add partition sizes,
-`/proc/config.gz`, dmesg, SELinux contexts). Deliverable: `probe.md` placed in the repo root by the
-owner. Decisions we can make from it:
-- real `super` size and whether Android 14 images fit (D8)
-- installed firmware identity + vendor HAL set vs reference
-- WiFi chip + whether 5 GHz is physically supported (M9)
-- MCU type/version (MTCD/MTCE) and whether it needs its own update
-- whether `/proc/config.gz` exists (VINTF kernel check)
+### M1 - facts from the live unit
+`allinone.sh` on Termux already delivered: partition table with sizes, full kernel config
+(`/proc/config.gz`, recovered into `analysis/hu_kernel_config.txt`), vendor HAL surface,
+control-plane props, SELinux behaviour, WiFi chip identity, installed app list.
+See `docs/head-unit-findings.md`. Still to collect on the next run:
+- vendor blob sha256 list -> compare with `analysis/vendor_tree/` (proof the vendor matches reference)
+- `dumpsys display`/`surfaceflinger` (PATH fix in `scripts/probe.sh`), `pm list features`
+- driver bound to `wlan0` + `iw list`/`iw reg get` (5 GHz question, M9)
+- `/system/xbin/su` result: if it grants root, we also get `/proc/cmdline`, `lsmod`, `dmesg`,
+  `/init.hct.rc` and exact `blockdev` sizes
+- MCU type/version (MTCD/MTCE) - needs `/dev/mtc-car` access, so root or the HCT app's own dump
+Decisions this unblocks: D8 (partition layout), M9 (WiFi hardware swap).
 
 ### M2 — environment + device tree skeleton
 - Workstation: ~120 GB free for the Lineage 21 tree + ~30 GB for build output (we have 518 GB free).
@@ -113,16 +116,21 @@ owner. Decisions we can make from it:
 Reproducible build script, changelog, unit-support matrix (which HCT/MTCD variants boot), test report,
 and a documented "restore to Hal9k Android 10" procedure.
 
-### M9 — WiFi 5 GHz for wireless CarPlay / Android Auto
-Wireless CarPlay/AA need a 5 GHz AP; the unit's WiFi chip currently exposes only 2.4 GHz (sloppy
-vendor drivers / HAL capability flags). Two independent angles:
-- **Driver level**: identify the chip from M1 (`/sys/class/net/wlan0/device/modalias`, `lsmod`,
-  dmesg). If it is dual-band (e.g. Realtek 8822BS/8822CS/RTL8192FS), enable 5 GHz channels in the
-  driver/module parameters and country/regulatory settings.
-- **HAL/framework level**: `wifi@1.0` HAL + `wpa_supplicant`/`hostapd` configs must report the 5 GHz
-  band (`iw list`, `WifiCapabilities`), otherwise Android filters it out of the AP list.
-Fallback that still works: wireless-AA→USB adapter stick (owner has none yet; keep as documented
-option). This is a side-track, not a blocker for the Android 14 upgrade.
+### M9 - WiFi 5 GHz for wireless CarPlay / Android Auto
+Wireless CarPlay/AA need a 5 GHz AP. The unit's WiFi is **not** an internal module: `wlan0` and
+`p2p0` sit under `/sys/devices/platform/fe3c0000.usb/.../net/`, i.e. a USB adapter with
+`modalias usb:v0BDAp0179` = Realtek **RTL8188E family**, which is 2.4 GHz silicon. No firmware
+change can create 5 GHz on that chip.
+- **Hardware fix (recommended)**: swap the USB WiFi module for a dual-band Realtek RTL8821CU or
+  RTL8822BU. The shipped vendor already carries `8821cu.ko` and `8822bu.ko` in
+  `/vendor/lib/modules`, so no kernel rebuild is needed - only module loading in
+  `init.connectivity.rc` and a correct regulatory country code (`iw reg set`, kernel regdb is
+  mandatory on this build: `CONFIG_CFG80211_REQUIRE_SIGNED_REGDB=y`).
+- **HAL/framework level**: `wifi@1.0` HAL, `wpa_supplicant`/`hostapd` configs must report the band
+  (`iw list`, `WifiCapabilities`) or Android hides the AP list.
+- `CONFIG_MAC80211_RC_MINSTREL_VHT` is off in the shipped config: 5 GHz works but VHT rate control
+  is not tuned, so throughput is lower; that is a kernel-config item if we rebuild.
+Fallback if no hardware swap: wired CarPlay/AA only (works today). Side-track, not a blocker.
 
 ## Order of work right now
 

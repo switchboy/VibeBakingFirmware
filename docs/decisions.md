@@ -67,19 +67,33 @@ boot, NAT tethering, third-party OTA host.
 | Rockchip USB loader / rkflash full-image flash | more reliable for bricking recovery, needs the loader + OTG cable + PC |
 | Ship a custom recovery (TWRP-like) + zip | flexible (nvdiv backups, per-partition flashing), extra work |
 
-## D8 — partition layout
+## D8 - partition layout
 
-Needed info from the unit before deciding: real `super` size, per-partition sizes, whether
-`/data` can stay untouched. Then either keep the current layout (trim Android 14 modules to fit
-3.1 GB) or re-layout the dynamic group with a larger system/product.
+Measured on the unit (no root needed): `super` = 3,263,168,512 B with ~730 MB free,
+`userdata` = 58,844,495,360 B with 5.4 GiB used, whole eMMC 58.5 GiB. `/data` can stay F2FS and
+untouched in either option.
 
-## Questions for the owner (data we need from the unit)
+| Option | Notes |
+|---|---|
+| **A. Keep the current layout, trim Android 14 images** | no repartitioning risk, but ~3.0-3.2 GiB of Android 14 images must fit in 3.04 GiB: no Google apps, few preinstalls, flash via recovery (direct writes, no OTA snapshot). Every feature we add costs space we may not have |
+| **B. Repartition: super 5-6 GiB, userdata ~50 GiB (recommended if a full backup is possible)** | comfortable, allows OTA-style headroom and the HCT app set; requires rewriting the eMMC GPT and reflashing every partition, so it is only safe with a byte-exact backup of uboot/trust/dtb/dtbo/vbmeta/boot/recovery/super plus the userdata content (5.4 GiB, uploadable over LAN) |
+| C. Keep super, move nothing out | Android 14 requires system/system_ext/product/odm in the dynamic group, so there is no third escape |
 
-1. Exact unit identification: is it really the Hal9k Mod (base HCT4) as shipped here, and which
-   version (`ro.product.version`, serial in Settings → System → About)?
-2. Can you give us adb access (`adb shell` over USB or TCP) so we can collect `scripts/device_inspect.sh` output?
-3. Do you have a second unit / spare for testing, so we can experiment without bricking your car unit?
-4. Is the MCU firmware (MTCD/MTCE) separate from this update.zip? Which MCU version is installed?
-5. Do you want OTA-style updates (server) or offline packages only?
-6. Which head-unit features must keep working (CAN steering-wheel keys, reverse camera, AV-in, FM/DAB
-   radio, DSP/EQ, CarPlay/Android Auto, GPS, iPod/USB mirror)?
+Waiting on the owner: which of A/B, and whether a saved copy of the currently installed firmware
+zip exists (B needs a verified rollback).
+
+## Questions for the owner (what we still need)
+
+1. Do you have a saved copy of the zip currently installed on the unit (Daisaita/Daitsun)? If not,
+   and `su` works, the probe can `dd` the partitions over LAN as a rollback backup.
+2. Does `/system/xbin/su 0 id` give a root shell (no password), or does it refuse? That decides how
+   much we can learn without adb.
+3. Accept swapping the unit's USB WiFi module for a dual-band one (RTL8821CU/RTL8822BU, drivers
+   already shipped in vendor) to get wireless CarPlay/AA working, or stick to wired CarPlay/AA?
+4. Which features must survive verbatim in v1: CAN steering-wheel controls, radio/DAB tuner,
+   AV-in cameras, GPS navigation, BT phone, DSP/EQ, HCT launcher? (drives P7 acceptance list)
+
+Answered by the unit itself: identity is a `userdebug/test-keys` Android 10 eng build dated
+2022-04-12 (not the Hal9k Mod), security patch 2020-05-05, and the vendor HAL surface matches the
+reference payload. adb is not needed: Termux + `allinone.sh` over the LAN endpoint collects
+everything the probe asks for.

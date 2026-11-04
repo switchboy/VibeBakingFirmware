@@ -29,6 +29,11 @@ if ! : > "$OUT" 2>/dev/null; then
   exit 1
 fi
 
+# Termux's PATH only has its own prefix on this ROM, so dumpsys/toybox/lsmod/iw/getenforce
+# were "not found" even though they exist in /system/bin. Extend PATH explicitly.
+PATH="$PATH:/system/bin:/system/xbin:/vendor/bin"
+export PATH
+
 ROOT=0
 [ "$(id -u)" = 0 ] && ROOT=1
 
@@ -45,7 +50,8 @@ need_root() { printf '\n```\n(skipped: needs root)\n```\n' >> "$OUT"; }
 
 sec "Tool availability (explains later failures)"
 printf '```\n' >> "$OUT"
-for t in getprop dumpsys pm ps lsmod iw blockdev df mount ls grep awk sed toybox su magisk; do
+printf 'PATH=%s\n' "$PATH" >> "$OUT"
+for t in getprop dumpsys pm ps lsmod iw blockdev df mount ls grep awk sed toybox su magisk timeout sha256sum zcat base64; do
   printf '%-10s %s\n' "$t" "$(command -v "$t" || echo missing)" >> "$OUT"
 done
 printf '%-10s %s\n' "ls -Z" "$(ls -Z /dev/null >/dev/null 2>&1 && echo supported || echo unsupported)" >> "$OUT"
@@ -75,23 +81,49 @@ cmd getprop ro.target.product
 cmd getprop ro.vndk.version
 cmd getprop ro.product.ota.host
 
+sec "All properties (full dump)"
+cmd getprop
+
+sec "Declared features (explains Play Store rejections)"
+cmd pm list features
+
 sec "Kernel"
 cmd uname -a
 cmd cat /proc/version
 cmd cat /proc/cmdline
 cmd lsmod
 cmd ls -l /proc/config.gz
-cmd cat /proc/config.gz
+# /proc/config.gz is gzip-compressed; raw bytes get mangled by shells/terminals, so decompress
+# on the device. Text beats base64; base64 is the fallback when no gunzip exists.
+if command -v zcat >/dev/null 2>&1; then
+  cmd zcat /proc/config.gz
+elif command -v gunzip >/dev/null 2>&1; then
+  cmd gunzip -c /proc/config.gz
+elif command -v base64 >/dev/null 2>&1; then
+  cmd base64 /proc/config.gz
+else
+  printf '\n```\n(no zcat/gunzip/base64: kernel config not captured)\n```\n' >> "$OUT"
+fi
+cmd head -n 40 /proc/cpuinfo
 if [ "$ROOT" = 1 ]; then cmd dmesg | tail -n 120; else need_root; fi
 
 sec "SELinux and privileges"
 cmd getenforce
+cmd cat /sys/fs/selinux/enforce 2>/dev/null
 cmd id
 cmd ps -Z
 cmd ls -Z /dev/mtc* /dev/ttyS* /dev/ttyV* /dev/goc_serial /dev/rtkbt_dev /dev/rtk_btusb 2>/dev/null
 cmd ls -d /vendor/magisk /sbin/su /system/bin/su /system/xbin/su 2>/dev/null
-cmd which su
-cmd su 0 id
+printf '\n```\n$ /system/xbin/su 0 id   (the ROM own su, not Termux stub)\n' >> "$OUT"
+# Absolute path: Termux ships a su stub in its own prefix that shadows /system/xbin/su.
+if command -v timeout >/dev/null 2>&1; then
+  SU_OUT=$(timeout 8 /system/xbin/su 0 id </dev/null 2>&1); SU_RC=$?
+else
+  SU_OUT=$(/system/xbin/su 0 id </dev/null 2>&1); SU_RC=$?
+fi
+printf '%s\n(failed: exit %s)\n```\n' "$SU_OUT" "$SU_RC" >> "$OUT"
+case "$SU_OUT" in *uid=0*) SU=1; ROOT=1 ;; *) SU=0 ;; esac
+printf 'su available: %s\n' "$SU" >> "$OUT"
 
 sec "Storage layout (no root needed)"
 cmd cat /proc/partitions
@@ -139,6 +171,23 @@ cmd ls /vendor/lib/modules
 cmd service list
 cmd dumpsys -l | head -n 40
 
+sec "Vendor blob inventory (compare against the reference firmware)"
+printf '```\n' >> "$OUT"
+if command -v sha256sum >/dev/null 2>&1; then
+  printf 'vendor HAL binaries:\n' >> "$OUT"
+  sha256sum /vendor/bin/hw/* 2>/dev/null >> "$OUT"
+  printf '\nvendor HAL libraries:\n' >> "$OUT"
+  sha256sum /vendor/lib64/hw/*.so /vendor/lib/hw/*.so 2>/dev/null >> "$OUT"
+  printf '\nkernel modules:\n' >> "$OUT"
+  sha256sum /vendor/lib/modules/*.ko 2>/dev/null >> "$OUT"
+  printf '\nkey config files:\n' >> "$OUT"
+  sha256sum /vendor/etc/vintf/manifest.xml /vendor/etc/audio_policy_configuration.xml \
+    /system/build.prop /vendor/build.prop /product/build.prop 2>/dev/null >> "$OUT"
+else
+  printf '(sha256sum missing: blob inventory skipped)\n' >> "$OUT"
+fi
+printf '```\n' >> "$OUT"
+
 sec "Graphics / display"
 cmd getprop ro.hardware.egl
 cmd getprop ro.hwui.use_vulkan
@@ -175,9 +224,22 @@ cmd ls -l /sys/class/net
 cmd cat /proc/net/wireless
 cmd cat /sys/class/net/wlan0/device/modalias 2>/dev/null
 cmd cat /sys/class/net/wlan0/macaddress 2>/dev/null
+# Which driver owns wlan0 tells us the chip family, and therefore whether 5 GHz is possible.
+printf '\n```\n$ readlink /sys/class/net/wlan0/device/driver\n' >> "$OUT"
+readlink /sys/class/net/wlan0/device/driver >> "$OUT" 2>&1 || printf '(failed)\n' >> "$OUT"
+printf '$ loaded kernel modules (/sys/module):\n' >> "$OUT"
+ls /sys/module 2>/dev/null | grep -Ei '8188|8189|8723|8821|8822|8812|bcmdhd|rtl|brcm|aic|cfg80211|mac80211' >> "$OUT" 2>&1
+printf '$ USB devices (vid:pid product):\n' >> "$OUT"
+for d in /sys/bus/usb/devices/*/; do
+  [ -f "$d/idVendor" ] || continue
+  printf '%s %s:%s %s\n' "$(basename "$d")" "$(cat "$d/idVendor" 2>/dev/null)" \
+    "$(cat "$d/idProduct" 2>/dev/null)" "$(cat "$d/product" 2>/dev/null)" >> "$OUT" 2>&1
+done
+printf '```\n' >> "$OUT"
 cmd iw dev
-cmd iw list | grep -A 30 'Frequencies' | head -n 60
+cmd iw list
 cmd iw reg get
+cmd iw phy phy0 info 2>/dev/null
 cmd getprop wifi.interface
 cmd getprop persist.bluetooth.rtkcoex
 cmd getprop ro.bt.bdaddr_path
@@ -194,15 +256,31 @@ cmd ls -l /sdcard /storage/sdcard0 2>/dev/null | head -n 40
 printf 'Question for the owner: do you have a copy of the firmware zip currently installed on this unit?\n' >> "$OUT"
 
 sec "If root is available (extra detail)"
-if [ "$ROOT" = 1 ]; then
-  cmd ls -lZ /dev/block/by-name/
-  cmd cat /sys/firmware/devicetree/base/model
-  cmd cat /proc/mounts
-  cmd magisk -v
-  cmd cat /init.hct.rc
-  cmd ls -lZ /dev/mtc*
+if [ "$ROOT" = 1 ] || [ "$SU" = 1 ]; then
+  printf '```\n$ su 0 sh -c "blockdev --getsize64 ...; lsmod; dmesg; ls -lZ /dev/mtc*; cat /proc/cmdline"\n' >> "$OUT"
+  if [ "$ROOT" = 1 ]; then
+    ROOT_RUN=""
+  else
+    ROOT_RUN="timeout 30 /system/xbin/su 0"
+  fi
+  # One shell invocation keeps the report tidy.
+  $ROOT_RUN sh -c '
+    for p in super userdata boot recovery backup cache vbmeta dtb dtbo trust uboot security frp metadata mmcblk2; do
+      printf "%-10s %s\n" "$p" "$(blockdev --getsize64 /dev/block/by-name/$p 2>/dev/null || echo denied)"
+    done
+    lsmod
+    cat /proc/cmdline
+    getenforce
+    ls -lZ /dev/block/by-name/
+    ls -lZ /dev/mtc* /dev/goc_serial
+    cat /init.hct.rc
+    dmesg | tail -n 100
+    magisk -v 2>/dev/null
+    ls -l /system/bin | grep -Ei "mtc|canbus|goc|sdsdk|bluelet|brlink|hct|usbmux|glgps|amp|dsp|iw" | head -n 40
+  ' >> "$OUT" 2>&1 </dev/null || printf '(failed: exit %s)\n' "$?" >> "$OUT"
+  printf '```\n' >> "$OUT"
 else
-  printf '\nMost partition sizes and kernel config above failed without root. Run as root if your firmware has a root terminal.\n' >> "$OUT"
+  printf '\nNo root on this unit: partition sizes came from sysfs, kernel config from /proc/config.gz,\nvendor blobs from /vendor (world-readable). Boot loader / bootloader-level detail and dmesg\nneed root or adb.\n' >> "$OUT"
 fi
 
 sec "Reading this report"
@@ -210,10 +288,11 @@ cat >> "$OUT" <<'EOF'
 - Sections that fail are expected on a phone or a non-rooted unit: `/dev/mtc*`, `/dev/ttyV*`,
   `/dev/goc_serial`, `/init.hct.rc`, `/proc/bluetooth/sleep/btwrite`, `blockdev --getsize64
   /dev/block/by-name/*`, `iw`, `dmesg`, `magisk` do not exist there.
-- The sections that matter most on the head unit: Kernel, Storage layout, VINTF / HAL surface,
-  Head-unit control plane, WiFi / Bluetooth radio.
-- On a phone this report still tells us: Android version, SELinux mode, whether `ls -Z`/toybox
-  features work, and which commands are missing in the unit's shell environment.
+- Partition sizes come from world-readable sysfs, so they work without root. The kernel config
+  comes from `/proc/config.gz` (decompressed on the device). Vendor blobs and hashes come from
+  `/vendor`, which is world-readable on this ROM.
+- The sections that matter most on the head unit: Kernel, Storage layout, Partition sizes,
+  VINTF / HAL surface, Vendor blob inventory, Head-unit control plane, WiFi / Bluetooth radio.
 EOF
 
 echo "report written to $OUT"

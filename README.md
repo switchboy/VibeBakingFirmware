@@ -67,8 +67,11 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
 
 - Phase 0 (firmware inventory): **done** — `docs/firmware-analysis.md`.
 - Phase 1 (feasibility): **done** — `docs/feasibility.md`; Android 14 is the ceiling, framework-only upgrade path chosen.
-- Design decisions D1–D7: **answered** — `docs/decisions.md`.
-- Next: M1 (collect data from the live unit via `scripts/probe.sh`), M2 (Lineage 21 tree + build
-  environment), M3 (framework-only boot test) — see `docs/plan.md`.
-- Note: the unit is currently running **Daisaita/Daitsun firmware**, not this reference ROM, and is not
-  rooted. M1 must verify how close the installed vendor is to the reference vendor before we flash anything.
+- Design decisions D1-D7: **answered** - `docs/decisions.md`; D8 (partition layout) awaits the owner.
+- M1 (live-unit data): **mostly done** via Termux + `allinone.sh` over LAN - see
+  `docs/head-unit-findings.md`. The unit reports a `userdebug/test-keys` Android 10 build (patch
+  level 2020-05-05), `super` = 3.04 GiB with ~730 MB free, kernel 4.19.111 with `/proc/config.gz`,
+  SELinux enforcing, and a **USB Realtek RTL8188E WiFi adapter** (2.4 GHz silicon). Its vendor HAL
+  surface matches the reference payload except three undeclared HALs; blob hashes land in the next report.
+- Next: finish M1 (vendor blob hashes, `iw`, dumpsys, `su` result), answer D8, then M2 (Lineage 21
+  tree + build environment) and M3 (framework-only boot test) - see `docs/plan.md`.
