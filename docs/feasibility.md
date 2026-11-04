@@ -65,20 +65,17 @@ with max size **3 258 974 208 B** holding system 1.44 GB + product 0.93 GB + ven
 odm 0.56 GB - already at the limit.
 
 **Measured on the unit** (`docs/head-unit-findings.md`): `super` = `mmcblk2p14` =
-**3,263,168,512 B**, currently holding system 1.02 GiB + product 0.90 GiB + vendor 0.28 GiB +
-odm 0.17 GiB = 2.35 GiB, so about **730 MB free**. `userdata` (`mmcblk2p15`) is 54.8 GiB with
-5.4 GiB used, and the whole eMMC is 58.5 GiB.
+3,263,168,512 B with system 1.02 + product 0.90 + vendor 0.28 + odm 0.17 GiB inside it, i.e.
+only ~730 MB free. `userdata` (`mmcblk2p15`) is 58,844,495,360 B with 5.4 GiB used; eMMC total
+62,813,896,704 B.
 
-An Android 14 build (LineageOS 21, no Google apps) needs roughly 3.0-3.2 GiB, so the options are:
-- **Trim to fit 3.04 GiB**: strip Google apps, preinstalled apps, unused APEX/fonts; flash through
-  recovery with direct image writes (Android 14's OTA snapshot mechanism needs free super space we
-  do not have). Tight, and every added feature costs megabytes we may not have.
-- **Re-layout the eMMC**: shrink `userdata` and grow `super` to 5-6 GiB. Comfortable, but it means
-  rewriting the GPT and reflashing every partition, so a byte-exact backup of uboot/trust/dtb/dtbo/
-  vbmeta/boot/recovery/super plus the 5.4 GiB of userdata content is mandatory first.
-
-`/data` stays F2FS either way; boot/recovery/bootloader partitions stay untouched (their contents
-are inherited from the current firmware).
+An Android 14 build (LineageOS 21) needs roughly 3.0-3.2 GiB, which does not fit in 3.04 GiB with
+room for an update snapshot. **Decision D8: grow `super` to 8 GiB and shrink `userdata` to
+53,517,729,280 B (49.84 GiB)** - partitions p1-p13 keep their byte offsets, so bootloader, DTB,
+vbmeta, boot, recovery and cache contents stay valid; only p14/p15 change. `/data` stays F2FS but
+is reformatted, so its content must be backed up first (see `docs/plan.md` M2b). With ~4 GiB spare
+after the Android 14 images, future updates can use a snapshot/rollback copy without repartitioning
+again, and we no longer have to strip Google/preinstalled apps to squeeze in.
 ## Delivery/flash constraint
 
 The unit installs firmware via `Update.zip` on FAT32 USB/SD using its built-in upgrade path, driven

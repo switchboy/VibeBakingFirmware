@@ -67,11 +67,11 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
 
 - Phase 0 (firmware inventory): **done** — `docs/firmware-analysis.md`.
 - Phase 1 (feasibility): **done** — `docs/feasibility.md`; Android 14 is the ceiling, framework-only upgrade path chosen.
-- Design decisions D1-D7: **answered** - `docs/decisions.md`; D8 (partition layout) awaits the owner.
+- Design decisions D1-D8: **answered** - `docs/decisions.md`. D8: shrink `userdata`, grow `super` to 8 GiB, so Android 14 gets breathing room.
 - M1 (live-unit data): **mostly done** via Termux + `allinone.sh` over LAN - see
   `docs/head-unit-findings.md`. The unit reports a `userdebug/test-keys` Android 10 build (patch
   level 2020-05-05), `super` = 3.04 GiB with ~730 MB free, kernel 4.19.111 with `/proc/config.gz`,
   SELinux enforcing, and a **USB Realtek RTL8188E WiFi adapter** (2.4 GHz silicon). Its vendor HAL
   surface matches the reference payload except three undeclared HALs; blob hashes land in the next report.
-- Next: finish M1 (vendor blob hashes, `iw`, dumpsys, `su` result), answer D8, then M2 (Lineage 21
-  tree + build environment) and M3 (framework-only boot test) - see `docs/plan.md`.
+- Next: finish M1 (vendor blob hashes, `iw`, dumpsys, `su` result), then M2b (repartition: super
+  8 GiB / userdata 49.84 GiB - D8 decided), M2 (Lineage 21 tree), M3 (framework-only boot test).

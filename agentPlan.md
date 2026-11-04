@@ -27,12 +27,11 @@ legacy blobs are preferred over reimplementing them.
    Android 15 would require reimplementing the vendor HAL surface.
 4. **KeyMint**: Android ≥11 requires `IKeyMintDevice`; vendor ships keymaster 3.0 → must add a
    KeyMint service (software implementation, or a wrapper over `keystore.rk30board.so`).
-5. **super group is 3.04 GiB on the unit** (`mmcblk2p14` = 3,263,168,512 bytes; the reference
-    OTA asked for 3,258,974,208). Current usage in super: system 1.02 GiB + product 0.90 GiB +
-    vendor 0.28 GiB + odm 0.17 GiB = 2.35 GiB, leaving only about 730 MB free. A LineageOS 21
-    build needs roughly 3.0-3.2 GiB, so either trim hard (no Google apps, few preinstalls) or
-    re-layout the eMMC (`userdata` is 54.8 GiB with only 5.4 GiB used, so `super` can grow to
-    5-6 GiB). See D8 and `docs/head-unit-findings.md`.
+5. **Partition layout (D8 decided)**: super 3.04 GiB -> **8 GiB**, userdata 54.78 GiB ->
+    **49.84 GiB**. Android 14 images (~3.9 GiB) then fit with ~4 GiB spare, which leaves room for an
+    update snapshot. Partitions p1-p13 keep their byte offsets, so uboot/trust/dtb/dtbo/vbmeta/boot/
+    recovery/cache stay byte-identical; only p14/p15 move. userdata is reformatted, so its 5.4 GiB of
+    content must be backed up first (`docs/plan.md` M2b).
 6. **Boot image format**: existing U-Boot reads Android boot header v2 (`boot.img` in payload).
    Keep header v2/v3; do not emit header v4 unless U-Boot is updated.
 7. **Flashing path**: unit's built-in upgrade flow expects a Rockchip `update.zip` (FAT32 media),
@@ -75,7 +74,7 @@ legacy blobs are preferred over reimplementing them.
 | D5 | Security posture | **decided** | pragmatic during bring-up, strict at release | fast iteration, hardened final build |
 | D6 | Head-unit apps | **decided** | keep HCT4 apps for v1 | feature parity first, replace incrementally |
 | D7 | Update/flash delivery | **decided** | keep Update.zip on USB/SD | unchanged owner workflow, payload signed by us |
-| D8 | Partition layout change | **pending owner choice** | A: keep super 3.04 GiB and trim images (flash via recovery, no OTA snapshot); B: repartition eMMC, super 5-6 GiB, userdata ~50 GiB (needs a full backup of every partition plus the 5.4 GiB of userdata content first) | measured: about 730 MB free in super vs roughly 3.0-3.2 GiB needed for Android 14 |
+| D8 | Partition layout change | **decided** | B: shrink userdata, grow super (8 GiB super / 49.84 GiB userdata) | owner wants the OS breathing room; p1-p13 byte offsets unchanged so bootloader/recovery stay valid |
 
 Detailed milestone breakdown: `docs/plan.md`.
 
@@ -86,7 +85,7 @@ Detailed milestone breakdown: `docs/plan.md`.
 | MTC driver source unavailable → kernel frozen | kernel CVEs unpatched | keep kernel; mitigate by hardening userspace/SELinux, network-facing services disabled; later rebuild kernel from Rockchip BSP + vendor's driver source if obtainable |
 | VNDK/legacy lib drift in Android 14 build | blobs fail to link | ship vendor-local copies of Android-10 era libs; test each HAL with VTS-ish smoke tests |
 | Ion vs dmabuf allocator path | graphics breakage | keep HIDL allocator/mapper 2.0 + vendor `libion` shim talking to `/dev/ion` (kernel 4.19 has Rockchip ion) |
-| Super partition too small for Android 14 | install fails | measured 730 MB free; either trim images (strip Google/preinstalled apps) or re-layout super (D8). Flash through recovery with direct image writes, no OTA snapshot |
+| Super partition too small for Android 14 | install fails | resolved by D8: super grows to 8 GiB. The risk moves to the repartition itself - backup of GPT head/tail, p1-p13, current logical images and userdata content before touching the GPT |
 | HCT apps depend on framework internals | features break | keep app layer from current firmware initially; test early on real car |
 | Bricking the unit | hardware loss | **only one unit**: keep the currently-installed Daisaita firmware zip (get it from the vendor) + the reference `update.zip`; never flash without a known-good recovery path |
 | Installed firmware is a Daisaita build, not the reference ROM | vendor assumptions could be wrong | largely resolved: the live HAL set matches the reference manifest except `cas`/`weaver`/`rockit.hw` (declared but binaries still present); the next report hashes every vendor blob so we can prove byte-for-byte equality |
@@ -96,12 +95,9 @@ Detailed milestone breakdown: `docs/plan.md`.
 
 ## Next action
 
-1. Owner re-copies `/run/media/Daan/Opslagmonster/allinone.sh` (updated) to the unit and runs
-   `sh allinone.sh` once: the new version fixes PATH (dumpsys/toybox/iw/getenforce now resolve),
-   decompresses `/proc/config.gz` as text, hashes every vendor blob, tries `/system/xbin/su`,
-   dumps all properties, and reports the driver bound to `wlan0`.
-2. Compare vendor hashes against `analysis/vendor_tree/` - if identical, we can build shims against
-   the reference vendor without touching the unit's vendor partition.
-3. Owner answers D8 (keep super vs repartition) and the two open questions in
-   `docs/head-unit-findings.md` (saved copy of the installed zip; whether `su` gives a shell).
-4. Then build the device-tree skeleton, then sync LineageOS 21 into the prepared tree.
+1. Finish M1 with one more `sh allinone.sh` run (blob hashes vs `analysis/vendor_tree/` via
+   `tools/blob_diff.py`, `iw`/`wlan0` driver, `dumpsys`, `/system/xbin/su` result).
+2. M2b repartition: back up GPT head/tail, p1-p13, current logical images, userdata content; then
+   write the new GPT (super 8 GiB, userdata 49.84 GiB) and reformat userdata as F2FS.
+3. M2: device tree skeleton + LineageOS 21 sync (ask before the multi-hour sync).
+4. M3 framework-only boot test using the M2b backup as rollback.

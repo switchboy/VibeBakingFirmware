@@ -67,20 +67,40 @@ boot, NAT tethering, third-party OTA host.
 | Rockchip USB loader / rkflash full-image flash | more reliable for bricking recovery, needs the loader + OTG cable + PC |
 | Ship a custom recovery (TWRP-like) + zip | flexible (nvdiv backups, per-partition flashing), extra work |
 
-## D8 - partition layout
+## D8 - partition layout - **DECIDED: option B (shrink userdata, grow super)**
 
-Measured on the unit (no root needed): `super` = 3,263,168,512 B with ~730 MB free,
-`userdata` = 58,844,495,360 B with 5.4 GiB used, whole eMMC 58.5 GiB. `/data` can stay F2FS and
-untouched in either option.
+Owner's reasoning: userdata is oversized; apart from installed apps it holds little real storage.
 
-| Option | Notes |
-|---|---|
-| **A. Keep the current layout, trim Android 14 images** | no repartitioning risk, but ~3.0-3.2 GiB of Android 14 images must fit in 3.04 GiB: no Google apps, few preinstalls, flash via recovery (direct writes, no OTA snapshot). Every feature we add costs space we may not have |
-| **B. Repartition: super 5-6 GiB, userdata ~50 GiB (recommended if a full backup is possible)** | comfortable, allows OTA-style headroom and the HCT app set; requires rewriting the eMMC GPT and reflashing every partition, so it is only safe with a byte-exact backup of uboot/trust/dtb/dtbo/vbmeta/boot/recovery/super plus the userdata content (5.4 GiB, uploadable over LAN) |
-| C. Keep super, move nothing out | Android 14 requires system/system_ext/product/odm in the dynamic group, so there is no third escape |
+New eMMC layout (`mmcblk2`, 62,813,896,704 B). Partitions p1-p13 keep their exact size and order,
+so U-Boot, trust, dtb, dtbo, vbmeta, boot, recovery, backup, security, cache, metadata and frp
+keep their byte offsets and their current contents stay valid. Only `super` grows and `userdata`
+moves later and shrinks:
 
-Waiting on the owner: which of A/B, and whether a saved copy of the currently installed firmware
-zip exists (B needs a verified rollback).
+| partition | old bytes | new bytes | note |
+|---|---|---|---|
+| uboot/trust/dtb/dtbo/misc/security (p1-p5, p10) | 4,194,304 each | unchanged | bootloader, DT, OPTEE |
+| vbmeta (p6) | 1,048,576 | unchanged | AVB metadata |
+| boot (p7) | 33,554,432 | unchanged | kernel + ramdisk |
+| recovery (p8) | 100,663,296 | unchanged | recovery image |
+| backup (p9) | 117,440,512 | unchanged | spare |
+| cache (p11) | 402,653,184 | unchanged | the unit's upgrade flow uses /cache |
+| metadata (p12) | 16,777,216 | unchanged | |
+| frp (p13) | 524,288 | unchanged | factory-reset protection |
+| **super (p14)** | 3,263,168,512 (3.04 GiB) | **8,589,934,592 (8 GiB)** | dynamic group |
+| **userdata (p15)** | 58,844,495,360 (54.78 GiB) | **53,517,729,280 (49.84 GiB)** | reformatted as F2FS |
+| GPT / alignment padding | 8,405,504 (8 MiB) | unchanged | |
+
+Small partitions p1-p13 total 697,827,328 B, so 697,827,328 + 8,589,934,592 + 53,517,729,280 +
+8,405,504 = 62,813,896,704 exactly.
+
+Consequences:
+- Android 14 images (system ~1.5 GiB, system_ext ~0.6 GiB, product ~1.2 GiB, vendor ~0.4 GiB with
+  our shims, odm ~0.2 GiB = ~3.9 GiB) fit with ~4 GiB to spare - enough for a snapshot/rollback copy,
+  so future updates can run without repartitioning again.
+- No Google apps needed for sizing anymore; the HCT app set and our own apps can stay.
+- `userdata` is **reformatted**: everything in /data and /sdcard is gone unless backed up first
+  (5.4 GiB currently used). Mandatory backup before touching the GPT - see `docs/plan.md` M2b.
+- `/data` stays F2FS, `metadata`/`frp` untouched.
 
 ## Questions for the owner (what we still need)
 
