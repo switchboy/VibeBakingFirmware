@@ -146,8 +146,9 @@ Owner wants SD-card installs ("cleanest route"). Consequences:
 
 - AOSP/LineageOS recovery has no "apply update from SD card" menu; it runs update_engine and takes
   a package over **ADB sideload**, or a package handed over by an app through
-  `RecoverySystem.installPackage()` (that is how the LineageOS Updater app installs from local
-  storage). So: put the zip on the SD/USB stick, and let an app hand it to recovery. No TWRP needed.
+  `RecoverySystem.installPackage()`. Our ROM ships LineageOS's own **Updater** app, whose menu entry
+  **"Local update"** imports a zip from external storage, verifies it, and installs it - so the SD
+  route needs no extra app and no TWRP.
 - Recovery itself has to exist first: we flash our own `boot`+`recovery` images (built with
   `BOARD_USES_RECOVERY_AS_BOOT := false`, the HU keeps its recovery partition p8). That first flash
   needs Rockchip's flash path (`rkflash` from the NAS in Loader/Boot-ADB mode) - not the SD card.

@@ -50,11 +50,17 @@ afterwards too (`m otapackage`) because it carries the resize rules.
 
 ## Applying it on the unit
 
-1. Copy the zip to the SD/USB stick (`/sdcard/download/` or the HCT storage path).2. An app hands it to recovery with `RecoverySystem.installPackage(context, uri, false, true)`.
-   That is exactly how the LineageOS Updater app installs from local storage, so no TWRP and no
-   "apply from SD card" menu is required - AOSP/LOS recovery has no such menu.
+1. Copy the zip to the SD/USB stick (external storage root, or a subdirectory like `download/`).
+2. The ROM ships LineageOS's **Updater** app (`vendor/lineage/config/common.mk` adds `Updater`,
+   source in `packages/apps/Updater`). Its menu entry **"Local update"** (`UpdateImporter`) takes a
+   path relative to the external storage root, runs `RecoverySystem.verifyPackage()`, then
+   `RecoverySystem.installPackage()` - so no TWRP and no "apply from SD card" menu is needed (AOSP/LOS
+   recovery has no such menu).
 3. Recovery boots, update_engine applies the logical partitions, reboot.
 4. The unit factory-resets if `--wipe_data` is requested; the owner re-adds accounts/apps (D10).
+
+The zip must verify against the key recovery trusts: our build signs with test keys, and our recovery
+carries that same key, so the import check passes on this single unit.
 
 Fallback when no app is available yet: `adb sideload` from the NAS over the OTG gadget port.
 
