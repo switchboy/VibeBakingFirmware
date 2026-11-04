@@ -42,7 +42,8 @@ Workstation runs `scripts/upload_server.py` (LAN HTTP endpoint, writes into `inc
 Phone/unit side: `scripts/upload_client.sh` (needs `pkg install curl` in Termux).
 Firewall: ufw is enabled, so a **runtime-only** rule is open while the server runs
 (`sudo ufw allow 8765/tcp`); close it afterwards with `sudo ufw delete allow 8765/tcp`.
-The shared token lives outside the repo (`/tmp/opencode/upload_token.txt`) — never commit credentials.
+The shared token lives outside the repo (`/tmp/opencode/upload_token.txt`) - never commit credentials.
+For partition backups restart the server with a bigger cap: `UPLOAD_MAX_BYTES=$((4*1024*1024*1024))`.
 Fallback if the endpoint is not running: `scp probe.md Daan@192.168.1.161:.../incoming/`
 (password prompted interactively, not stored anywhere).
 

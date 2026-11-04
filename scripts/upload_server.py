@@ -19,7 +19,9 @@ from pathlib import Path
 PORT = int(os.environ.get("UPLOAD_PORT", "8765"))
 INCOMING = Path(os.environ.get("INCOMING_DIR", "incoming"))
 TOKEN = os.environ.get("UPLOAD_TOKEN") or os.urandom(16).hex()
-MAX_BYTES = 20 * 1024 * 1024
+# 20 MB is plenty for probe reports. Partition backups (GPT head/tail, p1-p13, logical images)
+# need much more: run the server with UPLOAD_MAX_BYTES=$((4*1024*1024*1024)) for M2b backups.
+MAX_BYTES = int(os.environ.get("UPLOAD_MAX_BYTES", str(20 * 1024 * 1024)))
 SAFE = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
 
