@@ -120,6 +120,26 @@ The product config inherits `vendor/lineage/config/common_full_tablet_wifionly.m
 variant without a telephony stack, which matches this unit (Bluetooth phone comes from the vendor
 HALs, no SIM).
 
+## Memory ceiling: docker vs the compile
+
+The NAS has 24 GB RAM and docker already holds ~12 GB. `m -j4` climbed to ~19 GB RSS, so the box
+started swapping hard and SSH stopped answering mid-build ("Connection timed out during banner
+exchange" for ~20 minutes, ping still fine). That also degrades the docker services, so the owner
+decided: **temporarily stop docker during builds and go full blast**, then restart it (night hours,
+nobody using the box).
+
+`/srv/dev-disk-by-label-SSData/aospbuild/build_fast.sh` does exactly that and restores it even if the
+build fails or the unit is killed:
+
+- `docker ps --format '{{.Names}}' > docker_running.txt` first, so the restore is the exact set that
+  was running (OMV's docker plugin containers do not come back on their own after a daemon stop)
+- `systemctl stop docker docker.socket`
+- `m -j12` (16 CPUs, ~17 GB free RAM once docker is down)
+- `trap restore_docker EXIT` → `systemctl start docker docker.socket`, then `docker start` each name
+  from the captured list, and prints how many came back
+
+Nothing else on the NAS is touched: no OMV config change, no share change, packages unchanged.
+
 ## systemd units on the NAS
 
 | unit | does | log |
@@ -132,6 +152,8 @@ HALs, no SIM).
 | `los-sync7` | patient re-sync: `-j1`, 6 passes, 3 min between passes, then a verification block | `lineage21s/sync5.log` |
 | `los-build2` | build with `HOME=/root`, `GOCACHE` and `TMPDIR` on the SSD | `lineage21/build.log` |
 | `los-build3` | build in `lineage21s/` after the sync lands: device tree + vendor deploy, `lunch lineage_rk3399-<release>-userdebug`, `m -j4` | `lineage21s/build.log` |
+| `los-build5` | `m -j4` after the abi fix; swapped hard at ~19 GB RSS while docker held 12 GB, SSH unreachable ~20 min | `lineage21s/build.log` |
+| `los-build6` | `build_fast.sh`: docker stopped, `m -j12`, docker restored on exit (also on failure) | `lineage21s/build.log`, `docker_running.txt` |
 
 
 `HOME`/`GOCACHE`/`TMPDIR` must be set explicitly for any AOSP build started from systemd; without them
