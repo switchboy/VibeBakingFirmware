@@ -1,13 +1,14 @@
 # Product config for the PX6 HU head unit. Deployed as device/rockchip/rk3399/lineage_rk3399.mk.
-$(call inherit-product, $(SRC_TARGET_DIR)/product/base.mk)
-$(call inherit-product, $(SRC_TARGET_DIR)/product/base_product.mk)
-$(call inherit-product, $(SRC_TARGET_DIR)/product/core_64_bit.mk)
+# Paths are spelled out: $(LOCAL_DIR) inside an inherited product file points at the last
+# AndroidProducts.mk directory that kati read, not at this file's directory.
+# full_base.mk is base + product + generic_no_telephony - right for a head unit with no modem.
+$(call inherit-product, $(SRC_TARGET_DIR)/product/full_base.mk)
 
-# LineageOS SDK pieces (present once vendor/lineage is in the tree).
-$(call inherit-product-if-exists, vendor/lineage/config/common.mk)
+# LineageOS features: tablet-wifionly variant (no telephony stack, no SIM).
+$(call inherit-product-if-exists, vendor/lineage/config/common_full_tablet_wifionly.mk)
 $(call inherit-product-if-exists, vendor/lineage/config/auto_prebuilt_apks.mk)
 
-$(call inherit-product, $(LOCAL_DIR)/device.mk)
+$(call inherit-product, device/rockchip/rk3399/device.mk)
 
 PRODUCT_NAME := lineage_rk3399
 PRODUCT_DEVICE := rk3399
