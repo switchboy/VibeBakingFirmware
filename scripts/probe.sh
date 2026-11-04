@@ -103,6 +103,33 @@ cmd blockdev --getsize64 /dev/block/by-name/super
 cmd blockdev --getsize64 /dev/block/by-name/userdata
 if [ "$ROOT" != 1 ]; then need_root; fi
 
+sec "Partition sizes via sysfs (works without root)"
+printf '```\n' >> "$OUT"
+# sysfs sizes are world-readable: every gendisk (/sys/block/<disk>/size) and every partition
+# directory (/sys/block/<disk>/<part>/size) reports 512-byte sector counts.
+sizes=$(
+  for d in /sys/block/*/; do
+    [ -d "$d" ] || continue
+    if [ -f "$d/size" ]; then
+      printf '%s %s\n' "$(basename "$d")" "$(( $(cat "$d/size" 2>/dev/null || echo 0) * 512 ))"
+    fi
+    for sub in "$d"*/; do
+      [ -f "$sub/size" ] || continue
+      printf '%s %s\n' "$(basename "$sub")" "$(( $(cat "$sub/size" 2>/dev/null || echo 0) * 512 ))"
+    done
+  done
+)
+printf 'sysfs block devices (name -> bytes):\n' >> "$OUT"
+printf '%s\n' "$sizes" >> "$OUT"
+printf '\n/dev/block/by-name mapping:\n' >> "$OUT"
+for p in /dev/block/by-name/*; do
+  [ -L "$p" ] || continue
+  tgt=$(readlink "$p")
+  bytes=$(printf '%s\n' "$sizes" | grep -m1 "^$(basename "$tgt") " | awk '{print $2}')
+  printf '%-14s -> %-22s %s bytes\n' "$(basename "$p")" "$tgt" "${bytes:-unknown}" >> "$OUT"
+done
+printf '```\n' >> "$OUT"
+
 sec "VINTF / HAL surface"
 cmd cat /vendor/etc/vintf/manifest.xml
 cmd cat /system/etc/vintf/compatibility_matrix.xml
