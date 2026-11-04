@@ -137,3 +137,26 @@ will confirm the chip exactly and see which frequencies the regdb allows.
    will show which.
 3. Wireless CarPlay/AA: accept swapping the USB WiFi module for a dual-band one, or keep wired
    CarPlay/AA only?
+
+
+## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)
+
+`diatsia fw/update(1).zip` = Android 10 full package (build `eng.hct2.20250401.152740`, patch 2020-05-05,
+ships boot/uboot/trust/logo + compatibility.zip). `diatsia fw/update.zip` = Android 11 full package
+(`RQ3A.210705.001`, patch 2021-07-05). Both are BLOCK-type packages that only patch the dynamic
+partitions through update_engine (`update_dynamic_partitions` + `map_partition`), so they cannot
+rewrite the GPT - that matters for M2b (see docs/plan.md).
+
+| | unit right now | Daisaita A10 zip | Daisaita A11 zip |
+|---|---|---|---|
+| kernel | 4.19.111+ **#277** | 4.19.111+ **#190** (2024-07-05) | 4.19.193 **#24** |
+| vendor HALs matching the unit | - | **99 identical / 15 differ / 0 extra** | 1 identical / 68 differ |
+| graphics allocator/mapper | 2.0 / 2.1 (ION, needs libion) | 2.0 / 2.1 (ION) | **4.0 / 4.0-midgard (dmabuf)** |
+| audio | 5.0 | 5.0 | **6.0** |
+| keymaster | 3.0 | 3.0 | **4.0 (optee service)** + gatekeeper optee |
+| health / drm / cas | 1.2 / 1.0 / undeclared | 1.2 / 1.0 / 1.1 fragment | **2.1 / 1.3 / 1.2**, wifi+hostapd, power via **AIDL** |
+| manifest format / target-level | 1.0 / **4** | 1.0 / 4 | 2.0 / **5** |
+| dynamic group max | super is 3,263,168,512 B | 3,258,974,208 B (fits) | **4,890,558,464 B (does not fit - owner's flash warning)** |
+
+So the installed firmware is a Daisaita Android 10 build, and the Android 11 package proves a >3 GiB
+super group works on this SoC family - it just needs the GPT grown first (D8/M2b).

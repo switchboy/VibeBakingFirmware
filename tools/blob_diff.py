@@ -29,18 +29,22 @@ def hash_file(path: Path) -> str:
 
 
 def reference_hashes(tree: Path) -> dict:
-    """basename -> (expected sha256, relative path), for the blob families we care about."""
+    """'vendor/...' relative path -> sha256, for the blob families the probe hashes. Indexed by path
+    so lib and lib64 copies stay distinct."""
     out = {}
-    for rel in ["vendor/bin/hw", "vendor/lib/hw", "vendor/lib64/hw", "vendor/lib/hw",
-                "vendor/lib/modules", "vendor/etc/vintf", "vendor/etc"]:
+    for rel in ["vendor/bin/hw", "vendor/lib/hw", "vendor/lib64/hw", "vendor/lib/modules",
+                "vendor/etc/vintf", "vendor/etc"]:
         d = tree / rel
         if not d.is_dir():
             continue
         for f in d.iterdir():
-            if f.is_file() and (f.suffix in {".so", ".ko"} or f.name in {
+            if not f.is_file():
+                continue
+            accepted = (rel == "vendor/bin/hw" or f.suffix in {".so", ".ko"} or f.name in {
                 "manifest.xml", "compatibility_matrix.xml", "audio_policy_configuration.xml",
-                "audio_effects.xml", "build.prop"}):
-                out[f.name] = (hash_file(f), str(f.relative_to(tree)))
+                "audio_effects.xml", "build.prop"})
+            if accepted:
+                out[str(f.relative_to(tree))] = hash_file(f)
     return out
 
 
@@ -50,9 +54,10 @@ def probe_hashes(report: Path) -> dict:
     start = text.find("## Vendor blob inventory")
     if start < 0:
         raise SystemExit("report has no 'Vendor blob inventory' section - re-run allinone.sh")
-    end = text.find("```", text.find("```\n", start))
+    open_fence = text.find("```", start)
+    end = text.find("```", open_fence + 3)  # closing fence
     out = {}
-    for line in text[start:end].splitlines():
+    for line in text[open_fence + 3:end].splitlines():
         m = re.match(r"^([0-9a-f]{64})\s+(\S+)$", line.strip())
         if m:
             out[m.group(2)] = m.group(1)
@@ -63,28 +68,27 @@ def main():
     report, tree = Path(sys.argv[1]), Path(sys.argv[2])
     ref = reference_hashes(tree)
     dev = probe_hashes(report)
-    same, differ, missing, extra = [], [], [], []
+    same, differ, only_unit, only_ref = [], [], [], []
     for path, digest in sorted(dev.items()):
-        name = Path(path).name
-        exp = ref.get(name)
-        if exp is None:
-            extra.append(path)
-        elif exp[0] == digest:
-            same.append(name)
+        key = path.lstrip("/")
+        if key in ref:
+            (same if ref[key] == digest else differ).append(key)
         else:
-            differ.append((name, path, exp[1]))
-    listed = {Path(p).name for p in dev}
-    missing = sorted(n for n in ref if n not in listed)
+            only_unit.append(path)
+    listed = {p.lstrip("/") for p in dev}
+    only_ref = sorted(p for p in ref if p not in listed)
 
-    print(f"identical: {len(same)}, differing: {len(differ)}, "
-          f"present on unit but not in reference: {len(extra)}, "
-          f"in reference but not listed by probe: {len(missing)}")
-    for name, dev_path, ref_path in differ:
-        print(f"  DIFFERS {name}  unit={dev_path}  reference={ref_path}")
-    for p in extra[:40]:
-        print(f"  EXTRA on unit: {p}")
-    for n in missing[:40]:
-        print(f"  not hashed by probe: {n}")
+    print(f"byte-identical: {len(same)}, differing: {len(differ)}, "
+          f"on unit only: {len(only_unit)}, in reference only: {len(only_ref)}")
+    for p in differ:
+        print(f"  DIFFERS {p}")
+        print(f"    unit sha {dev['/' + p]}")
+        print(f"    ref  sha {ref[p]}")
+    for p in only_unit[:30]:
+        print(f"  not in reference tree: {p}")
+    for p in only_ref[:30]:
+        print(f"  reference file not hashed by probe: {p}")
+    print(f"\nidentical list: {', '.join(same) if same else '(none)'}")
 
 
 if __name__ == "__main__":

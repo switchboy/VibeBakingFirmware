@@ -1,5 +1,9 @@
-# Generated analysis artefacts (large, reproducible via tools/)
-analysis/
+# Generated analysis artefacts (large, reproducible via tools/) - small text artefacts are kept
+analysis/*
+!analysis/*.txt
+
+# Owner's downloaded vendor firmware (2.7 GB) - never commit
+diatsia fw/
 
 # Reference firmware payload: 1.2 GB, kept on disk but never committed
 update.zip

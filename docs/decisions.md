@@ -119,3 +119,22 @@ Answered by the unit itself: identity is a `userdebug/test-keys` Android 10 eng 
 2022-04-12 (not the Hal9k Mod), security patch 2020-05-05, and the vendor HAL surface matches the
 reference payload. adb is not needed: Termux + `allinone.sh` over the LAN endpoint collects
 everything the probe asks for.
+
+
+## D9 - vendor base: Daisaita Android 11 vendor tree (decided)
+
+Use `analysis/daisaita_a11/vendor_tree` (manifest 2.0 / target-level 5) as the vendor base for the
+Android 14 ROM instead of shimming the Android 10 vendor:
+
+- allocator/mapper **4.0 midgard** = dmabuf buffers, so the Android 14 framework needs no `libion`
+  shim at all (Android 12+ removed libion from system).
+- audio 6.0, health 2.1, drm 1.3, cas 1.2, gatekeeper/keymaster 4.0 via **optee**, wifi@1.0 +
+  hostapd, lights HIDL + power AIDL - all closer to what Android 14 expects.
+- `rockchip.hardware.rockit.hw@1.0` and `rockchip.hardware.outputmanager@1.0` survive, and
+  `android.hardware.mtc.mfi@1.0` (the HU control plane) is still declared.
+- Android 14 still accepts keymaster@4.0 HIDL; if KeyMint turns out to be mandatory, wrap it on top
+  of the optee keymaster 4.0 service rather than rewriting the TA (same reasoning as D4).
+- Keep the Daisaita A10 zip as the known-good rollback (D8/M2b). The unit's own kernel (#277) and the
+  A11 kernel (#24, 4.19.193, IKCONFIG recovered to `analysis/daisaita_a11_kernel_config.txt`) are both
+  usable; the A11 kernel is the better starting point because it ships binderfs, ION CMA heap and
+  POSIX ACL, which Android 14 wants.
