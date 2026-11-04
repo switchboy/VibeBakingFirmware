@@ -22,7 +22,7 @@ not chosen: they are spinning HDDs (`ST8000VN004`) inside a mergerfs pool, which
 
 Recorded in `/srv/dev-disk-by-label-SSData/aospbuild/installed_packages.txt`:
 
-    git-lfs repo unzip device-tree-compiler brotli gdisk
+    git-lfs repo unzip device-tree-compiler brotli gdisk zip
 
 `gdisk` is only needed by `scripts/repartition_gpt.sh` (`sgdisk` computes the GPT CRCs).
 Already present before setup: git, python3, curl, make, gcc, g++, patch, cpio, bzip2, pkg-config.
@@ -30,7 +30,7 @@ Already present before setup: git, python3, curl, make, gcc, g++, patch, cpio, b
 
 Removal after the build:
 
-    apt-get purge -y git-lfs repo unzip device-tree-compiler brotli gdisk
+    apt-get purge -y git-lfs repo unzip device-tree-compiler brotli gdisk zip
     apt-get autoremove -y
 
 Nothing else was changed on the NAS: no OMV config, no service restarts, no shares created.
@@ -158,3 +158,10 @@ Nothing else on the NAS is touched: no OMV config change, no share change, packa
 
 `HOME`/`GOCACHE`/`TMPDIR` must be set explicitly for any AOSP build started from systemd; without them
 Soong aborts with "build cache is required, but could not be located".
+
+
+## Missing host tools show up as ninja failures
+
+Debian's NAS had no `zip`, so `//external/guice:guice_munge_srcjar` failed inside Soong's sbox with
+`zip: command not found` (exit 127) - a host-tool gap, not a device-tree problem. Added `zip` to the
+tracked list. The class of failure to expect: a sbox command referencing a tool the host lacks.
