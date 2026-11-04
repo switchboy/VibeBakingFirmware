@@ -90,7 +90,7 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
 - M2 (LineageOS 21 tree): **in progress** - shallow source sync on the NAS (`docs/build-host.md`),
   device tree in `device/rk3399-px6-hct4/` deployed as `device/rockchip/rk3399`, and the prebuilt
   vendor/kernel pipeline works (`scripts/prebuilt_vendor.sh` -> `vendor/hct4/vendor.img` +
-  `prebuilt/kernel_a11`). First `make` runs as unit `los-build3` once the sync lands.
+  `prebuilt/kernel_a11`). The build runs as unit `los-build3` (`m -j4`, lunch `lineage_rk3399-ap2a-userdebug`) once the sync lands.
 - Next: M2b (repartition: super 8 GiB / userdata 49.84 GiB - D8 decided; `docs/repartition.md` +
   `docs/flash.md` for the Boot-ADB first flash), then M3 (framework-only boot test). The unit still
   needs one more `sh allinone.sh` run so `analysis/hu_partition_offsets.txt` holds the real LBAs.

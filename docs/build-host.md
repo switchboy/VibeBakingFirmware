@@ -47,7 +47,7 @@ committed): `/tmp/opencode/omv.sh`, which reads the credential from `/tmp/openco
   is LineageOS's `android.git`; the old `android_repo_manifest` name is gone - GitHub returns 404).
 - Sync runs with `-c -j4`: single branch, four jobs, so the NAS keeps its docker services responsive.
   Progress: `/srv/dev-disk-by-label-SSData/aospbuild/lineage21/sync.log`.
-- Memory: 24 GB with docker already using ~12 GB. Build with a bounded job count (`make -j4`, drop
+- Memory: 24 GB with docker already using ~12 GB. Build with a bounded job count (`m -j4`, drop
   to `-j2` if RSS climbs into swap) and watch RSS; Android 14 compilation peaks well above the free
   RAM otherwise.
 - Expect to need `abootimg`/`mkbootimg` and `f2fs-tools` later for assembling boot images and the
@@ -65,7 +65,7 @@ several minutes (it is hundreds of thousands of files), so run it detached:
     systemd-run --unit=los-cleanup rm -rf /srv/dev-disk-by-label-SSData/aospbuild/lineage21
 
 If space is still tight after the sync, drop `.repo/git` and `.repo/projects` (the git objects) while
-keeping `.repo/manifest.xml` and `.repo/manifests/`, because `make dist` reads the manifest. Re-check
+keeping `.repo/manifest.xml` and `.repo/manifests/`, because `m dist` reads the manifest. Re-check
 `df -h` before starting `make`.
 
 ## Shallow sync
@@ -80,18 +80,26 @@ credential problem: an anonymous `curl` of `info/refs` returns 200. Lower job co
     repo sync -c -j4          # retried up to 4 times, 120 s apart
 
 Shallow fetches are far smaller, so they stay under the limit. The build needs no git history.
-Tree: `lineage21s/`, log: `lineage21s/sync.log` (mirrored to the workstation's
+Even shallow, GitHub kept refusing the biggest repos (`android`, `art`, `bionic`, `build/make`,
+`build/soong`, `bootable/recovery`, the sepolicy trees), so the follow-up is a patient pass:
+`repo sync -c -j1` with a 3-minute pause between passes (`los-sync7`).
+Tree: `lineage21s/`, log: `lineage21s/sync.log` and `sync5.log` (mirrored to the workstation's
 `/run/media/Daan/Opslagmonster/build-watch/`).
 
-## Release name and lunch
+## Release name, lunch, and how the build is invoked
 
-Android 14 requires `<product>-<release>-<variant>`, and the release configs live in
-`build/release/configs` (not `build/make/release`). `lineage21/build.log` showed
-`Invalid lunch combo` because both `build/release` and `vendor/lineage` were unfetched. The build
-script reads the available configs and picks the LineageOS one:
+Android 14 requires `<product>-<release>-<variant>`. The release names are the `.scl` files in
+`build/release/build_config/` (there is no `build/release/configs` directory in LineageOS's mirror),
+declared by `build/release/release_config_map.mk` and by `vendor/lineage/release/release_config_map.mk`.
+LineageOS 21 declares exactly one release: **`ap2a`**, so the combo is
 
-    REL=$(ls build/release/configs | grep -m1 '^lineage')     # else the first config listed
-    lunch lineage_rk3399-$REL-userdebug                        # logs TARGET_PRODUCT/TARGET_RELEASE
+    lunch lineage_rk3399-ap2a-userdebug
+
+There is **no root `Makefile`** in this tree - the manifest only creates root symlinks
+(`Android.bp -> build/soong/root.bp`, `bootstrap.bash -> build/soong/bootstrap.bash`), so bare `make`
+fails with "No targets specified and no makefile found". After `source build/envsetup.sh` the build
+runs through `m`, which calls `soong_ui --make-mode`: `m -j4`, `m dist`, `m otapackage`,
+`m superimage`. The build script does exactly that and logs `TARGET_PRODUCT`/`TARGET_RELEASE`.
 
 `vendor/lineage/build/envsetup.sh` is sourced by `build/envsetup.sh`, so a missing `vendor/lineage`
 also aborts lunch - it is part of the sync check.
@@ -103,8 +111,11 @@ also aborts lunch - it is part of the sync check.
 | `los-build` | first build attempt (failed: systemd gave no `HOME`/`GOCACHE`, Soong needs a build cache) | `lineage21/build.log` |
 | `los-sync2`/`los-sync3` | retry syncs at `-j2` / `-j1`, both still left fetch failures | `lineage21/sync2.log`, `sync3.log`, `sync4.log` |
 | `los-sync5` | shallow (`--depth=1`) checkout in `lineage21s/`, 4 retries | `lineage21s/init.log`, `lineage21s/sync.log` |
+| `los-cleanup` | detached deletion of the incomplete `lineage21/` tree (187 GB, ~4 min) | journal |
+| `los-sync6` | shallow sync restarted after the volume filled up; left ~15 projects unfetched | `lineage21s/sync.log` |
+| `los-sync7` | patient re-sync: `-j1`, 6 passes, 3 min between passes, then a verification block | `lineage21s/sync5.log` |
 | `los-build2` | build with `HOME=/root`, `GOCACHE` and `TMPDIR` on the SSD | `lineage21/build.log` |
-| `los-build3` | build in `lineage21s/` after the sync succeeds: cleanup, device tree + vendor deploy, detected lunch combo, `make -j4` | `lineage21s/build.log` |
+| `los-build3` | build in `lineage21s/` after the sync lands: device tree + vendor deploy, `lunch lineage_rk3399-<release>-userdebug`, `m -j4` | `lineage21s/build.log` |
 
 
 `HOME`/`GOCACHE`/`TMPDIR` must be set explicitly for any AOSP build started from systemd; without them

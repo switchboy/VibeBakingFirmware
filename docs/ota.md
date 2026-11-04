@@ -16,20 +16,23 @@ For an upgrade you only need the logical partitions, and `update_engine` gets th
 ## Building the OTA zip
 
 ```
-make -j4
-make dist
-make otapackage -j4          # -> out/target/product/rk3399/lineage_rk3399-*.zip
+m -j4
+m dist
+m otapackage -j4          # -> out/target/product/rk3399/lineage_rk3399-*.zip
 ```
+This tree has no root `Makefile` (the manifest builds symlinks instead), so bare `make` fails with
+"No targets specified and no makefile found". `source build/envsetup.sh` provides `m`, which calls
+`soong_ui --make-mode`; use `m` for every build target.
 LineageOS releases sign with test keys by default (`BOARD_SIGNING_KEYS` unset), which is fine for a
 single-unit flash: recovery in an unlocked device accepts it. The zip carries
 `dynamic_partitions_op_list` plus `system/vendor/product/system_ext/odm.transfer.list` payloads, so it
 resizes logical partitions inside `super` without ever touching the GPT (that is why upgrades never
 need the repartition step again).
 
-If `make otapackage` is not available in this tree, fall back to:
+If `m otapackage` is not available in this tree, fall back to:
 
 ```
-make dist && python3 build/make/tools/releasetools/ota_from_target_files.py \
+m dist && python3 build/make/tools/releasetools/ota_from_target_files.py \
      -p out/host -k build/make/target/product/security/testkey \
      --block -b out/dist/target_files.zip lineage_rk3399-ota.zip
 ```
@@ -40,10 +43,10 @@ make dist && python3 build/make/tools/releasetools/ota_from_target_files.py \
 `docs/repartition.md` - alignment can shave a few hundred KiB). If the number changes after the
 first build, paste the new value into `device/rk3399-px6-hct4/BoardConfig.mk` and run
 
-    make superimage -j4      # re-stages system/vendor/product/system_ext/odm into super.img
+    m superimage -j4      # re-stages system/vendor/product/system_ext/odm into super.img
 
 That reuses the compiled partitions, so it takes minutes, not hours. The OTA zip must be rebuilt
-afterwards too (`make otapackage`) because it carries the resize rules.
+afterwards too (`m otapackage`) because it carries the resize rules.
 
 ## Applying it on the unit
 

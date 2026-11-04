@@ -55,7 +55,7 @@ BOARD_BUILD_SUPER_IMAGE_BY_DEFAULT := true
 # Must be exactly the size sgdisk wrote for p14 - alignment can shave a few hundred KiB off the
 # requested 8 GiB, and super's metadata then disagrees with the partition and Android refuses to
 # boot. scripts/repartition_gpt.sh prints both numbers; paste them here and re-run
-# `make superimage` (cheap, only re-stages the logical partitions) - no full rebuild needed.
+# `m superimage` (cheap, only re-stages the logical partitions) - no full rebuild needed.
 BOARD_SUPER_PARTITION_SIZE := 8589934592
 BOARD_SUPER_PARTITION_GROUPS := hct_dynamic_partitions
 BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 8585710080    # 8 GiB minus 4 MiB metadata overhead
