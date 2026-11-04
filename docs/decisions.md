@@ -98,8 +98,10 @@ Consequences:
   our shims, odm ~0.2 GiB = ~3.9 GiB) fit with ~4 GiB to spare - enough for a snapshot/rollback copy,
   so future updates can run without repartitioning again.
 - No Google apps needed for sizing anymore; the HCT app set and our own apps can stay.
-- `userdata` is **reformatted**: everything in /data and /sdcard is gone unless backed up first
-  (5.4 GiB currently used). Mandatory backup before touching the GPT - see `docs/plan.md` M2b.
+- `userdata` is **reformatted**, so the unit goes to factory settings: accounts, apps and their
+  settings are lost. **Owner confirmed that is acceptable** - only a brick is unacceptable, so the
+  backup requirement is about bootable firmware (GPT + bootloader/boot/recovery/super images), not
+  personal data. Re-setup is documented as a routine step in `docs/plan.md` M2b.
 - `/data` stays F2FS, `metadata`/`frp` untouched.
 
 ## Questions for the owner (what we still need)

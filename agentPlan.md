@@ -85,9 +85,9 @@ Detailed milestone breakdown: `docs/plan.md`.
 | MTC driver source unavailable → kernel frozen | kernel CVEs unpatched | keep kernel; mitigate by hardening userspace/SELinux, network-facing services disabled; later rebuild kernel from Rockchip BSP + vendor's driver source if obtainable |
 | VNDK/legacy lib drift in Android 14 build | blobs fail to link | ship vendor-local copies of Android-10 era libs; test each HAL with VTS-ish smoke tests |
 | Ion vs dmabuf allocator path | graphics breakage | keep HIDL allocator/mapper 2.0 + vendor `libion` shim talking to `/dev/ion` (kernel 4.19 has Rockchip ion) |
-| Super partition too small for Android 14 | install fails | resolved by D8: super grows to 8 GiB. The risk moves to the repartition itself - backup of GPT head/tail, p1-p13, current logical images and userdata content before touching the GPT |
+| Super partition too small for Android 14 | install fails | resolved by D8: super grows to 8 GiB (userdata 49.84 GiB). Remaining risk is the repartition itself - keep the saved GPT bytes + p1-p13 + old images so the old layout can be restored exactly |
 | HCT apps depend on framework internals | features break | keep app layer from current firmware initially; test early on real car |
-| Bricking the unit | hardware loss | **only one unit**: keep the currently-installed Daisaita firmware zip (get it from the vendor) + the reference `update.zip`; never flash without a known-good recovery path |
+| Bricking the unit | hardware loss | **only one unit**: backup GPT head/tail, p1-p13, boot/recovery and the current logical images before any flash; never flash without a verified restore path. Losing accounts/apps/settings is acceptable per the owner, so backup only needs to be firmware-level |
 | Installed firmware is a Daisaita build, not the reference ROM | vendor assumptions could be wrong | largely resolved: the live HAL set matches the reference manifest except `cas`/`weaver`/`rockit.hw` (declared but binaries still present); the next report hashes every vendor blob so we can prove byte-for-byte equality |
 | No root on the unit | boot cmdline, lsmod, dmesg, `/init.hct.rc` unavailable | probe degraded fine (sysfs sizes + `/proc/config.gz` worked); **`/system/xbin/su` exists on this ROM** - the probe now calls it directly, so root may be available without Magisk |
 | Wireless CarPlay/AA needs 5 GHz, unit's WiFi is a USB **Realtek RTL8188E** dongle (2.4 GHz hardware) | feature cannot be used wirelessly | hardware fix: swap that USB module for a dual-band RTL8821CU/8822BU - the shipped vendor already carries `8821cu.ko`/`8822bu.ko`, so no kernel rebuild; needs module loading in `init.connectivity.rc` and a correct `iw reg` country code. Wired CarPlay/AA unaffected |
@@ -97,7 +97,7 @@ Detailed milestone breakdown: `docs/plan.md`.
 
 1. Finish M1 with one more `sh allinone.sh` run (blob hashes vs `analysis/vendor_tree/` via
    `tools/blob_diff.py`, `iw`/`wlan0` driver, `dumpsys`, `/system/xbin/su` result).
-2. M2b repartition: back up GPT head/tail, p1-p13, current logical images, userdata content; then
-   write the new GPT (super 8 GiB, userdata 49.84 GiB) and reformat userdata as F2FS.
-3. M2: device tree skeleton + LineageOS 21 sync (ask before the multi-hour sync).
+2. M2b repartition: back up GPT head/tail, p1-p13, boot/recovery and the current logical
+   images (userdata content may be wiped - owner accepts factory settings), then write the new
+   GPT (super 8 GiB, userdata 49.84 GiB) and reformat userdata as F2FS.
 4. M3 framework-only boot test using the M2b backup as rollback.

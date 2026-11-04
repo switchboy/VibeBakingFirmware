@@ -86,18 +86,30 @@ Order of operations (each step has a rollback):
    8 MiB of `mmcblk2` (GPT), p1-p13 contents (666 MB), boot + recovery, and the current logical
    images from `dm-*` (system/product/vendor/odm). Uploads are small except super (~2.3 GiB), which
    can go over LAN or to a USB stick.
-2. **Userdata content**: /data is reformatted, so copy the 5.4 GiB of /sdcard content to a USB stick
-   (file manager), plus `pm list packages -f` and - if `su` works - a tar of `/data/data` for the HCT
-   apps' settings. Losing this is acceptable only if the owner agrees.
+2. **Userdata content**: /data is reformatted and the unit boots into its first-run setup
+   (HCTProvision). **Owner confirmed losing accounts/apps/settings is fine**, so no personal-data
+   backup is required. Keep only cheap context: `pm list packages -f` (which apps were installed, so
+   we can reinstall the same set) and a screenshot/photo list of the current HCT settings if the owner
+   wants them reproduced.
+   Optional insurance if `su` works: `tar` of `/data/data/com.microntek.*` + `/data/data/com.hct.*`
+   uploaded over LAN. Those hold the settings that are *not* trivially reproducible (steering-wheel
+   key mapping from HCTWheelStudy, radio/DAB station list, DSP/EQ presets, camera calibration), so a
+   restore beats recalibrating by hand.
 3. Write the new GPT (`sgpt`/`parted`, root shell) keeping p1-p13 byte-identical, then
    `mkfs.f2fs` on the new userdata. Verify with sysfs sizes before flashing anything else.
 4. Rebuild the super metadata + `dynamic_partitions_op_list` for the new group (`scripts/super_layout.py`,
    to be written) so Android sees a 8 GiB group.
 5. Only then run M3's framework-only flash.
 
-Rollback: restore the saved GPT bytes + p1-p13 + old super images + restore userdata tar; the
-Daisaita zip reinstalls everything if present.
+Rollback target is "bootable again", not "data preserved": restore the saved GPT bytes + p1-p13 +
+the old logical images (system/product/vendor/odm) and the old super metadata, or flash the Daisaita
+zip if the owner has a copy. The unit then factory-resets and the owner re-adds accounts/apps.
 
+Re-setup checklist after a factory reset (owner's part, cheap): accounts, launcher, BT phone pairing,
+CarPlay/AA pairing, WiFi password, GPS map download, radio/DAB station scan, steering-wheel key
+learning (`HCTWheelStudy`), AV-in camera calibration, DSP/EQ presets, clock + region. The HCT apps
+ship defaults, so the unit is usable immediately after setup; only the calibration items above need
+doing by hand, and that is why the optional `/data/data` tar (step 2) is worth taking when `su` works.
 ### M3 — boot test (framework-only flash)
 1. Backup done in M2b (partition dump + userdata content + current zip). Re-verify it reads back before flashing.
 2. Build a test zip that only replaces `system`, `product`, `odm` (+ our shims) and `boot.img`.
@@ -162,7 +174,7 @@ Fallback if no hardware swap: wired CarPlay/AA only (works today). Side-track, n
 
 1. Finish M1: vendor blob hashes, `iw`/driver identity, `dumpsys`, `su` result (one more
    `sh allinone.sh` run).
-2. M2b repartition (backup first) - gives Android 14 ~4 GiB of headroom, decided in D8.
+2. M2b repartition (backup firmware images first; userdata loss is fine) - gives Android 14 ~4 GiB of headroom.
 3. M2 environment + tree skeleton (needs your go-ahead for the multi-hour Lineage sync).
 4. M3 framework-only boot test on your unit, with the M2b backup as the rollback path.
 5. M4 shims, M5 packaging, then M7/M6; M9 is the WiFi module swap (hardware side-track).
