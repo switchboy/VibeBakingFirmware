@@ -1,6 +1,9 @@
 # Design decisions
 
-Status: **awaiting owner answers** (asked interactively; recorded here once answered).
+Status: **answered** — target Android 14, base LineageOS 21, kernel = shipped 4.19 binary first then
+BSP-source rebuild, vendor = blobs untouched + wrappers, apps = keep HCT4 apps for v1, security =
+pragmatic during bring-up / strict at release, delivery = Update.zip on USB/SD. Milestone breakdown
+in `docs/plan.md`. Options below are kept for the record.
 
 ## D1 — target Android version
 

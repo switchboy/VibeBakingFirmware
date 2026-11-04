@@ -64,6 +64,7 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
 
 ## Status
 
-Phase 0 (firmware inventory) done — see `docs/firmware-analysis.md`.
-Phase 1 (feasibility) done — see `docs/feasibility.md`. Design decisions are pending owner input
-(`docs/decisions.md`).
+- Phase 0 (firmware inventory): **done** — `docs/firmware-analysis.md`.
+- Phase 1 (feasibility): **done** — `docs/feasibility.md`; Android 14 is the ceiling, framework-only upgrade path chosen.
+- Design decisions D1–D7: **answered** — `docs/decisions.md`.
+- Next: M1 (collect data from the live unit), M2 (Lineage 21 tree + build environment), M3 (framework-only boot test) — see `docs/plan.md`.

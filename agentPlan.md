@@ -58,18 +58,20 @@ legacy blobs are preferred over reimplementing them.
 - Found the head-unit control plane: `/dev/mtc-*`, `/dev/ttyS0-4`, `/dev/ttyV0-5`, `/dev/goc_serial`,
   services `hctcanbusservice`, `gocsdk*`, `sdsdk*`, `blueletd`, `brlinktd`, `usbmuxd`, `adbec`, `hctnat`.
 
-## Decision log
+## Decision log (answered by owner)
 
 | ID | Topic | Status | Decision | Rationale |
 |---|---|---|---|---|
-| D1 | Target Android version | **asked owner** | pending | Android 14 = LTS + ceiling for VNDK 29 vendor |
-| D2 | Base project | **asked owner** | pending | LineageOS vs vanilla AOSP vs minimal AOSP fork |
-| D3 | Kernel strategy | **asked owner** | pending | keep prebuilt 4.19 / rebuild 4.19 LTS / port to newer kernel |
-| D4 | Vendor strategy | **asked owner** | pending | keep blobs + shims vs reimplement HALs |
-| D5 | Security posture vs app compatibility | **asked owner** | pending | enforcing SELinux + removed root services may break HCT apps |
-| D6 | Head-unit apps strategy | **asked owner** | pending | keep HCT4 apps vs OSS replacements |
-| D7 | Update/flash delivery | **asked owner** | pending | Rockchip update.zip vs TWRP vs Rockchip USB loader |
-| D8 | Partition layout change | pending | — | may need to resize super groups for Android 14 |
+| D1 | Target Android version | **decided** | Android 14 (API 34) | LTS patches ~2029; ceiling for a VNDK-29 vendor (Android 15 drops VNDK snapshots + HIDL) |
+| D2 | Base project | **decided** | LineageOS 21 | upstream security maintenance + mature old-device plumbing |
+| D3 | Kernel strategy | **decided** | shipped 4.19 binary first, BSP-source rebuild later | boots immediately; security upgrade in M6 |
+| D4 | Vendor strategy | **decided** | blobs untouched + wrappers/shims | owner preference; keeps DSP/EQ/tuner/AMP behaviour |
+| D5 | Security posture | **decided** | pragmatic during bring-up, strict at release | fast iteration, hardened final build |
+| D6 | Head-unit apps | **decided** | keep HCT4 apps for v1 | feature parity first, replace incrementally |
+| D7 | Update/flash delivery | **decided** | keep Update.zip on USB/SD | unchanged owner workflow, payload signed by us |
+| D8 | Partition layout change | pending | — | needs real super/partition sizes from the unit (M1) |
+
+Detailed milestone breakdown: `docs/plan.md`.
 
 ## Risk register
 
