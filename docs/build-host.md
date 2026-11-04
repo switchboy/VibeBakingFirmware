@@ -104,6 +104,22 @@ runs through `m`, which calls `soong_ui --make-mode`: `m -j4`, `m dist`, `m otap
 `vendor/lineage/build/envsetup.sh` is sourced by `build/envsetup.sh`, so a missing `vendor/lineage`
 also aborts lunch - it is part of the sync check.
 
+## Device-tree fixes found by the first lunch attempts
+
+`lunch lineage_rk3399-ap2a-userdebug` now succeeds (`BUILD_ID := AP2A.240905.003`, arm64 + arm). Four
+things were wrong in the tree we wrote, and Android 14 rejects each one loudly:
+
+| problem | fix |
+|---|---|
+| `AndroidProducts.mk` set `PRODUCT_LIST` | Android 14 reads **`PRODUCT_MAKEFILES`**; also declare `COMMON_LUNCH_CHOICES` with the `<product>-<release>-<variant>` form |
+| `$(LOCAL_DIR)/device.mk` inside the product file | kati's `LOCAL_DIR` there is the last `AndroidProducts.mk` directory, so write the path out: `device/rockchip/rk3399/device.mk` |
+| `base.mk` + `base_product.mk` chain | use `full_base.mk` (base + product + `generic_no_telephony`, right for a modem-less head unit) plus `core_64_bit.mk` inherited first, otherwise `TARGET_SUPPORTS_64_BIT_APPS` is unset and board_config aborts |
+| prebuilt vendor image | `TARGET_COPY_OUT_VENDOR := vendor` (plus `system_ext`/`product`/`odm`) is required by `board_config.mk:682` |
+
+The product config inherits `vendor/lineage/config/common_full_tablet_wifionly.mk` - the tablet
+variant without a telephony stack, which matches this unit (Bluetooth phone comes from the vendor
+HALs, no SIM).
+
 ## systemd units on the NAS
 
 | unit | does | log |
