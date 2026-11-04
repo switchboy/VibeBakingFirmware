@@ -4,6 +4,9 @@
 # Copy this file to the SD card and run it there (Termux or any terminal app):
 #   sh probe.sh                 -> writes probe.md in the same folder as the script
 #   sh probe.sh report.txt      -> writes to an explicit path
+# Do NOT use ./probe.sh: Android mounts removable/shared storage as noexec (and copies lose the
+# +x bit), so the interpreter must read the file. If your shell cannot read the card at all:
+#   cp /sdcard/probe.sh ~/ ; sh ~/probe.sh ; cp ~/probe.md /sdcard/
 # No absolute mount points are assumed: the report lands next to the script (or in the
 # current directory if that is not writable).
 #
