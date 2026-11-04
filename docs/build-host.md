@@ -57,10 +57,16 @@ committed): `/tmp/opencode/omv.sh`, which reads the credential from `/tmp/openco
 ## Space plan on the SSD
 
 `/srv/dev-disk-by-label-SSData` holds docker (87 GB) plus the checkout. Android 14 wants 50-70 GB
-for `out/`, so the plan is: once `repo sync` succeeds, delete the incomplete `lineage21/` tree
-(~187 GB, ours and reproducible), and if space is still tight drop `.repo/git` and `.repo/projects`
-(the git objects) while keeping `.repo/manifest.xml` and `.repo/manifests/`, because `make dist`
-reads the manifest. Re-check `df -h` before starting `make`.
+for `out/`, and the shallow checkout itself needs ~50 GB. So free the incomplete `lineage21/` tree
+(~187 GB, ours and reproducible) **before** starting a sync, not after: the shallow sync filled the
+volume to 0 free while the old tree was still there. Deleting a repo checkout of that size takes
+several minutes (it is hundreds of thousands of files), so run it detached:
+
+    systemd-run --unit=los-cleanup rm -rf /srv/dev-disk-by-label-SSData/aospbuild/lineage21
+
+If space is still tight after the sync, drop `.repo/git` and `.repo/projects` (the git objects) while
+keeping `.repo/manifest.xml` and `.repo/manifests/`, because `make dist` reads the manifest. Re-check
+`df -h` before starting `make`.
 
 ## Shallow sync
 
