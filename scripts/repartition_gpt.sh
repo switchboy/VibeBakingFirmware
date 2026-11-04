@@ -34,7 +34,7 @@ mkdir -p "$OUT"
 IMG="$OUT/disk.img"
 truncate -s "$disk_bytes" "$IMG"
 
-args=(--clear -a 0)
+args=(--clear)
 super_first=$(grep '^mmcblk2p14 ' "$OFF" | awk '{print $2}')
 super_last=$(grep '^mmcblk2p14 ' "$OFF" | awk '{print $3}')
 user_first=$(grep '^mmcblk2p15 ' "$OFF" | awk '{print $2}')
@@ -67,10 +67,23 @@ sgdisk "${args[@]}" "$IMG" >/dev/null
 sgdisk -v "$IMG" | tail -6
 echo "=== new table ==="
 gdisk -l "$IMG" | sed -n '/Partition table/,$p'
-echo "=== sizes ==="
-printf '  super    %s -> %s bytes\n' "$old_super" "$SUPER"
-printf '  userdata %s -> %s bytes\n' "$(( (user_last - user_first + 1) * 512 ))" "$(( (user_last - new_user_first + 1) * 512 ))"
-printf '  tail reserve unchanged: %s bytes\n' "$(( disk_bytes - (user_last + 1) * 512 ))"
+echo "=== actual table values (sgdisk may shift starts to its alignment) ==="
+s_lb=$(gdisk -l "$IMG" | awk '$1==14 {print $2, $3}')
+u_lb=$(gdisk -l "$IMG" | awk '$1==15 {print $2, $3}')
+[ -n "$s_lb" ] && [ -n "$u_lb" ] || { echo "could not read super/userdata rows"; exit 1; }
+set -- $s_lb; s_first=$1; s_last=$2; super_bytes=$(( (s_last - s_first + 1) * 512 ))
+set -- $u_lb; u_first=$1; u_last=$2; user_bytes=$(( (u_last - u_first + 1) * 512 ))
+old_user=$(( (user_last - user_first + 1) * 512 ))
+printf '  super    %s -> %s bytes (%.2f GiB)\n' "$old_super" "$super_bytes" "$(echo "$super_bytes/1073741824" | bc -l)"
+printf '  userdata %s -> %s bytes (%.2f GiB)\n' "$old_user" "$user_bytes" "$(echo "$user_bytes/1073741824" | bc -l)"
+printf '  disk tail reserve: %s bytes\n' "$(( disk_bytes - (u_last + 1) * 512 ))"
+if [ "$super_bytes" -lt "$SUPER" ]; then
+  echo "  note: alignment shrank super by $(( SUPER - super_bytes )) bytes - BoardConfig must use the actual value."
+fi
+echo
+echo "paste into device/rk3399-px6-hct4/BoardConfig.mk:"
+echo "  BOARD_SUPER_PARTITION_SIZE := $super_bytes"
+echo "  BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := $(( super_bytes - 4 * 1024 * 1024 ))"
 
 # The two blobs to write: primary GPT (MBR+header+128 entries = 34 LBAs) and backup GPT (33 LBAs).
 dd if="$IMG" of="$OUT/gpt_head.bin" bs=1 count=17408 status=none
