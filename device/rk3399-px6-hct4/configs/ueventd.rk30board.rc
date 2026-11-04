@@ -1,0 +1,39 @@
+# Vendor ueventd for the PX6 HU. Replaces the vendor tree's ueventd.rc (the prebuilt
+# import script skips that file so the destination is not copied twice).
+#
+# The MTC nodes are the head-unit control plane: CAN/car info, AV/DSP, CVBS inputs,
+# DAB tuner. The stock firmware leaves them world-readable and SELinux permissive, so
+# matching that keeps the HCT apps working while device sepolicy is still permissive.
+/dev/mtc-car                0666   system   system
+/dev/mtc-av                 0666   system   system
+/dev/mtc-cvbs               0666   system   system
+/dev/mtc-cvbs2              0666   system   system
+/dev/mtc-dab                0666   system   system
+/dev/ttyV0                  0660   system   system
+/dev/ttyV1                  0660   system   system
+/dev/ttyV2                  0660   system   system
+/dev/ttyV3                  0660   system   system
+/dev/ttyV4                  0660   system   system
+/dev/ttyV5                  0660   system   system
+/dev/ttyV6                  0660   system   system
+/dev/ttyV7                  0660   system   system
+
+# GPS is on the UART, Bluetooth on the goc serial (bt.goc.type=11 in vendor build.prop).
+/dev/ttyS0                  0660   system   system
+/dev/ttyS1                  0660   bluetooth bluetooth
+/dev/goc_serial             0660   bluetooth bluetooth
+
+# GPU / display.
+/dev/mali0                  0660   system   graphics
+/dev/dri/card0              0660   system   graphics
+/dev/dri/renderD128         0660   system   graphics
+
+# USB gadget function used by CarPlay (usb_f_iap / usb_f_iap2).
+/dev/gserial                0660   system   system
+
+# OTG port switch: ro.otg.port=3 on this board. Keeping it writable lets us flip the
+# port into device mode for flashing without a root shell.
+/sys/devices/platform/fe800000.usb/usb20_otg/force_usb_mode      0664   system   system
+/sys/devices/platform/fe880000.usb/usb20_otg/force_usb_mode      0664   system   system
+/sys/bus/platform/drivers/usb20_otg/force_usb_mode               0664   system   system
+/sys/bus/platform/drivers/usb20_otg/dwc_otg_conn_en              0660   system   system

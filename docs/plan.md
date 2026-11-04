@@ -101,6 +101,11 @@ Order of operations (each step has a rollback):
    to be written) so Android sees a 8 GiB group.
 5. Only then run M3's framework-only flash.
 
+Delivery of the install package (D10): the zip goes on the SD/USB stick and an updater app hands it
+to recovery via `RecoverySystem.installPackage()`; AOSP/LOS recovery has no SD-card menu, so this is
+the SD-card route that actually works. ADB sideload from the NAS is the fallback. The very first
+`boot`/`recovery`/`super` flash uses Rockchip's Loader/Boot-ADB path.
+
 Rollback target is "bootable again", not "data preserved": restore the saved GPT bytes + p1-p13 +
 the old logical images (system/product/vendor/odm) and the old super metadata, or flash the Daisaita
 zip if the owner has a copy. The unit then factory-resets and the owner re-adds accounts/apps.

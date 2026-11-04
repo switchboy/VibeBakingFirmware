@@ -1,0 +1,21 @@
+# HU-specific init fragment, copied to /vendor/etc/init/hu.rc (init parses that dir).
+#
+# Why this exists: the vendor tree loads kernel modules with Rockchip's patched init
+# (`vendor/etc/init.insmod.cfg` + `insmod` lines in init/hw/init.rockchip.rc, service
+# vendor.insmod_sh). LineageOS init does not carry that patch, so the modules are loaded
+# here by an ordinary service running toybox's insmod. Every load is best-effort.
+
+service hu_insmod /vendor/bin/sh /vendor/etc/hu_insmod.sh
+    class core
+    user root
+    group root
+    disabled
+    seclabel u:r:shell:s0
+
+on early-boot
+    start hu_insmod
+
+on property:ro.boot.wificountrycode=NL
+    # Europe regdomain. Without this the driver keeps the vendor default CN map, which
+    # marks channels 12/13 "no IR" and disables 14 - the 2.4 GHz-only behaviour we measured.
+    exec /system/bin/iw reg set NL root root

@@ -1,0 +1,14 @@
+# Android fstab for the PX6 HU: eMMC (mmcblk2) with dynamic partitions.
+# init picks this file by ro.hardware (= rk30board, from androidboot.hardware in the
+# bootloader cmdline), so the file must be named fstab.rk30board, not fstab.rk3399.
+#
+# /dev/block/by-name/* symlinks exist on this unit (verified: recovery -> mmcblk2p8).
+# system / vendor / product / system_ext / odm are logical partitions inside `super`,
+# mapped through snapuserd, so only `super` and `userdata` are listed here.
+#<dev>                          <mnt_pt>   <fstype> <flags>
+/dev/block/by-name/super        super      ext4     ro wait,logical,first_stage_ramdisk
+/dev/block/by-name/userdata     /data      f2fs     rw wait,check,quota,casefold,file_encryption=android,resize_limit=1024 checkpoint=enable
+
+# USB sticks on the onboard hub (0424:2514) are picked up by StorageManager's uevent
+# listener on Android 14; no fstab entry is needed. The DAB tuner dongle (16c0:05dc) is
+# not a block device and is handled by its own driver.

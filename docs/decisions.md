@@ -138,3 +138,18 @@ Android 14 ROM instead of shimming the Android 10 vendor:
   A11 kernel (#24, 4.19.193, IKCONFIG recovered to `analysis/daisaita_a11_kernel_config.txt`) are both
   usable; the A11 kernel is the better starting point because it ships binderfs, ION CMA heap and
   POSIX ACL, which Android 14 wants.
+
+
+## D10 - install medium: SD card, applied by an updater app (decided)
+
+Owner wants SD-card installs ("cleanest route"). Consequences:
+
+- AOSP/LineageOS recovery has no "apply update from SD card" menu; it runs update_engine and takes
+  a package over **ADB sideload**, or a package handed over by an app through
+  `RecoverySystem.installPackage()` (that is how the LineageOS Updater app installs from local
+  storage). So: put the zip on the SD/USB stick, and let an app hand it to recovery. No TWRP needed.
+- Recovery itself has to exist first: we flash our own `boot`+`recovery` images (built with
+  `BOARD_USES_RECOVERY_AS_BOOT := false`, the HU keeps its recovery partition p8). That first flash
+  needs Rockchip's flash path (`rkflash` from the NAS in Loader/Boot-ADB mode) - not the SD card.
+- After that, every upgrade is: copy zip to the stick -> updater app -> reboot to recovery ->
+  update_engine applies the logical partitions. The GPT itself is never touched by an upgrade.
