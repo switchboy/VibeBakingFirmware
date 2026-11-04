@@ -2,7 +2,10 @@
 # device/rockchip/rk3399/BoardConfig.mk.
 
 # ---- architecture -------------------------------------------------------------
-# The HCT apps are partly 32-bit, so keep the compat ABI set alive on arm64.
+# The HCT apps are partly 32-bit, so keep the compat ABI on arm64. Only the default abi lists:
+# listing legacy `armeabi` alongside armeabi-v7a makes Soong build an arm arch variant with an empty
+# Abi list, and the NDK prebuilt STL module then panics (index out of range in getNdkStlLibDir).
+# armeabi-v7a runs the unit's 32-bit apps fine.
 TARGET_ARCH := arm64
 TARGET_ARCH_VARIANT := armv8-a
 TARGET_CPU_ABI := arm64-v8a
@@ -10,8 +13,6 @@ TARGET_CPU_VARIANT := generic
 TARGET_2ND_ARCH := arm
 TARGET_2ND_ARCH_VARIANT := armv8-a
 TARGET_2ND_CPU_VARIANT := generic
-TARGET_CPU_ABI_LIST_64_BIT := arm64-v8a
-TARGET_CPU_ABI_LIST_32_BIT := armeabi-v7a armeabi
 
 # ---- vendor image -------------------------------------------------------------
 # The vendor image is prebuilt (Daisaita Android 11 blobs + our HU overlays, see
