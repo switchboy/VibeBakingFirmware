@@ -42,17 +42,28 @@ VibeBakingFirmware/
 ├── docs/
 │   ├── firmware-analysis.md   what the shipped firmware actually contains
 │   ├── feasibility.md         can modern Android run on this vendor/kernel? version ceiling
-│   └── decisions.md           design decisions + questions for the owner
+│   ├── decisions.md           design decisions + questions for the owner (D1-D10)
+│   ├── plan.md                milestones M1..M9, order and rollback
+│   ├── head-unit-findings.md  live-unit data + Daisaita A10/A11 comparison
+│   ├── build-host.md          the NAS build box, space plan, sync/build units
+│   ├── repartition.md         new GPT (super 8 GiB / userdata 49.84 GiB) + dd sequence
+│   ├── flash.md               Rockchip Loader/Boot-ADB first flash + backup path
+│   ├── ota.md                 packaging the install zip and how it reaches recovery
+│   └── termux.md              how the probe runs on the unit and uploads over LAN
 ├── tools/               analysis + packaging tooling (Python, no root needed)
 │   ├── reassemble.py    transfer.list + *.new.dat  -> raw ext4 partition images
 │   ├── ext4_ls.py       recursive listing / file dump from ext4 images via debugfs
 │   └── hal_gap.py       vendor manifest vs framework matrix gap report
 ├── analysis/            generated artefacts (gitignored: images, dumps, listings)
-├── device/            → AOSP/Lineage device tree for this unit (to be created)
+├── device/rk3399-px6-hct4/  → device tree for this unit (deployed as device/rockchip/rk3399)
 ├── hal/               → HAL wrappers / shims for the legacy vendor blobs
 ├── rom/               → ROM-level config, sepolicy overlays, packaging recipes
 ├── scripts/           → build / flash / device-inspection helper scripts
-│   └── probe.sh        run it on the SD card; writes probe.md next to itself (no adb/root needed)
+│   ├── probe.sh          run it on the SD card; writes probe.md next to itself (no adb/root)
+│   ├── deploy_device.sh  copies the device tree into a LineageOS checkout
+│   ├── prebuilt_vendor.sh builds vendor.img from the Daisaita vendor image + our overlays
+│   ├── repartition_gpt.sh builds the new GPT blobs with sgdisk
+│   └── upload_server.py / upload_client.sh  LAN endpoint the unit reports to
 ```
 
 The payload itself (`update.zip`, 1.2 GB, and its extracted copy) is the **unaltered reference
@@ -67,11 +78,19 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
 
 - Phase 0 (firmware inventory): **done** — `docs/firmware-analysis.md`.
 - Phase 1 (feasibility): **done** — `docs/feasibility.md`; Android 14 is the ceiling, framework-only upgrade path chosen.
-- Design decisions D1-D8: **answered** - `docs/decisions.md`. D8: shrink `userdata` to 49.84 GiB, grow `super` to 8 GiB. Factory reset / losing apps during upgrade is fine; only bricking is unacceptable.
+- Design decisions D1-D10: **answered** - `docs/decisions.md`. D8/D10: shrink `userdata` to 49.84 GiB,
+  grow `super` to 8 GiB, install via SD/USB stick handed to recovery. Factory reset / losing apps
+  during upgrade is fine; only bricking is unacceptable.
 - M1 (live-unit data): **mostly done** via Termux + `allinone.sh` over LAN - see
   `docs/head-unit-findings.md`. The unit reports a `userdebug/test-keys` Android 10 build (patch
   level 2020-05-05), `super` = 3.04 GiB with ~730 MB free, kernel 4.19.111 with `/proc/config.gz`,
-  SELinux enforcing, and a **USB Realtek RTL8188E WiFi adapter** (2.4 GHz silicon). Its vendor HAL
+  SELinux Permissive (`getenforce` in the latest probe), and a **USB Realtek RTL8188E WiFi adapter**
+  (2.4 GHz silicon). Its vendor HAL
   surface matches the reference payload except three undeclared HALs; blob hashes land in the next report.
-- Next: finish M1 (vendor blob hashes, `iw`, dumpsys, `su` result), then M2b (repartition: super
-  8 GiB / userdata 49.84 GiB - D8 decided), M2 (Lineage 21 tree), M3 (framework-only boot test).
+- M2 (LineageOS 21 tree): **in progress** - shallow source sync on the NAS (`docs/build-host.md`),
+  device tree in `device/rk3399-px6-hct4/` deployed as `device/rockchip/rk3399`, and the prebuilt
+  vendor/kernel pipeline works (`scripts/prebuilt_vendor.sh` -> `vendor/hct4/vendor.img` +
+  `prebuilt/kernel_a11`). First `make` runs as unit `los-build3` once the sync lands.
+- Next: M2b (repartition: super 8 GiB / userdata 49.84 GiB - D8 decided; `docs/repartition.md` +
+  `docs/flash.md` for the Boot-ADB first flash), then M3 (framework-only boot test). The unit still
+  needs one more `sh allinone.sh` run so `analysis/hu_partition_offsets.txt` holds the real LBAs.

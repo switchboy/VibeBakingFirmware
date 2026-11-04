@@ -95,10 +95,12 @@ Order of operations (each step has a rollback):
    uploaded over LAN. Those hold the settings that are *not* trivially reproducible (steering-wheel
    key mapping from HCTWheelStudy, radio/DAB station list, DSP/EQ presets, camera calibration), so a
    restore beats recalibrating by hand.
-3. Write the new GPT (`sgpt`/`parted`, root shell) keeping p1-p13 byte-identical, then
-   `mkfs.f2fs` on the new userdata. Verify with sysfs sizes before flashing anything else.
-4. Rebuild the super metadata + `dynamic_partitions_op_list` for the new group (`scripts/super_layout.py`,
-   to be written) so Android sees a 8 GiB group.
+3. Write the new GPT (`scripts/repartition_gpt.sh` builds `gpt_head.bin`/`gpt_tail.bin` with
+   `sgdisk`; `docs/repartition.md` has the dd sequence) keeping p1-p13 byte-identical, then format
+   the new userdata. Verify with sysfs sizes before flashing anything else.
+4. The build produces `super.img` with its own metadata + `dynamic_partitions_op_list` sized for the
+   new group, so no separate super-layout tool is needed; `BOARD_SUPER_PARTITION_SIZE` must match the
+   size `sgdisk` actually wrote (the script prints both values to paste into `BoardConfig.mk`).
 5. Only then run M3's framework-only flash.
 
 Delivery of the install package (D10): the zip goes on the SD/USB stick and an updater app hands it

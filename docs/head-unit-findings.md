@@ -57,9 +57,10 @@ first.
   config is known. This is the base for a rebuilt kernel.
 - `CONFIG_SECURITY_SELINUX=y`, `CONFIG_SECURITY_SELINUX_DEVELOP=y`,
   **`# CONFIG_SECURITY_SELINUX_BOOTPARAM is not set`** — `androidboot.selinux=permissive` on the
-  kernel command line does *not* work on this kernel. SELinux is enforcing (the app sandbox cannot
-  even list `/system/bin`). With root you can still flip `/sys/fs/selinux/enforce` to 0 during
-  bring-up, because `DEVELOP` is enabled — handy for debugging our sepolicy, never at release.
+  kernel command line does *not* work on this kernel. But the running state is **Permissive** (the
+  latest probe's `getenforce` says so; the BSP init flips it after boot). The app sandbox still
+  cannot list `/system/bin`, and with root you can toggle `/sys/fs/selinux/enforce` during bring-up,
+  because `DEVELOP` is enabled — handy for debugging our sepolicy, never at release.
 - `CONFIG_AUDITSYSCALL` off, `CONFIG_SECURITY_PERF_EVENTS_RESTRICT=y`, `LSM_MMAP_MIN_ADDR=4096`.
 - WiFi: `CONFIG_CFG80211=y`, `CONFIG_MAC80211=y`, `# CONFIG_CFG80211_WEXT is not set` (wpa_supplicant
   must use nl80211), `# CONFIG_MAC80211_RC_MINSTREL_VHT is not set`,

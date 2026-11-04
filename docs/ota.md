@@ -34,10 +34,20 @@ make dist && python3 build/make/tools/releasetools/ota_from_target_files.py \
      --block -b out/dist/target_files.zip lineage_rk3399-ota.zip
 ```
 
+## Changing super's size without a full rebuild
+
+`BOARD_SUPER_PARTITION_SIZE` has to match the partition `sgdisk` actually wrote (see
+`docs/repartition.md` - alignment can shave a few hundred KiB). If the number changes after the
+first build, paste the new value into `device/rk3399-px6-hct4/BoardConfig.mk` and run
+
+    make superimage -j4      # re-stages system/vendor/product/system_ext/odm into super.img
+
+That reuses the compiled partitions, so it takes minutes, not hours. The OTA zip must be rebuilt
+afterwards too (`make otapackage`) because it carries the resize rules.
+
 ## Applying it on the unit
 
-1. Copy the zip to the SD/USB stick (`/sdcard/download/` or the HCT storage path).
-2. An app hands it to recovery with `RecoverySystem.installPackage(context, uri, false, true)`.
+1. Copy the zip to the SD/USB stick (`/sdcard/download/` or the HCT storage path).2. An app hands it to recovery with `RecoverySystem.installPackage(context, uri, false, true)`.
    That is exactly how the LineageOS Updater app installs from local storage, so no TWRP and no
    "apply from SD card" menu is required - AOSP/LOS recovery has no such menu.
 3. Recovery boots, update_engine applies the logical partitions, reboot.
