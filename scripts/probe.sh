@@ -39,6 +39,14 @@ need_root() { printf '\n```\n(skipped: needs root)\n```\n' >> "$OUT"; }
 
 { echo "# PX6 head unit probe — $(date 2>/dev/null || echo unknown time)"; echo "root: $ROOT"; } >> "$OUT"
 
+sec "Tool availability (explains later failures)"
+printf '```\n' >> "$OUT"
+for t in getprop dumpsys pm ps lsmod iw blockdev df mount ls grep awk sed toybox su magisk; do
+  printf '%-10s %s\n' "$t" "$(command -v "$t" || echo missing)" >> "$OUT"
+done
+printf '%-10s %s\n' "ls -Z" "$(ls -Z /dev/null >/dev/null 2>&1 && echo supported || echo unsupported)" >> "$OUT"
+printf '```\n' >> "$OUT"
+
 sec "Identity"
 cmd getprop ro.build.fingerprint
 cmd getprop ro.build.version.release
@@ -165,5 +173,16 @@ if [ "$ROOT" = 1 ]; then
 else
   printf '\nMost partition sizes and kernel config above failed without root. Run as root if your firmware has a root terminal.\n' >> "$OUT"
 fi
+
+sec "Reading this report"
+cat >> "$OUT" <<'EOF'
+- Sections that fail are expected on a phone or a non-rooted unit: `/dev/mtc*`, `/dev/ttyV*`,
+  `/dev/goc_serial`, `/init.hct.rc`, `/proc/bluetooth/sleep/btwrite`, `blockdev --getsize64
+  /dev/block/by-name/*`, `iw`, `dmesg`, `magisk` do not exist there.
+- The sections that matter most on the head unit: Kernel, Storage layout, VINTF / HAL surface,
+  Head-unit control plane, WiFi / Bluetooth radio.
+- On a phone this report still tells us: Android version, SELinux mode, whether `ls -Z`/toybox
+  features work, and which commands are missing in the unit's shell environment.
+EOF
 
 echo "report written to $OUT"
