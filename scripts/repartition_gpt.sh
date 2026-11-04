@@ -34,7 +34,7 @@ mkdir -p "$OUT"
 IMG="$OUT/disk.img"
 truncate -s "$disk_bytes" "$IMG"
 
-args=(--clear)
+args=(--clear -a 0)
 super_first=$(grep '^mmcblk2p14 ' "$OFF" | awk '{print $2}')
 super_last=$(grep '^mmcblk2p14 ' "$OFF" | awk '{print $3}')
 user_first=$(grep '^mmcblk2p15 ' "$OFF" | awk '{print $2}')
