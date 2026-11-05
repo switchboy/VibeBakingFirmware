@@ -129,8 +129,8 @@ down, DNS lookups fail here (UDP 53 dropped, TCP 53 refused, HTTPS fine).
 
 Owner's load policy, implemented in `/srv/dev-disk-by-label-SSData/aospbuild/build_fast.sh`:
 
-- **night (22:00-08:00)**: stop every container **except Pi-hole and Home Assistant**, build `-j12`
-- **daytime (08:00-22:00)**: leave the whole fleet running, build `-j4` (slow, services stay up)
+- **night (22:00-07:00)**: stop every container **except Pi-hole and Home Assistant**, build `-j12`
+- **daytime (07:00-22:00)**: leave the whole fleet running, build `-j4` (slow, services stay up)
 - containers we stopped are listed in `docker_stopped.txt` and restarted by `trap restore_docker EXIT`,
   so they come back on success, on a failed build, and if the unit is killed
 
