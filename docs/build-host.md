@@ -184,7 +184,7 @@ the *build host's* filesystem - it even walked `/sys/kernel/debug/regulator/` an
 "file size changed while zipping" - then exited 18 on files it could not read.
 
 Fix: `patches/releasetools-zip-store-symlinks.patch` adds `-y` (store symlinks as symlinks) to that
-one call. `scripts/apply_tree_patches.sh` applies it to the checkout; `package.sh` runs it before
+one call. `scripts/apply_tree_patches.sh` applies it with `git apply` (GNU patch 2.8 rejects the hunks even though the context matches byte-for-byte); `package.sh` runs it before
 every packaging pass, and `patch --forward` makes it idempotent.
 
 ## Real partition offsets are in the repo
