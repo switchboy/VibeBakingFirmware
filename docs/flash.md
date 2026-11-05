@@ -53,11 +53,13 @@ Then, in order, on-device (`adb shell`):
    dd if=/tmp/gpt_head.bin of=/dev/block/mmcblk2 bs=1 count=17408 conv=notrunc
    dd if=/tmp/gpt_tail.bin of=/dev/block/mmcblk2 bs=1 seek=<disk_bytes-16896> conv=notrunc
    ```
-3. Images:
+3. Images. Before the repartition these numbers are what the unit has (super=p14, boot=p7,
+   recovery=p8); after a new GPT they change, so prefer the names if Boot-ADB exposes
+   `/dev/block/by-name/` (check with `ls /dev/block/by-name/` first):
    ```
-   dd if=/tmp/super.img    of=/dev/block/mmcblk2p14 bs=1M
-   dd if=/tmp/boot.img     of=/dev/block/mmcblk2p7  bs=1M
-   dd if=/tmp/recovery.img of=/dev/block/mmcblk2p8  bs=1M
+   dd if=/tmp/super.img    of=/dev/block/mmcblk2p14 bs=1M    # or by-name/super
+   dd if=/tmp/boot.img     of=/dev/block/mmcblk2p7  bs=1M    # or by-name/boot
+   dd if=/tmp/recovery.img of=/dev/block/mmcblk2p8  bs=1M    # or by-name/recovery
    ```
 4. Power off, reboot, confirm the sizes from sysfs without root (`sh allinone.sh` on the SD
    card does that), then boot into our recovery and wipe data so `userdata` is formatted as f2fs. If

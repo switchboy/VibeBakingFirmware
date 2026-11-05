@@ -156,19 +156,24 @@ Owner wants SD-card installs ("cleanest route"). Consequences:
   update_engine applies the logical partitions. The GPT itself is never touched by an upgrade.
 
 
-## D11 - first flash: repartition first, or flash the current layout? **(open, needs the owner)**
+## D11 - first flash: repartition first, or flash the current layout? **DECIDED: option A (flash the current layout first)**
 
-Both fit on paper, but only one order is safe without a proven rollback:
+Owner picked the safer order: attempt 1 writes only `super.img`/`boot.img`/`recovery.img`, no GPT
+rewrite, and the repartition happens later once Android 14 boots and the Android 10 rollback is proven.
+Consequences now baked into the tree:
 
-- **Option A - flash the current layout first** (recommended): our images total 2,056 MB and the
-  existing 3,263,168,512 B `super` group holds them, so the first flash writes only
-  `super.img`/`boot.img`/`recovery.img` and never touches the GPT. `userdata` keeps its partition and
-  is factory-reset from recovery. If Android 14 misbehaves, the stock Android 10 zip reinstalls into
-  the same table (its group size is exactly 3,258,974,208). Repartitioning to 8 GiB happens later, once
-  the ROM boots and the rollback is verified on this unit.
-- **Option B - repartition in the same session** (D8 as decided): one root session does GPT + images,
-  so there is only one flash procedure to run - but the first attempt combines the risky GPT write with
-  an untested ROM, and the restore path then depends on the saved GPT blobs working.
+- `BoardConfig.mk` uses `BOARD_SUPER_PARTITION_SIZE := 3263168512` with group `3258974208`, verified
+  against the unit's real LBAs (`analysis/hu_partition_offsets.txt`: super = 1,379,328-7,752,703).
+  Our images total 2,056 MB, ~1.2 GB spare. The 8 GiB pair is left there as the commented next step.
+- The repartition stays available: `scripts/repartition_gpt.sh` validated against the real offsets
+  produces super **8,589,410,304** / userdata **53,517,204,992** plus the GPT blobs in
+  `analysis/gpt/`.
+- `sgdisk` re-sorts entries by start sector, so `mmcblk2pN` numbers change after a repartition;
+  on-device steps must use `/dev/block/by-name/*` (`docs/repartition.md`, `docs/flash.md`).
 
-The build supports both: `BoardConfig.mk` holds the 8 GiB numbers plus the commented fallback for the
-untouched table, and `m superimage` re-stages super without a full rebuild (`docs/repartition.md`).
+## D12 - 5 GHz WiFi for wireless CarPlay/Android Auto: **DECIDED: keep the built-in RTL8188E**
+
+Owner declined the dual-band USB dongle (RTL8821CU/RTL8822BU), so wireless CarPlay and wireless
+Android Auto stay out of scope: the built-in module is 2.4 GHz only and `wificountrycode=NL` does not
+change that. Wired CarPlay/Android Auto stay on the parity list. If this changes later, the vendor
+image already ships `8821cu.ko`/`8822bu.ko`, so it is a plug-and-buy change, not a driver port.

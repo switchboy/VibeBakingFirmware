@@ -1,0 +1,18 @@
+diff --git a/build/make/tools/releasetools/non_ab_ota.py b/build/make/tools/releasetools/non_ab_ota.py
+--- a/build/make/tools/releasetools/non_ab_ota.py
++++ b/build/make/tools/releasetools/non_ab_ota.py
+@@ -604,7 +604,12 @@
+     else:
+       OPTIONS.input_tmp = target_file
+       tmpfile = common.MakeTempFile(suffix=".zip")
+       os.unlink(tmpfile)
+       common.RunAndCheckOutput(
+-          ["zip", tmpfile, "-r", ".", "-0"], cwd=target_file)
++          # `-y` stores symlinks instead of following them. The target_files staging tree is
++          # full of absolute/dangling symlinks (/system/etc, /apex/com.android.runtime/lib/bionic/
++          # libc.so, RECOVERY/RAMDISK/d -> /sys/kernel/debug). Info-ZIP follows them by default,
++          # so it reads the build host's own filesystem and aborts with exit code 18
++          # ("Not all files were readable") - which is what killed `m dist` on this tree.
++          ["zip", tmpfile, "-r", ".", "-0", "-y"], cwd=target_file)
+       assert zipfile.is_zipfile(tmpfile)
+       target_file = tmpfile

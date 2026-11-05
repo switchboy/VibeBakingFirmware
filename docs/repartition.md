@@ -1,16 +1,24 @@
 # M2b - repartitioning the eMMC (D8)
 
-Goal: `super` 3,263,168,512 -> **8,589,934,592** B and `userdata` 58,844,495,360 ->
-**53,517,729,280** B, so Android 14 has room (the vendor's Android 11 package needs a 4,890,558,464 B
-group, which does not fit today - that is the flash warning the owner saw).
+Goal: `super` 3,263,168,512 -> **8,589,410,304** B and `userdata` 58,844,495,360 ->
+**53,517,204,992** B, so Android 14 has room (the vendor's Android 11 package needs a 4,890,558,464 B
+group, which does not fit today - that is the flash warning the owner saw). These are the numbers
+`scripts/repartition_gpt.sh` printed from the unit's **real** LBAs
+(`analysis/hu_partition_offsets.txt`, probe 2026-11-05 19:14): asking for a round 8 GiB gives 8,589,410,304
+because sgdisk aligns super's start to a 2048-sector boundary (it moves it 1 MiB later, into the free
+gap after `frp`), and userdata inherits that shift. `BoardConfig.mk` must use the printed values, not
+the requested ones.
 
 ## What the table change does
 
-- `p1..p13` keep their exact LBAs, so uboot/trust/misc/dtb/dtbo/vbmeta/boot/recovery/backup/security/
-  cache/metadata/frp stay byte-identical and the bootloader keeps working.
+- `uboot/trust/misc/dtb/dtbo/vbmeta/boot/recovery/backup/security/cache/metadata/frp` keep their exact
+  LBAs, so their contents stay byte-identical and the bootloader keeps working.
 - `super` grows in place; `userdata` starts later by exactly the growth amount and keeps its last LBA,
-  so the disk's tail reserve (backup GPT area) does not move.
+  so the disk's tail reserve (backup GPT area, 16,896 B) does not move.
 - `userdata` content is discarded by design - the owner accepts a factory reset (D8/D10).
+- `sgdisk` re-sorts the entries by start sector, so the kernel's `mmcblk2pN` numbers change (super is
+  no longer p14, boot is no longer p7). The **names** stay, and init rebuilds `/dev/block/by-name/*`
+  from them - everything on the unit must address partitions by name, never by number.
 
 ## Build the blobs (on the NAS)
 

@@ -93,24 +93,24 @@ BOARD_PREBUILT_DTBIMAGE_DIR := device/rockchip/rk3399/prebuilt/dtb
 BOARD_USE_DYNAMIC_PARTITIONS := true
 BOARD_BUILD_SUPER_IMAGE_BY_DEFAULT := true
 # ---- dynamic partitions (super) -----------------------------------------------
-# Two sizes are possible, and which one to build depends on whether the GPT repartition (D8) has
-# actually been done - p14's size must match this number exactly or super's metadata disagrees with
-# the partition and Android refuses to boot:
+# p14's size must match BOARD_SUPER_PARTITION_SIZE exactly, or super's metadata disagrees with the
+# partition and Android refuses to boot. Two sets are possible:
 #
-#   A. Repartitioned (D8, needs a root/Boot-ADB shell): super = 8 GiB, userdata shrunk to ~49.84 GiB.
-#      scripts/repartition_gpt.sh prints the exact numbers sgdisk wrote; paste them here.
-#   B. GPT untouched (no repartition): p14 stays 3186688 KiB = 3,263,168,512 B, group 3,258,974,208.
+#   B. GPT untouched - CHOSEN for the first flash (D11): p14 stays 3186688 KiB = 3,263,168,512 B.
 #      Our images total ~2.056 GB (system 922.4 + vendor 292.3 + product 456.1 + system_ext 384.7 +
-#      odm 0.8 MB), so they fit with room to spare. This is what the stock Android 10 zip used, so it
-#      is the known-good layout - the safer choice for the *first* flash, and it avoids writing a GPT.
+#      odm 0.8 MB), so they fit with ~1.2 GB spare, and that is exactly the group the stock Android
+#      10 rollback zip uses. The first flash writes super/boot/recovery only - no GPT rewrite.
+#   A. Repartitioned (D8, needs a root/Boot-ADB shell): super = 8 GiB, userdata shrunk to ~49.84 GiB.
+#      scripts/repartition_gpt.sh prints the exact numbers sgdisk wrote; paste them here once the
+#      repartition has actually been applied and the ROM is proven to boot.
 #
-# Whichever is used, re-run `m superimage` (cheap: only re-stages logical partitions, no full build)
-# and re-flash super.img.
-BOARD_SUPER_PARTITION_SIZE := 8589934592
+# Whichever is active, re-run `m superimage` (cheap: only re-stages logical partitions, no full
+# build) and re-flash super.img.
+BOARD_SUPER_PARTITION_SIZE := 3263168512
 BOARD_SUPER_PARTITION_GROUPS := hct_dynamic_partitions
-BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 8585710080    # 8 GiB minus 4 MiB metadata overhead
-# Fallback (GPT untouched): BOARD_SUPER_PARTITION_SIZE := 3263168512
-#                         BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 3258974208
+BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 3258974208    # super minus 4 MiB metadata overhead
+# After the repartition (D8): BOARD_SUPER_PARTITION_SIZE := 8589934592
+#                            BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 8585710080
 BOARD_HCT_DYNAMIC_PARTITIONS_PARTITION_LIST := system vendor product system_ext odm
 
 # ---- filesystem ---------------------------------------------------------------

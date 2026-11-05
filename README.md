@@ -92,8 +92,12 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
   vendor/kernel pipeline works (`scripts/prebuilt_vendor.sh` -> `vendor/hct4/vendor.img` +
   `prebuilt/kernel_a11`). `m -j4` finished with rc=0 in 45 min (`los-build11`): `super.img` 2.01 GB,
   `system.img` 922 MB, `product.img` 456 MB, `system_ext.img` 385 MB, `odm.img` 811 KB,
-  `vendor.img` 292 MB. Packaging (`los-pack`: boot/recovery/super/dist/otapackage) is running now.
-  What the lunch attempts and the missing boot image exposed is written up in `docs/build-host.md`.
-- Next: M2b (repartition: super 8 GiB / userdata 49.84 GiB - D8 decided; `docs/repartition.md` +
-  `docs/flash.md` for the Boot-ADB first flash), then M3 (framework-only boot test). The unit still
-  needs one more `sh allinone.sh` run so `analysis/hu_partition_offsets.txt` holds the real LBAs.
+  `vendor.img` 292 MB. `boot.img` (32,796,672 B in a 33,554,432 B partition: vendor kernel + Android 14
+  ramdisk + vendor DTB + RSCE logo) and `recovery.img` (43,339,776 B in 100,663,296 B) now build too,
+  and `super.img` is staged for the unit's real 3,263,168,512 B partition. Packaging (`los-pack`:
+  boot/recovery/super/dist/otapackage) reruns until the OTA zip lands; what the lunch attempts, the
+  missing boot image and the zip-symlink failure exposed is written up in `docs/build-host.md`.
+- M2b (repartition): deferred by **D11** - the first flash writes `super`/`boot`/`recovery` into the
+  current table, no GPT rewrite. The real LBAs are captured (`analysis/hu_partition_offsets.txt`) and
+  `scripts/repartition_gpt.sh` validated against them (super 8,589,410,304 / userdata 53,517,204,992).
+  Next is M3: the Boot-ADB first flash per `docs/flash.md`, then the framework-only boot test.

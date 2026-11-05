@@ -68,14 +68,19 @@ sgdisk -v "$IMG" | tail -6
 echo "=== new table ==="
 gdisk -l "$IMG" | sed -n '/Partition table/,$p'
 echo "=== actual table values (sgdisk may shift starts to its alignment) ==="
-s_lb=$(gdisk -l "$IMG" | awk '$1==14 {print $2, $3}')
-u_lb=$(gdisk -l "$IMG" | awk '$1==15 {print $2, $3}')
-[ -n "$s_lb" ] && [ -n "$u_lb" ] || { echo "could not read super/userdata rows"; exit 1; }
-set -- $s_lb; s_first=$1; s_last=$2; super_bytes=$(( (s_last - s_first + 1) * 512 ))
-set -- $u_lb; u_first=$1; u_last=$2; user_bytes=$(( (u_last - u_first + 1) * 512 ))
+# Match by partition NAME, not by row number: sgdisk re-sorts the entries by start sector, so the
+# row indices (and therefore the kernel's mmcblk2pN numbers) change even though the names do not.
+# gdisk's Size column is two fields ("8.0 GiB"), so the name is always the last field.
+s_row=$(gdisk -l "$IMG" | awk '$NF=="super" {print $2, $3}')
+u_row=$(gdisk -l "$IMG" | awk '$NF=="userdata" {print $2, $3}')
+[ -n "$s_row" ] && [ -n "$u_row" ] || { echo "could not read super/userdata rows"; exit 1; }
+set -- $s_row; s_first=$1; s_last=$2; super_bytes=$(( (s_last - s_first + 1) * 512 ))
+set -- $u_row; u_first=$1; u_last=$2; user_bytes=$(( (u_last - u_first + 1) * 512 ))
 old_user=$(( (user_last - user_first + 1) * 512 ))
-printf '  super    %s -> %s bytes (%.2f GiB)\n' "$old_super" "$super_bytes" "$(echo "$super_bytes/1073741824" | bc -l)"
-printf '  userdata %s -> %s bytes (%.2f GiB)\n' "$old_user" "$user_bytes" "$(echo "$user_bytes/1073741824" | bc -l)"
+# awk, not bc: bc prints a locale decimal comma here, which printf rejects as "invalid number".
+awk -v a="$old_super" -v b="$super_bytes" -v c="$old_user" -v d="$user_bytes" \
+  'BEGIN { printf "  super    %d -> %d bytes (%.2f GiB)\n", a, b, b/1073741824;
+           printf "  userdata %d -> %d bytes (%.2f GiB)\n", c, d, d/1073741824 }'
 printf '  disk tail reserve: %s bytes\n' "$(( disk_bytes - (u_last + 1) * 512 ))"
 if [ "$super_bytes" -lt "$SUPER" ]; then
   echo "  note: alignment shrank super by $(( SUPER - super_bytes )) bytes - BoardConfig must use the actual value."
@@ -84,6 +89,10 @@ echo
 echo "paste into device/rk3399-px6-hct4/BoardConfig.mk:"
 echo "  BOARD_SUPER_PARTITION_SIZE := $super_bytes"
 echo "  BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := $(( super_bytes - 4 * 1024 * 1024 ))"
+echo
+echo "The entry order is re-sorted by start sector, so mmcblk2pN numbers change (super is no longer"
+echo "p14, boot is no longer p7). Everything on the unit must address partitions by"
+echo "/dev/block/by-name/<name>, which init builds from the GPT names."
 
 # The two blobs to write: primary GPT (MBR+header+128 entries = 34 LBAs) and backup GPT (33 LBAs).
 dd if="$IMG" of="$OUT/gpt_head.bin" bs=1 count=17408 status=none

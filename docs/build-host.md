@@ -171,6 +171,32 @@ of trap applies to any property main.mk derives from a `TARGET_*` variable.
 *definedness*, so writing `BOARD_INCLUDE_RECOVERY_DTBO := false` still emits the flag with an empty
 argument. The fix is to not declare the variable at all - it is now commented out in `BoardConfig.mk`.
 
+### `m dist` aborted inside the non-A/B OTA step: zip followed the staging symlinks
+
+`m dist` also builds the OTA package, and it failed with
+`common.ExternalError: Failed to run command '['zip', ..., '-r', '.', '-0']' (exit code 18)` plus
+`zip warning: Not all files were readable`. Android 14's `build-ota-package-target` hands
+`ota_from_target_files` the **target_files directory** (not the zip), and
+`build/make/tools/releasetools/non_ab_ota.py` re-zips it with Info-ZIP, which follows symlinks by
+default. The staging tree is full of absolute/dangling symlinks (`SYSTEM/bin/linker ->
+/apex/com.android.runtime/bin/linker`, `RECOVERY/RAMDISK/d -> /sys/kernel/debug`, ...), so zip read
+the *build host's* filesystem - it even walked `/sys/kernel/debug/regulator/` and warned
+"file size changed while zipping" - then exited 18 on files it could not read.
+
+Fix: `patches/releasetools-zip-store-symlinks.patch` adds `-y` (store symlinks as symlinks) to that
+one call. `scripts/apply_tree_patches.sh` applies it to the checkout; `package.sh` runs it before
+every packaging pass, and `patch --forward` makes it idempotent.
+
+## Real partition offsets are in the repo
+
+`analysis/hu_partition_offsets.txt` (probe 2026-11-05 19:14, sysfs, no root) holds the unit's actual
+LBAs: disk 122,683,392 sectors (62,813,896,704 B), `super` 1,379,328-7,752,703 = **3,263,168,512 B**,
+`userdata` 7,752,704-122,683,358 = 58,844,495,360 B, boot = 33,554,432 B, recovery = 100,663,296 B.
+Those match `BoardConfig.mk` exactly, which confirms the no-repartition layout (D11 option A).
+`scripts/repartition_gpt.sh` now validates against these LBAs and prints the values the repartition
+would really produce: super **8,589,410,304**, userdata **53,517,204,992** (sgdisk's 2048-sector
+alignment costs 524,288 B of the round 8 GiB).
+
 ## fstab form for Android 14
 
 `fstab.rk30board` now uses the Android 14 layout (`device/generic/goldfish/board/fstab/arm64` is the
@@ -224,7 +250,7 @@ Fix: run the build with `HOME=/tmp` (inside the sandbox that is the writable tmp
 | `los-build7`/`los-build8` | night full-blast builds; `los-build8` reached 97% of 143,745 steps before the `build-manifest` sandbox failure | `lineage21s/build.log` |
 | `los-build9` | daytime run per the owner's policy: fleet stays up, `m -j4`, resumes from the 97% cache | `lineage21s/build.log`, `docker_stopped.txt` |
 | `los-build11` | daytime `m -j4`, **build succeeded** (45 min, rc=0, docker untouched) | `lineage21s/build.log` |
-| `los-pack` | `package.sh`: device tree + vendor re-deploy, then `m bootimage`, `m recoveryimage`, `m superimage`, `m dist`, `m otapackage` (docker stays up, `-j4`) | `lineage21s/package.log` |
+| `los-pack4` | `package.sh`: patches + device tree + vendor re-deploy, then `m bootimage`, `m recoveryimage`, `m superimage`, `m dist`, `m otapackage` (docker stays up, `-j4`). boot/recovery/super built; `m dist` stopped at the OTA zip until the zip-symlink patch landed | `lineage21s/package.log` |
 
 
 `HOME`/`GOCACHE`/`TMPDIR` must be set explicitly for any AOSP build started from systemd; without them
