@@ -28,4 +28,13 @@ if [ "$missing" = 1 ]; then
   exit 1
 fi
 
+# BoardConfig.mk points at files that are not in device.mk. mkbootimg/lpmake fail late, so check:
+#   dtb dir must hold exactly one .dtb (the rule copies the wildcard), boot/recovery need `second`,
+#   and the prebuilt vendor image + kernel come from scripts/prebuilt_vendor.sh.
+dtb_count=$(find "$DEST/prebuilt/dtb" -name '*.dtb' 2>/dev/null | wc -l)
+[ "$dtb_count" = 1 ] || { echo "  ! need exactly 1 .dtb in $DEST/prebuilt/dtb (found $dtb_count)"; exit 1; }
+for f in "$DEST/prebuilt/boot_second_logo.bin" "$TREE/vendor/hct4/vendor.img" "$TREE/vendor/hct4/prebuilt/kernel_a11"; do
+  [ -s "$f" ] || { echo "  ! missing or empty: $f"; exit 1; }
+done
+
 echo "device tree -> $DEST"

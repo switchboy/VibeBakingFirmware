@@ -1,14 +1,32 @@
-# Android fstab for the PX6 HU: eMMC (mmcblk2) with dynamic partitions.
+# Android fstab for the PX6 HU: eMMC (mmcblk2) with dynamic partitions (Android 14 form).
 # init picks this file by ro.hardware (= rk30board, from androidboot.hardware in the
 # bootloader cmdline), so the file must be named fstab.rk30board, not fstab.rk3399.
 #
-# /dev/block/by-name/* symlinks exist on this unit (verified: recovery -> mmcblk2p8).
-# system / vendor / product / system_ext / odm are logical partitions inside `super`,
-# mapped through snapuserd, so only `super` and `userdata` are listed here.
-#<dev>                          <mnt_pt>   <fstype> <flags>
-/dev/block/by-name/super        super      ext4     ro wait,logical,first_stage_ramdisk
-/dev/block/by-name/userdata     /data      f2fs     rw wait,check,quota,casefold,file_encryption=android,resize_limit=1024 checkpoint=enable
+# Android 14's fs_mgr resolves the logical partitions by *name* out of the `super` group, so the
+# <src> column holds partition names (system/vendor/product/system_ext/odm), not block paths -
+# the same form device/generic/goldfish/board/fstab/arm64 uses. /dev/block/by-name/* symlinks are
+# created by init from the GPT partition names (verified on the unit: recovery -> mmcblk2p8).
+#
+# This file is also the recovery fstab (TARGET_RECOVERY_FSTAB in device.mk): recovery mounts the
+# same set, then update_engine patches the logical partitions inside super.
+#<dev>                 <mnt_pt>     <fstype> <mnt_flags + options>                                       <fs_mgr_flags>
+system     /system      ext4  ro,barrier=1      wait,logical,first_stage_mount
+vendor     /vendor      ext4  ro,barrier=1      wait,logical,first_stage_mount
+product    /product     ext4  ro,barrier=1      wait,logical,first_stage_mount
+system_ext /system_ext  ext4  ro,barrier=1      wait,logical,first_stage_mount
+odm        /odm         ext4  ro,barrier=1      wait,logical,first_stage_mount
 
-# USB sticks on the onboard hub (0424:2514) are picked up by StorageManager's uevent
-# listener on Android 14; no fstab entry is needed. The DAB tuner dongle (16c0:05dc) is
-# not a block device and is handled by its own driver.
+# metadata (mmcblk2p12, 16 MiB): update_engine's OTA metadata + vold's metadata-encryption key.
+/dev/block/by-name/metadata /metadata ext4 noatime,nosuid,nodev wait,formattable,first_stage_mount
+
+# cache (mmcblk2p11, 384 MiB): recovery writes its log here and update_engine keeps its non-A/B
+# state; the HCT apps do not use it.
+/dev/block/by-name/cache    /cache    ext4 noatime,nosuid,nodev wait,formattable
+
+# userdata (mmcblk2p15). checkpoint=enable gives the non-A/B OTA a rollback path; casefold+quota
+# are formatted fresh after the M2b repartition, so existing fs features are not a constraint.
+/dev/block/by-name/userdata /data     f2fs  noatime,nosuid,nodev wait,check,quota,casefold,fileencryption=aes-256-xts:aes-256-cts,keydirectory=/metadata/vold/metadata_encryption,reservedsize=128M,checkpoint=enable
+
+# USB sticks on the onboard hub (0424:2514) are picked up by StorageManager's uevent listener on
+# Android 14; no fstab entry is needed. The DAB tuner dongle (16c0:05dc) is not a block device and
+# is handled by its own driver. The HU has no internal SD slot, so there is no voldmanaged entry.

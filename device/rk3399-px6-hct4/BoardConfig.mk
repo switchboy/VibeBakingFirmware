@@ -45,21 +45,40 @@ TARGET_USES_ION := false
 # CONFIG_MALI_MIDGARD=y built-in (so /dev/mali needs no .ko). Its vermagic also matches the
 # vendor module set (WiFi 5 GHz chips + usb_f_iap.ko for CarPlay).
 TARGET_PREBUILT_KERNEL := vendor/hct4/prebuilt/kernel_a11
-BOARD_KERNEL_BASE := 0x10000000
 BOARD_KERNEL_PAGESIZE := 2048
-BOARD_KERNEL_OFFSET := 0x00008000
-BOARD_RAMDISK_OFFSET := 0x01000000
-BOARD_SECOND_OFFSET := 0x00f00000
-BOARD_TAGS_OFFSET := 0x00000100
+BOARD_KERNEL_BASE := 0x00000000
 BOARD_KERNEL_CMDLINE := console=ttyFIQ0 androidboot.baseband=N/A androidboot.wificountrycode=NL androidboot.veritymode=disabled androidboot.hardware=rk30board androidboot.console=ttyFIQ0 androidboot.verifiedbootstate=orange firmware_class.path=/vendor/etc/firmware init=/init rootwait ro loop.max_part=7 androidboot.selinux=permissive buildvariant=userdebug
 # wificountrycode=NL, not the vendor default CN: CN marks channels 12/13 "no IR" and 14
 # disabled, which is exactly the 2.4 GHz-only behaviour we measured on the unit.
 
 # ---- boot / recovery ----------------------------------------------------------
+# Partition sizes taken from the live unit's /proc/partitions: boot = 32768 KiB (mmcblk2p7),
+# recovery = 98304 KiB (mmcblk2p8). Without these the build emits no boot.img/recovery.img at all
+# (build/make/core/Makefile:1282 gates the boot image on BOARD_BOOTIMAGE_PARTITION_SIZE).
+BOARD_BOOTIMAGE_PARTITION_SIZE := 33554432
+BOARD_RECOVERYIMAGE_PARTITION_SIZE := 100663296
+BOARD_FLASH_BLOCK_SIZE := 512
 BOARD_BOOT_HEADER_VERSION := 2
-BOARD_INCLUDE_DTB_IN_BOOTIMG := false     # the vendor uboot supplies the DTB itself
 BOARD_USES_RECOVERY_AS_BOOT := false      # the HU has its own recovery partition (mmcblk2p8)
 BOARD_INCLUDE_RECOVERY_DTBO := false
+
+# Load addresses are read straight from the vendor's working boot.img (unpack_bootimg on
+# analysis/daisaita_a11/boot/boot.img), so the vendor u-boot loads our image the same way:
+#   kernel 0x10008000  ramdisk 0x11000000  second 0x10f00000  tags 0x10000100  dtb 0x11f00000
+# The Makefile only passes --base/--pagesize/--cmdline; every offset has to come from here.
+BOARD_MKBOOTIMG_ARGS := --kernel_offset 0x10008000 \
+                        --ramdisk_offset 0x11000000 \
+                        --second_offset 0x10f00000 \
+                        --tags_offset 0x10000100 \
+                        --dtb_offset 0x0000000011f00000 \
+                        --second device/rockchip/rk3399/prebuilt/boot_second_logo.bin
+
+# The vendor u-boot expects the DTB inside boot.img (the A11 boot.img embeds it; there is no
+# separate dtb load step on this board's boot path). `second` is the Rockchip RSCE boot logo,
+# which is what the vendor boot.img carries in the second-stage field - no `logo` partition exists
+# on this unit, so keeping it preserves the boot animation.
+BOARD_INCLUDE_DTB_IN_BOOTIMG := true
+BOARD_PREBUILT_DTBIMAGE_DIR := device/rockchip/rk3399/prebuilt/dtb
 
 # ---- dynamic partitions (decision D8: super 8 GiB, userdata 49.84 GiB) --------
 BOARD_USE_DYNAMIC_PARTITIONS := true
@@ -75,6 +94,10 @@ BOARD_HCT_DYNAMIC_PARTITIONS_PARTITION_LIST := system vendor product system_ext 
 BOARD_USES_METADATA_PARTITION := false
 
 # ---- filesystem ---------------------------------------------------------------
+# The HU has a 16 MiB `metadata` partition (mmcblk2p12, mounted at /metadata on the stock
+# firmware). update_engine and vold use it (OTA metadata + /metadata/vold/metadata_encryption),
+# and the OTA's wipe step erases it, so declare it.
+BOARD_USES_METADATA_PARTITION := true
 BOARD_SYSTEMIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_SYSTEM_EXTIMAGE_FILE_SYSTEM_TYPE := ext4
 BOARD_PRODUCTIMAGE_FILE_SYSTEM_TYPE := ext4

@@ -11,6 +11,11 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_DIR)/configs/init.hu.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hu.rc \
     $(LOCAL_DIR)/configs/hu_insmod.sh:$(TARGET_COPY_OUT_VENDOR)/etc/hu_insmod.sh
 
+# ---- recovery -----------------------------------------------------------------
+# Recovery mounts the same partition set as init, so it uses the same fstab. The path is spelled
+# out: kati's LOCAL_DIR inside an inherited .mk is the AndroidProducts.mk directory, not this file's.
+TARGET_RECOVERY_FSTAB := device/rockchip/rk3399/fstab.rk30board
+
 # ---- framework-facing features ------------------------------------------------
 # Without these the HCT apps refuse to run (GPS, tuner, AV-in, USB sticks). Each path is checked
 # against the checkout by scripts/deploy_device.sh: `android.hardware.camera.any.xml` and
