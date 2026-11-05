@@ -1,16 +1,14 @@
 diff --git a/build/make/core/Makefile b/build/make/core/Makefile
 --- a/build/make/core/Makefile
 +++ b/build/make/core/Makefile
-@@ -6934,14 +6934,17 @@
- # OTA update package
- 
-+# Pass the target_files *zip* to ota_from_target_files, not the unpacked staging directory.
-+# Android 14 strips the .zip here (via $(patsubst %.zip,%)), so the recipe hands over the
-+# staging dir; non_ab_ota.py then re-zips that dir with Info-ZIP, which follows the tree's
-+# absolute/dangling symlinks and reads the build host's own filesystem. Passing the zip makes
-+# ota_from_target_files unzip only META/IMAGES/OTA - the path release builds take.
+@@ -6936,12 +6936,17 @@
  # $(1): output file
  # $(2): additional args
++# Pass the target_files *zip* to ota_from_target_files, not the unpacked staging directory.
++# Android 14 strips the .zip here with $(patsubst %.zip,%), so the recipe hands over the staging
++# dir; non_ab_ota.py then re-zips that dir with Info-ZIP, which follows the tree's absolute and
++# dangling symlinks and reads the build host's own filesystem. Passing the zip makes
++# ota_from_target_files unzip only META/IMAGES/OTA - the path a release build takes.
  define build-ota-package-target
  PATH=$(INTERNAL_USERIMAGES_BINARY_PATHS):$(dir $(ZIP2ZIP)):$$PATH \
      $(OTA_FROM_TARGET_FILES) \
