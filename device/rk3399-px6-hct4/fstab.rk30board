@@ -23,6 +23,16 @@ odm        /odm         ext4  ro,barrier=1      wait,logical,first_stage_mount
 # state; the HCT apps do not use it.
 /dev/block/by-name/cache    /cache    ext4 noatime,nosuid,nodev wait,formattable
 
+# boot (mmcblk2p7), recovery (mmcblk2p8) and misc (mmcblk2p13) are raw partitions: `emmc` means
+# "read/write the whole partition as a blob", fs_mgr never tries to mount them. They are needed by
+# the OTA packer as well: releasetools/common.py CheckSize() looks up info_dict["fstab"]["/recovery"]
+# (and "/boot") to compare the image against boot_size/recovery_size, and non_ab_ota.py reads
+# fstab["/misc"] for the boot-control-block device. Without these rows `m dist` died with
+# KeyError: '/recovery'.
+/dev/block/by-name/boot     /boot     emmc defaults defaults
+/dev/block/by-name/recovery /recovery emmc defaults defaults
+/dev/block/by-name/misc     /misc     emmc defaults defaults
+
 # userdata (mmcblk2p15). checkpoint=enable gives the non-A/B OTA a rollback path; casefold+quota
 # are formatted fresh after the M2b repartition, so existing fs features are not a constraint.
 /dev/block/by-name/userdata /data     f2fs  noatime,nosuid,nodev wait,check,quota,casefold,fileencryption=aes-256-xts:aes-256-cts,keydirectory=/metadata/vold/metadata_encryption,reservedsize=128M,checkpoint=enable
