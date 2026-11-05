@@ -20,3 +20,14 @@ diff --git a/build/make/core/Makefile b/build/make/core/Makefile
 -        $(patsubst %.zip,%,$(BUILT_TARGET_FILES_PACKAGE)) $(1)
 +        $(BUILT_TARGET_FILES_PACKAGE) $(1)
  endef
+@@ -6975,5 +6980,8 @@
+ $(INTERNAL_OTA_PACKAGE_TARGET): KEY_CERT_PAIR := $(DEFAULT_KEY_CERT_PAIR)
+ $(INTERNAL_OTA_PACKAGE_TARGET): .KATI_IMPLICIT_OUTPUTS := $(INTERNAL_OTA_METADATA)
++# The recipe now reads the target_files zip, so the zip has to be a real dependency:
++# $(BUILT_TARGET_FILES_DIR) only guarantees the staged directory (add_img_to_target_files runs on
++# the dir, SOONG_ZIP builds the zip from the dir's file list afterwards). Without this, `m dist`
++# starts Package OTA while SOONG_ZIP is still writing the zip, and zipfile.is_zipfile() fails.
+-$(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_DIR) $(OTA_FROM_TARGET_FILES) $(INTERNAL_OTATOOLS_FILES)
++$(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(OTA_FROM_TARGET_FILES) $(INTERNAL_OTATOOLS_FILES)
+ 	@echo "Package OTA: $@"
+ 	$(call build-ota-package-target,$@,-k $(KEY_CERT_PAIR) --output_metadata_path $(INTERNAL_OTA_METADATA))
