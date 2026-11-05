@@ -6,10 +6,10 @@
 
 | image | goes to | note |
 |---|---|---|
-| `super.img` | partition `super` (p14) | contains system/vendor/product/system_ext/odm as logical partitions; vendor is the prebuilt A11 image |
-| `boot.img` | partition `boot` (p7) | header v2, our overlaid kernel, ramdisk with init |
-| `recovery.img` | partition `recovery` (p8) | update_engine lives here; this is what applies an OTA |
-| `dtbo.img`, `vbmeta.img` | p5, p6 | keep the vendor originals unless we change them |
+| `super.img` | partition `super` | contains system/vendor/product/system_ext/odm as logical partitions; vendor is the prebuilt A11 image. Sparse, so the pushed file is ~2.0 GB while the partition is 3,263,168,512 B |
+| `boot.img` | partition `boot` | header v2: our overlaid kernel, Android 14 ramdisk, the vendor DTB and the RSCE logo as `second` |
+| `recovery.img` | partition `recovery` | update_engine lives here; this is what applies an OTA |
+| `dtbo.img`, `vbmeta.img` | not built, not flashed | we do not build either, so their current content stays (`verifiedbootstate=orange`) |
 
 For an upgrade you only need the logical partitions, and `update_engine` gets them from the OTA zip.
 
@@ -18,8 +18,11 @@ For an upgrade you only need the logical partitions, and `update_engine` gets th
 ```
 m -j4
 m dist
-m otapackage -j4          # -> out/target/product/rk3399/lineage_rk3399-*.zip
+m otapackage -j4          # -> out/target/product/rk3399/lineage_rk3399-ota.zip
 ```
+`m dist` runs the non-A/B OTA packaging, so `scripts/apply_tree_patches.sh` must have been applied
+first (`patches/releasetools-zip-store-symlinks.patch`, see `docs/build-host.md`) - otherwise zip
+follows the staging tree's symlinks into the host filesystem and exits 18.
 This tree has no root `Makefile` (the manifest builds symlinks instead), so bare `make` fails with
 "No targets specified and no makefile found". `source build/envsetup.sh` provides `m`, which calls
 `soong_ui --make-mode`; use `m` for every build target.
@@ -67,5 +70,6 @@ Fallback when no app is available yet: `adb sideload` from the NAS over the OTG 
 ## First install (before our recovery exists)
 
 The very first `boot`/`recovery`/`super` write cannot come from an OTA - it needs the Rockchip flash
-path (Loader/Boot-ADB mode). See `docs/repartition.md` for the GPT blobs and the dd sequence; both
-use the same root shell.
+path (Loader/Boot-ADB mode). Per D11 that first flash keeps the partition table as it is, so the GPT
+blobs in `analysis/gpt/` stay unused until the repartition (D8) is applied later; see `docs/flash.md`
+for the dd sequence and `docs/repartition.md` for the table change itself.
