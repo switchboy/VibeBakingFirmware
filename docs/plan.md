@@ -118,10 +118,15 @@ learning (`HCTWheelStudy`), AV-in camera calibration, DSP/EQ presets, clock + re
 ship defaults, so the unit is usable immediately after setup; only the calibration items above need
 doing by hand, and that is why the optional `/data/data` tar (step 2) is worth taking when `su` works.
 ### M3 — boot test (framework-only flash)
+The image we flash first is deliberately **plain LineageOS + the prebuilt vendor image**: it carries
+our fstab/ueventd/init overlays and the framework feature XMLs, but **no HCT apps** (they live in the
+stock `system` partition, which our build replaces wholesale). Purpose is boot + HAL plumbing, not
+feature parity.
 1. Backup done in M2b (partition dump + userdata content + current zip). Re-verify it reads back before flashing.
 2. Build a test zip that only replaces `system`, `product`, `odm` (+ our shims) and `boot.img`.
-3. Boot acceptance: `sys.boot_completed=1`, SurfaceFlinger up, `audioserver` up, `keystore2` up,
-   HCT apps still usable (radio, AMP/EQ, AV-in, back-view, BT phone, GPS, CarPlay).
+3. Boot acceptance: `sys.boot_completed=1`, SurfaceFlinger up, `audioserver` up, `keystore2` up, and
+   the hardware reachable from the framework (tuner/AMP nodes, CAN/MTC, GPS, BT, AV-in paths).
+   App-level feature parity is checked in M10, once the HCT apps are in the image.
    Failure modes to watch: vendor ramdisk missing, libion absent, hwc2 adapter absent, VINTF mismatch.
 
 ### M4 — Android 14 vendor-side gaps (the "wrapper" work in `hal/`)
@@ -175,13 +180,40 @@ change can create 5 GHz on that chip.
   (`iw list`, `WifiCapabilities`) or Android hides the AP list.
 - `CONFIG_MAC80211_RC_MINSTREL_VHT` is off in the shipped config: 5 GHz works but VHT rate control
   is not tuned, so throughput is lower; that is a kernel-config item if we rebuild.
-Fallback if no hardware swap: wired CarPlay/AA only (works today). Side-track, not a blocker.
+Fallback if no hardware swap: wired CarPlay/AA only (works today). **D12: the owner declined the
+dongle for now**, so wireless CarPlay/AA is out of scope; the swap stays documented as the one-line
+fix if that changes.
+
+### M10 - HCT app layer + optional GApps (capacity)
+The stock app layer is 11 HCT apps (`system/app/HCT4BlueTooth`, `HCT4BtMusic`, `HCT4FileBrowser`,
+`HCT4Movie`, `HCT4Music`, `HCT4Radio`, `HCT4UsbIpod`, `HCT8AmpSetup`, ...) plus `init.hct.rc`. Their
+APKs are 67.9 MB and 113.4 MB counting the shipped `oat/` blobs (`analysis/system_files.txt`). Our
+build does **not** include them yet - it replaces the whole `system` partition with LineageOS's own,
+so the first image is a boot test, not a feature-parity build. Re-adding them is a `PRODUCT_COPY_FILES`
+/ prebuilt-module step (D6), plus whatever privapp permissions and signature assumptions they need.
+
+Space on the current table (D11 option A): the super group is 3,258,974,208 B and our five logical
+images take 2,056,466,432 B, leaving **1,202,507,776 B (1,147 MiB)** spare. LineageOS 21's
+MindTheGapps arm64 package is 431,524,182 B compressed and lands at roughly 550-650 MB across
+`system`/`product`/`system_ext`. So HCT apps (~113 MB) + full GApps (~600 MB) = ~713 MB fits today with
+~430 MB to spare, and a pico/nano-style subset leaves far more room. After the repartition (super
+group 8,585,216,000 B) the question is moot.
+
+Two caveats before baking GApps in:
+- Sideloading MindTheGapps *after* our OTA asserts against the LineageOS build fingerprint it was
+  built for; our unofficial build has its own fingerprint, so the reliable route is to put the GApps
+  APKs into our own build, not to install the vendor's zip afterwards.
+- Adding content changes each logical partition's size, so the OTA's `dynamic_partitions_op_list` must
+  carry the new sizes (`m otapackage` regenerates it; `m superimage` restages super).
 
 ## Order of work right now
 
-1. Finish M1: vendor blob hashes, `iw`/driver identity, `dumpsys`, `su` result (one more
-   `sh allinone.sh` run).
-2. M2b repartition (backup firmware images first; userdata loss is fine) - gives Android 14 ~4 GiB of headroom.
-3. M2 environment + tree skeleton (needs your go-ahead for the multi-hour Lineage sync).
-4. M3 framework-only boot test on your unit, with the M2b backup as the rollback path.
-5. M4 shims, M5 packaging, then M7/M6; M9 is the WiFi module swap (hardware side-track).
+1. M1 facts: **done** - the probe ran on the unit (`incoming/probe-20261105-1914.md`), and its
+   partition offsets are in `analysis/hu_partition_offsets.txt`.
+2. M2 build: **done on the NAS** - images, boot/recovery images and (in progress) the OTA zip.
+3. M3 first flash through Rockchip Loader/Boot-ADB (`docs/flash.md`): backup head/tail + p1-p13, then
+   `super`/`boot`/`recovery` only - the GPT stays as it is (D11 option A).
+4. M2b repartition **after** Android 14 boots and the Android 10 rollback is proven (`analysis/gpt/`
+   is already built and validated against the real LBAs).
+5. M10 app layer: re-add the HCT apps, decide whether to bake GApps in; then M4 vendor-side gaps,
+   M5 packaging, M7 hardening, M6 kernel rebuild. M9 stays parked (D12).
