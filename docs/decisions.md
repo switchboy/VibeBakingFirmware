@@ -154,3 +154,21 @@ Owner wants SD-card installs ("cleanest route"). Consequences:
   needs Rockchip's flash path (`rkflash` from the NAS in Loader/Boot-ADB mode) - not the SD card.
 - After that, every upgrade is: copy zip to the stick -> updater app -> reboot to recovery ->
   update_engine applies the logical partitions. The GPT itself is never touched by an upgrade.
+
+
+## D11 - first flash: repartition first, or flash the current layout? **(open, needs the owner)**
+
+Both fit on paper, but only one order is safe without a proven rollback:
+
+- **Option A - flash the current layout first** (recommended): our images total 2,056 MB and the
+  existing 3,263,168,512 B `super` group holds them, so the first flash writes only
+  `super.img`/`boot.img`/`recovery.img` and never touches the GPT. `userdata` keeps its partition and
+  is factory-reset from recovery. If Android 14 misbehaves, the stock Android 10 zip reinstalls into
+  the same table (its group size is exactly 3,258,974,208). Repartitioning to 8 GiB happens later, once
+  the ROM boots and the rollback is verified on this unit.
+- **Option B - repartition in the same session** (D8 as decided): one root session does GPT + images,
+  so there is only one flash procedure to run - but the first attempt combines the risky GPT write with
+  an untested ROM, and the restore path then depends on the saved GPT blobs working.
+
+The build supports both: `BoardConfig.mk` holds the 8 GiB numbers plus the commented fallback for the
+untouched table, and `m superimage` re-stages super without a full rebuild (`docs/repartition.md`).

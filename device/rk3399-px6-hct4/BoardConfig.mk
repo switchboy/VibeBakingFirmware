@@ -92,15 +92,26 @@ BOARD_PREBUILT_DTBIMAGE_DIR := device/rockchip/rk3399/prebuilt/dtb
 # ---- dynamic partitions (decision D8: super 8 GiB, userdata 49.84 GiB) --------
 BOARD_USE_DYNAMIC_PARTITIONS := true
 BOARD_BUILD_SUPER_IMAGE_BY_DEFAULT := true
-# Must be exactly the size sgdisk wrote for p14 - alignment can shave a few hundred KiB off the
-# requested 8 GiB, and super's metadata then disagrees with the partition and Android refuses to
-# boot. scripts/repartition_gpt.sh prints both numbers; paste them here and re-run
-# `m superimage` (cheap, only re-stages the logical partitions) - no full rebuild needed.
+# ---- dynamic partitions (super) -----------------------------------------------
+# Two sizes are possible, and which one to build depends on whether the GPT repartition (D8) has
+# actually been done - p14's size must match this number exactly or super's metadata disagrees with
+# the partition and Android refuses to boot:
+#
+#   A. Repartitioned (D8, needs a root/Boot-ADB shell): super = 8 GiB, userdata shrunk to ~49.84 GiB.
+#      scripts/repartition_gpt.sh prints the exact numbers sgdisk wrote; paste them here.
+#   B. GPT untouched (no repartition): p14 stays 3186688 KiB = 3,263,168,512 B, group 3,258,974,208.
+#      Our images total ~2.056 GB (system 922.4 + vendor 292.3 + product 456.1 + system_ext 384.7 +
+#      odm 0.8 MB), so they fit with room to spare. This is what the stock Android 10 zip used, so it
+#      is the known-good layout - the safer choice for the *first* flash, and it avoids writing a GPT.
+#
+# Whichever is used, re-run `m superimage` (cheap: only re-stages logical partitions, no full build)
+# and re-flash super.img.
 BOARD_SUPER_PARTITION_SIZE := 8589934592
 BOARD_SUPER_PARTITION_GROUPS := hct_dynamic_partitions
 BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 8585710080    # 8 GiB minus 4 MiB metadata overhead
+# Fallback (GPT untouched): BOARD_SUPER_PARTITION_SIZE := 3263168512
+#                         BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 3258974208
 BOARD_HCT_DYNAMIC_PARTITIONS_PARTITION_LIST := system vendor product system_ext odm
-BOARD_USES_METADATA_PARTITION := false
 
 # ---- filesystem ---------------------------------------------------------------
 # The HU has a 16 MiB `metadata` partition (mmcblk2p12, mounted at /metadata on the stock

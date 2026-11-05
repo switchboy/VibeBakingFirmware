@@ -46,7 +46,9 @@ Then, in order, on-device (`adb shell`):
    for p in 1 2 3 4 5 6 7 8 9 10 11 12 13; do dd if=/dev/block/mmcblk2p$p of=/tmp/p$p.bin bs=1M; done
    adb pull /tmp/            # copy everything back to the workstation and verify the sizes
    ```
-2. New partition table (see `docs/repartition.md`):
+2. Partition table - **only if you repartition now (D11 option B)**. Keeping the current layout
+   (option A, recommended for the first flash) means skipping this step: build super for
+   3,263,168,512 B (`docs/repartition.md`) and step 3 writes into the existing p14.
    ```
    dd if=/tmp/gpt_head.bin of=/dev/block/mmcblk2 bs=1 count=17408 conv=notrunc
    dd if=/tmp/gpt_tail.bin of=/dev/block/mmcblk2 bs=1 seek=<disk_bytes-16896> conv=notrunc
@@ -57,8 +59,9 @@ Then, in order, on-device (`adb shell`):
    dd if=/tmp/boot.img     of=/dev/block/mmcblk2p7  bs=1M
    dd if=/tmp/recovery.img of=/dev/block/mmcblk2p8  bs=1M
    ```
-4. Power off, reboot, confirm the new sizes from sysfs without root (`sh allinone.sh` on the SD
-   card does that), then boot into our recovery and wipe data so `userdata` is formatted as f2fs.
+4. Power off, reboot, confirm the sizes from sysfs without root (`sh allinone.sh` on the SD
+   card does that), then boot into our recovery and wipe data so `userdata` is formatted as f2fs. If
+   the table was resized, `mkfs.f2fs /dev/block/by-name/userdata` before that wipe.
 
 ## Rollback
 

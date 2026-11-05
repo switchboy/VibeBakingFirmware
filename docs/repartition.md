@@ -39,6 +39,25 @@ The script prints the new table and refuses if super/userdata would overlap.
 
 Nothing in an ordinary upgrade touches the GPT: later updates are logical partitions only (D10).
 
+## Alternative: skip the repartition for the first flash
+
+`super` as it exists today (3,263,168,512 B, group 3,258,974,208) already holds our Android 14
+images: `system` 922.4 MB + `vendor` 292.3 MB + `product` 456.1 MB + `system_ext` 384.7 MB +
+`odm` 0.8 MB = **2,056.4 MB**, ~1.2 GB of headroom. The stock Android 10 rollback zip uses exactly
+that group size, so it is the layout the unit is known to boot from.
+
+That means M2b can be done in two steps instead of one:
+
+| step | writes | risk |
+|---|---|---|
+| **First flash** | `super.img` + `boot.img` + `recovery.img` only, GPT untouched | no GPT rewrite, so a bad image is recoverable by re-flashing; the A10 zip still installs afterwards |
+| **Repartition, later** | GPT head/tail + resized `super.img` + new `userdata` | the risky part, done only once Android 14 boots and the rollback is proven |
+
+To build for the untouched layout, set the commented fallback sizes in `BoardConfig.mk`
+(`BOARD_SUPER_PARTITION_SIZE := 3263168512`, `BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 3258974208`) and
+re-run `m superimage` - no full rebuild. Flashing an 8 GiB `super.img` into the 3.26 GiB partition
+would leave super's metadata claiming a group bigger than the partition, and Android would not boot.
+
 ## Restore path if this goes wrong
 
 Write the saved head/tail blobs back, then re-flash p1-p13 and the old `super` from the backup, or
