@@ -63,6 +63,8 @@ VibeBakingFirmware/
 │   ├── deploy_device.sh  copies the device tree into a LineageOS checkout
 │   ├── prebuilt_vendor.sh builds vendor.img from the Daisaita vendor image + our overlays
 │   ├── repartition_gpt.sh builds the new GPT blobs with sgdisk
+│   ├── apply_tree_patches.sh applies patches/ to the LineageOS checkout (idempotent, git apply)
+│   ├── stage_flash.sh  stages super/boot/recovery (+ sha256) for the Boot-ADB flash, sparse->raw
 │   └── upload_server.py / upload_client.sh  LAN endpoint the unit reports to
 ```
 
@@ -71,8 +73,8 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
 
 ## Tooling used in this environment
 
-`brotli`, `simg2img`, `debugfs`/`dumpe2fs` (read ext4 images without mounting/root),
-`readelf`, `unpack_bootimg`, `strings`, `python3`.
+`brotli`, `simg2img`/`img2simg`, `debugfs`/`dumpe2fs` (read ext4 images without mounting/root),
+`readelf`, `unpack_bootimg`, `sgdisk`/`gdisk`, `strings`, `python3`.
 
 ## Status
 

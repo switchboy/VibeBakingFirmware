@@ -22,14 +22,15 @@ LineageOS recovery yet), so it goes through Rockchip's Loader mode. Everything e
 ## Flashing through Boot-ADB
 
 Boot-ADB is a tiny shell in the loader that can reach the eMMC as block devices, so plain `dd`
-works. Copy the images onto the workstation and push them:
+works. Stage the images first (`scripts/stage_flash.sh <tree> <outdir>` converts `super.img` out of
+Android's sparse format and checks every size against the real partitions), then push:
 
 ```
-adb push analysis/gpt/gpt_head.bin /tmp/
-adb push analysis/gpt/gpt_tail.bin /tmp/
-adb push out/target/product/rk3399/super.img    /tmp/     # ~2.6 GB, push takes a while
-adb push out/target/product/rk3399/boot.img     /tmp/
-adb push out/target/product/rk3399/recovery.img /tmp/
+adb push <outdir>/super.img    /tmp/     # raw, 3,263,168,512 B - the push takes a while
+adb push <outdir>/boot.img     /tmp/
+adb push <outdir>/recovery.img /tmp/
+adb push <outdir>/sha256sums.txt /tmp/   # verify with sha256sum in the loader shell before dd
+# Only when repartitioning (D11 option B): also copy analysis/gpt/gpt_head.bin and gpt_tail.bin.
 ```
 
 `boot.img` carries the vendor kernel, our Android 14 ramdisk, the vendor DTB and the Rockchip RSCE
