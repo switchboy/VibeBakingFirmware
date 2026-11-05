@@ -20,10 +20,11 @@ for f in super.img boot.img recovery.img; do
   cp -a "$SRC/$f" "$OUT/"
 done
 
-# super.img comes out of the build in Android's sparse format (magic 0xED26FF3A). Boot-ADB's `dd`
-# does not understand that - it would write the sparse header onto the eMMC - so convert it to a raw
-# image here. boot.img/recovery.img are already raw (they start with "ANDROID!").
-if [ "$(head -c 4 "$OUT/super.img" | od -An -tx1 | tr -d ' \n')" = "ed26ff3a" ]; then
+# super.img comes out of the build in Android's sparse format (magic 0xED26FF3A, stored little-endian
+# so the first four bytes read 3a ff 26 ed). Boot-ADB's `dd` does not understand that - it would
+# write the sparse header onto the eMMC - so convert it to a raw image here. boot.img/recovery.img
+# are already raw (they start with "ANDROID!").
+if [ "$(head -c 4 "$OUT/super.img" | od -An -tx1 | tr -d ' \n')" = "3aff26ed" ]; then
   if ! command -v simg2img >/dev/null 2>&1; then
     echo "  ! super.img is sparse but simg2img is not installed here (apt install android-simg2img,"
     echo "    or run the conversion on the NAS: out/host/linux-x86/bin/simg2img)"
