@@ -122,23 +122,28 @@ HALs, no SIM).
 
 ## Memory ceiling: docker vs the compile
 
-The NAS has 24 GB RAM and docker already holds ~12 GB. `m -j4` climbed to ~19 GB RSS, so the box
-started swapping hard and SSH stopped answering mid-build ("Connection timed out during banner
-exchange" for ~20 minutes, ping still fine). That also degrades the docker services, so the owner
-decided: **temporarily stop docker during builds and go full blast**, then restart it (night hours,
-nobody using the box).
+The NAS has 24 GB RAM and docker holds ~12 GB. `m -j4` climbed to ~19 GB RSS, so the box swapped
+hard and SSH stopped answering mid-build ("Connection timed out during banner exchange" ~20 min,
+ping still fine). Docker also runs **Pi-hole**, which is this workstation's DNS - while docker is
+down, DNS lookups fail here (UDP 53 dropped, TCP 53 refused, HTTPS fine).
 
-`/srv/dev-disk-by-label-SSData/aospbuild/build_fast.sh` does exactly that and restores it even if the
-build fails or the unit is killed:
+Owner's load policy, implemented in `/srv/dev-disk-by-label-SSData/aospbuild/build_fast.sh`:
 
-- `docker ps --format '{{.Names}}' > docker_running.txt` first, so the restore is the exact set that
-  was running (OMV's docker plugin containers do not come back on their own after a daemon stop)
-- `systemctl stop docker docker.socket`
-- `m -j12` (16 CPUs, ~17 GB free RAM once docker is down)
-- `trap restore_docker EXIT` → `systemctl start docker docker.socket`, then `docker start` each name
-  from the captured list, and prints how many came back
+- **night (22:00-08:00)**: stop every container **except Pi-hole and Home Assistant**, build `-j12`
+- **daytime (08:00-22:00)**: leave the whole fleet running, build `-j4` (slow, services stay up)
+- containers we stopped are listed in `docker_stopped.txt` and restarted by `trap restore_docker EXIT`,
+  so they come back on success, on a failed build, and if the unit is killed
 
 Nothing else on the NAS is touched: no OMV config change, no share change, packages unchanged.
+
+## repo's manifest snapshot inside Soong's sandbox
+
+The build got to 97% and then died on LineageOS's `build-manifest` module
+(`vendor/lineage/config/Android.mk:21`, dist-registered in `common.mk:121`), which runs
+`repo manifest -o - -r`. repo writes `$HOME/.repo_.gitconfig.json`, but Soong's sbox mounts `/`
+read-only, so it failed with `OSError: [Errno 30] Read-only file system: '/root/.repo_.gitconfig.json'`.
+Fix: run the build with `HOME=/tmp` (inside the sandbox that is the writable tmpfs), which is what
+`build_fast.sh` exports.
 
 ## systemd units on the NAS
 
@@ -154,6 +159,8 @@ Nothing else on the NAS is touched: no OMV config change, no share change, packa
 | `los-build3` | build in `lineage21s/` after the sync lands: device tree + vendor deploy, `lunch lineage_rk3399-<release>-userdebug`, `m -j4` | `lineage21s/build.log` |
 | `los-build5` | `m -j4` after the abi fix; swapped hard at ~19 GB RSS while docker held 12 GB, SSH unreachable ~20 min | `lineage21s/build.log` |
 | `los-build6` | `build_fast.sh`: docker stopped, `m -j12`, docker restored on exit (also on failure) | `lineage21s/build.log`, `docker_running.txt` |
+| `los-build7`/`los-build8` | night full-blast builds; `los-build8` reached 97% of 143,745 steps before the `build-manifest` sandbox failure | `lineage21s/build.log` |
+| `los-build9` | daytime run per the owner's policy: fleet stays up, `m -j4`, resumes from the 97% cache | `lineage21s/build.log`, `docker_stopped.txt` |
 
 
 `HOME`/`GOCACHE`/`TMPDIR` must be set explicitly for any AOSP build started from systemd; without them
