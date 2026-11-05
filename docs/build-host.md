@@ -207,6 +207,93 @@ prebuilt, so there is no `VENDOR/` staging directory for `add_img_to_target_file
 They are warnings, but they mean `target_info` has no vendor build props (no
 `ro.product.first_api_level`), which is worth watching if the VINTF/fingerprint checks complain.
 
+### The OTA step kept failing for four separate reasons
+
+`m dist` reached the OTA step in `los-pack9` and then failed four times, each time further than the
+last. All four are now fixed except the vendor one (see below).
+
+1. **`KeyError: '/recovery'`** in `common.CheckSize` (`common.py:2594`, called from
+   `non_ab_ota.py:189`): CheckSize looks up `info_dict["fstab"][mount_point]` for the raw partitions.
+   Our fstab had no `/boot`, `/recovery` or `/misc` rows, so recovery/boot images were never size
+   checked. Adding the three `emmc` rows fixed it; the log now says
+   `recovery size (43339776) is 43.05% of limit (100663296)`.
+2. **`ValueError: Invalid input_file ... Actual: ...target_files.zip`** in
+   `common.ReadBytesFromInputFile` (`common.py:766`): after we switched the recipe to pass the zip,
+   `zipfile.is_zipfile()` returned False because `$(INTERNAL_OTA_PACKAGE_TARGET)` only depended on
+   `$(BUILT_TARGET_FILES_DIR)` (the file list), not on the zip itself - so ninja ran "Package OTA"
+   while SOONG_ZIP was still writing the zip. `patches/releasetools-ota-depend-on-target-files-zip.patch`
+   makes the zip a real dependency.
+3. **`AssertionError: vendor is in target super_hct_dynamic_partitions_partition_list but no
+   BlockDifference object is provided`** (`common.py:3961`). Root cause: `HasPartition()`
+   (`check_target_files_vintf.py:315`) checks for a `VENDOR/` *directory* entry in the target_files
+   archive, and a prebuilt vendor image never produces one (`BUILDING_VENDOR_IMAGE` is unset at
+   `board_config.mk:698`, so `Makefile:6581` never copies `$(TARGET_OUT_VENDOR)` into the staging
+   tree). `GetBlockDifferences` therefore skips vendor, and the dynamic-partition installer asserts.
+   This is also what the `Failed to read VENDOR/build.prop` warnings mean, and it would make the
+   VINTF compatibility check meaningless. Two ways out:
+   - **Stage vendor from source**: drop `BOARD_PREBUILT_VENDORIMAGE`, declare
+     `BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE := ext4`, and copy the extracted Android 11 vendor tree into
+     `$(TARGET_OUT_VENDOR)` through a generated `PRODUCT_COPY_FILES` list (~1436 entries; symlinks
+     need handling separately, `build.prop` must stay the generated one). `vendor.img` is then built
+     from the blobs, which gives a `VENDOR/` staging dir, `vendor.map`, the vendor VINTF manifest and
+     a vendor `build.prop`. The blobs stay byte-identical (see the vendor integrity check below).
+   - **Ship without an OTA**: flash Android 14 with `dd` through Boot-ADB (M3). That needs none of the
+     above, but then upgrades need the first option.
+4. **No installer inside recovery**: `system/bin/recovery` links only the update_engine *client*
+   (its strings name `chromeos_update_engine.*` and `/system/bin/update_engine_sideload`), and
+   LineageOS's `Updater.apk` ships no native code, so "Local update"/sideload needs
+   `update_engine_sideload` in the recovery ramdisk. Nothing in our tree listed it
+   (`system/update_engine/Android.bp:582` declares it with `recovery: true`, so `PRODUCT_PACKAGES`
+   is what installs it). It is now in `device.mk`.
+
+### `m superimage` before `m dist` staged stale images
+
+`m superimage` builds super from the `IMAGES/` directory inside the target_files staging tree, and
+`m dist` (via `add_img_to_target_files`) rebuilds those images. Running superimage first - which is
+what `package.sh` used to do - embedded the *previous* pass's images: the offline check compared
+`system` against the fresh image and found `embedded_matches=False` while `vendor` (never rebuilt)
+matched. `scripts/package.sh` now runs dist first, then superimage, and warns if
+`IMAGES/system.img` predates the pass.
+
+## Offline verification of the artifacts
+
+`tools/check_super.py`-style checks run on the build host without touching the unit
+(`tmp/check_super.py` there, mirrored in this repo as `scripts/check_super.py` once committed):
+
+- **ext4 magic correction**: the ext4 magic is `0xEF53`, stored little-endian, so the bytes read
+  `53 ef`; it sits about 1080 bytes into the filesystem (s_magic is at offset 60 of the ext4 super
+  block, which starts at byte 1024). Scanning for `0xEF83` at `+1024` finds nothing - that is what
+  made the first layout parse look broken.
+- `lpdump` reports the real layout: metadata region 1 MiB, first partition at sector 2048
+  (1,048,576 B), extents per partition, group `hct_dynamic_partitions` 3,258,974,208 B inside
+  `super_partition_size` 3,263,168,512 B.
+- Each logical partition carved out of the raw super is byte-identical to its image and
+  `dumpe2fs -h` parses it (block count x block size = the filesystem size).
+- `tools/vendor_diff.py` proves the vendor image is the stock Android 11 vendor plus only our four
+  overlays: 1436 stock files, 1439 ours, 0 missing, 1 replaced (`/etc/fstab.rk30board`), 3 added
+  (`/etc/hu_insmod.sh`, `/etc/init/hu.rc`, `/etc/ueventd.rc`), each overlay byte-identical to its
+  source in `device/rk3399-px6-hct4/`. Note the stock vendor has **no** `/etc/ueventd.rc`, and
+  `scripts/prebuilt_vendor.sh`'s `insmod` sed is a no-op: the stock module load is a *service*
+  (`service vendor.insmod_sh /vendor/bin/init.insmod.sh`), not `insmod` lines - which is why we
+  supply our own `hu_insmod.sh`. SELinux is permissive for M3 (`WITH_PERMISSIVE_SELINUX := true`),
+  so a root vendor service is not denied during the boot test.
+- LineageOS **Updater** is in the image: `system_ext/priv-app/Updater/Updater.apk` plus its
+  `init.lineage-updater.rc`, privapp whitelist and default-permissions files.
+- The recovery ramdisk carries our fstab as `system/etc/recovery.fstab` (556 entries, gzip cpio),
+  so recovery mounts the same logical partitions and knows the raw boot/recovery/misc partitions.
+- Boot/recovery image sizes are within their partitions: boot 32,796,672 <= 33,554,432 and
+  recovery 43,339,776 <= 100,663,296 (CheckSize passes).
+
+## Rollback artifact
+
+`scripts/build_rollback_super.sh` rebuilds a flashable raw super from the stock package's logical
+images, reading `dynamic_partitions_op_list` (group `rockchip_dynamic_partitions` 3,258,974,208 B,
+partitions product/vendor/system/odm, 3,125,321,728 B of content) so the Android 10 restore is one
+`dd` rather than an improvised re-assembly. It prints the layout with `lpdump` and writes
+`sha256sums-rollback.txt`. The authoritative rollback for `boot`/`recovery` is the partition dump
+taken off the unit *before* flashing (docs/flash.md), since the installed firmware is not guaranteed
+to be byte-identical to the package we have offline.
+
 ## Real partition offsets are in the repo
 
 `analysis/hu_partition_offsets.txt` (probe 2026-11-05 19:14, sysfs, no root) holds the unit's actual

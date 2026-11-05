@@ -68,9 +68,22 @@ Then, in order, on-device (`adb shell`):
 
 ## Rollback
 
-Write the saved `backup_head.bin` / `backup_tail.bin` back with the same dd offsets, then re-flash
-p1-p13 from their backups and the old `super` from the Daisaita Android 10 package you have. The
-unit ends up at factory settings either way (D10) - nothing but a brick would be unrecoverable.
+Two independent restore paths, both mechanical:
+
+1. **What the unit had** - the `backup_head.bin` / `backup_tail.bin` (GPT) and `p1.bin`..`p13.bin`
+   dumps taken in step 1 above. Pull them back to the workstation and check the sizes before you
+   flash anything new. This restores boot/recovery/misc exactly as they were, byte for byte.
+2. **A rebuilt Android 10 super** - `scripts/build_rollback_super.sh <extracted-package-dir> <out-dir>`
+   re-assembles the stock package's logical images into one raw `super_stock.img` (group
+   `rockchip_dynamic_partitions` 3,258,974,208 B, content 3,125,321,728 B) plus
+   `sha256sums-rollback.txt`, so restoring super is a single `dd`:
+   ```
+   dd if=/tmp/super_stock.img of=/dev/block/mmcblk2p14 bs=1M    # or by-name/super
+   ```
+   Use the unit's own dumps for `boot`/`recovery`; the package's `boot.img` is only a convenience,
+   because the installed firmware is not guaranteed to be byte-identical to the package.
+
+The unit ends up at factory settings either way (D10) - nothing but a brick would be unrecoverable.
 
 ## What we do not use
 
