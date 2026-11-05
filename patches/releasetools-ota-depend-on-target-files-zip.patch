@@ -1,0 +1,16 @@
+diff --git a/build/make/core/Makefile b/build/make/core/Makefile
+--- a/build/make/core/Makefile
++++ b/build/make/core/Makefile
+@@ -6975,5 +6975,9 @@
+ $(INTERNAL_OTA_PACKAGE_TARGET): KEY_CERT_PAIR := $(DEFAULT_KEY_CERT_PAIR)
+ $(INTERNAL_OTA_PACKAGE_TARGET): .KATI_IMPLICIT_OUTPUTS := $(INTERNAL_OTA_METADATA)
++# The OTA recipe reads the target_files zip (see releasetools-ota-target-files-zip.patch), so the
++# zip must be a real dependency: $(BUILT_TARGET_FILES_DIR) only guarantees the staged directory,
++# because add_img_to_target_files runs on the directory and SOONG_ZIP builds the zip from that
++# directory's file list afterwards. Without this dependency `m dist` starts "Package OTA" while
++# SOONG_ZIP is still writing the zip, and zipfile.is_zipfile() returns False, which surfaces as
++# ValueError: Invalid input_file... in common.ReadBytesFromInputFile.
+-$(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_DIR) $(OTA_FROM_TARGET_FILES) $(INTERNAL_OTATOOLS_FILES)
++$(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(OTA_FROM_TARGET_FILES) $(INTERNAL_OTATOOLS_FILES)
+ 	@echo "Package OTA: $@"
+ 	$(call build-ota-package-target,$@,-k $(KEY_CERT_PAIR) --output_metadata_path $(INTERNAL_OTA_METADATA))
