@@ -184,8 +184,28 @@ the *build host's* filesystem - it even walked `/sys/kernel/debug/regulator/` an
 "file size changed while zipping" - then exited 18 on files it could not read.
 
 Fix: `patches/releasetools-zip-store-symlinks.patch` adds `-y` (store symlinks as symlinks) to that
-one call. `scripts/apply_tree_patches.sh` applies it with `git apply` (GNU patch 2.8 rejects the hunks even though the context matches byte-for-byte); `package.sh` runs it before
-every packaging pass, and `patch --forward` makes it idempotent.
+one call. `scripts/apply_tree_patches.sh` applies it with `git apply` (GNU patch 2.8 rejects the hunks
+even though the context matches byte-for-byte); `package.sh` runs it before every packaging pass, and
+the check is idempotent.
+
+### The next OTA failure was a missing `cache_size`
+
+With the zip fixed, packaging got further and hit `AssertionError` at
+`blockimgdiff.py:1547` (`assert cache_size is not None`). `misc_info.txt` had no `cache_size`, because
+that line is only emitted inside the *cache partition's* image-prop block
+(`build/make/core/Makefile:2190`) - declaring `BOARD_CACHEIMAGE_PARTITION_SIZE` alone is not enough.
+So `BoardConfig.mk` now declares both the size (the real 384 MiB partition, 402,653,184 B) and
+`BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4`, which builds a ~2 MB sparse `cache.img` and adds
+`if-wipe erase cache` to the wipe script. blockimgdiff uses cache_size to cap transfer size and
+stashed blocks, so a non-A/B OTA genuinely needs the partition.
+
+`BOARD_FLASH_BLOCK_SIZE` is 4096, not 512: our images are ext4 with 4096-byte blocks, and 512 only
+makes blockimgdiff's transfer lists 8x bigger.
+
+Note the packaging log's `WARNING: Failed to read VENDOR/etc/build.prop` lines: the vendor image is
+prebuilt, so there is no `VENDOR/` staging directory for `add_img_to_target_files` to read props from.
+They are warnings, but they mean `target_info` has no vendor build props (no
+`ro.product.first_api_level`), which is worth watching if the VINTF/fingerprint checks complain.
 
 ## Real partition offsets are in the repo
 

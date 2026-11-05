@@ -117,10 +117,12 @@ BOARD_HCT_DYNAMIC_PARTITIONS_PARTITION_LIST := system vendor product system_ext 
 
 # ---- filesystem ---------------------------------------------------------------
 # The HU has a 384 MiB `cache` partition (mmcblk2p11). Non-A/B OTAs need it: ota_from_target_files
-# asserts on cache_size (blockimgdiff.py:1547 splits transfers and stashes source blocks against it),
-# and without it misc_info.txt has no cache_size and `m dist` aborts. We do NOT declare
-# BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE, so no cache.img is built - recovery formats the partition.
+# asserts on cache_size (blockimgdiff.py:1547 splits transfers and stashes source blocks against it).
+# misc_info.txt only gets cache_size when a cache image is actually built (build/make/core/Makefile
+# emits it inside the cache partition's prop block), so both the size and the fs type are declared;
+# cache.img comes out ~2 MB sparse and the wipe step erases it. Recovery formats it via the fstab.
 BOARD_CACHEIMAGE_PARTITION_SIZE := 402653184
+BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE := ext4
 
 # The HU has a 16 MiB `metadata` partition (mmcblk2p12, mounted at /metadata on the stock
 # firmware). update_engine and vold use it (OTA metadata + /metadata/vold/metadata_encryption),
