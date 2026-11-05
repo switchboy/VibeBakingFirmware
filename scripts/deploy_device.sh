@@ -39,7 +39,9 @@ done
 
 # Flags the Makefile guards with `ifdef` must not be set to `false`: definedness is enough to emit
 # the flag, and mkbootimg then gets an empty argument (see docs/build-host.md).
-bad=$(grep -nE '^[[:space:]]*(BOARD_INCLUDE_RECOVERY_DTBO|BOARD_INCLUDE_DTB_IN_BOOTIMG|BOARD_INCLUDE_RECOVERY_ACPIO)[[:space:]]*:=?[[:space:]]*false' "$DEST/BoardConfig.mk" 2>/dev/null)
+# `|| true` matters: grep exits 1 when nothing matches, and the script runs under `set -eu`, so
+# without it a clean BoardConfig.mk aborts the deploy silently.
+bad=$(grep -nE '^[[:space:]]*(BOARD_INCLUDE_RECOVERY_DTBO|BOARD_INCLUDE_DTB_IN_BOOTIMG|BOARD_INCLUDE_RECOVERY_ACPIO)[[:space:]]*:=?[[:space:]]*false' "$DEST/BoardConfig.mk" 2>/dev/null || true)
 if [ -n "$bad" ]; then
   echo "  ! these ifdef-tested flags must be left undeclared, not '=false':"
   printf '%s\n' "$bad"
