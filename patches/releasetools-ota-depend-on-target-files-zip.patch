@@ -1,7 +1,7 @@
 diff --git a/build/make/core/Makefile b/build/make/core/Makefile
 --- a/build/make/core/Makefile
 +++ b/build/make/core/Makefile
-@@ -6975,5 +6975,9 @@
+@@ -6975,5 +6975,11 @@
  $(INTERNAL_OTA_PACKAGE_TARGET): KEY_CERT_PAIR := $(DEFAULT_KEY_CERT_PAIR)
  $(INTERNAL_OTA_PACKAGE_TARGET): .KATI_IMPLICIT_OUTPUTS := $(INTERNAL_OTA_METADATA)
 +# The OTA recipe reads the target_files zip (see releasetools-ota-target-files-zip.patch), so the
