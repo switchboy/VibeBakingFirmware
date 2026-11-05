@@ -62,7 +62,9 @@ BOARD_KERNEL_CMDLINE := console=ttyFIQ0 androidboot.baseband=N/A androidboot.wif
 # (build/make/core/Makefile:1282 gates the boot image on BOARD_BOOTIMAGE_PARTITION_SIZE).
 BOARD_BOOTIMAGE_PARTITION_SIZE := 33554432
 BOARD_RECOVERYIMAGE_PARTITION_SIZE := 100663296
-BOARD_FLASH_BLOCK_SIZE := 512
+# The images are ext4 with 4096-byte blocks, so the OTA's block operations use 4096 too. 512 makes
+# blockimgdiff's transfer lists 8x larger for no benefit; it is only ever 512 on MTD devices.
+BOARD_FLASH_BLOCK_SIZE := 4096
 BOARD_BOOT_HEADER_VERSION := 2
 BOARD_USES_RECOVERY_AS_BOOT := false      # the HU has its own recovery partition (mmcblk2p8)
 # Do NOT declare BOARD_INCLUDE_RECOVERY_DTBO at all: the Makefile tests it with `ifdef`, so setting
@@ -114,6 +116,12 @@ BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 3258974208    # super minus 4 MiB metadata 
 BOARD_HCT_DYNAMIC_PARTITIONS_PARTITION_LIST := system vendor product system_ext odm
 
 # ---- filesystem ---------------------------------------------------------------
+# The HU has a 384 MiB `cache` partition (mmcblk2p11). Non-A/B OTAs need it: ota_from_target_files
+# asserts on cache_size (blockimgdiff.py:1547 splits transfers and stashes source blocks against it),
+# and without it misc_info.txt has no cache_size and `m dist` aborts. We do NOT declare
+# BOARD_CACHEIMAGE_FILE_SYSTEM_TYPE, so no cache.img is built - recovery formats the partition.
+BOARD_CACHEIMAGE_PARTITION_SIZE := 402653184
+
 # The HU has a 16 MiB `metadata` partition (mmcblk2p12, mounted at /metadata on the stock
 # firmware). update_engine and vold use it (OTA metadata + /metadata/vold/metadata_encryption),
 # and the OTA's wipe step erases it, so declare it.
