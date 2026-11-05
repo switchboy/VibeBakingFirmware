@@ -120,6 +120,48 @@ The product config inherits `vendor/lineage/config/common_full_tablet_wifionly.m
 variant without a telephony stack, which matches this unit (Bluetooth phone comes from the vendor
 HALs, no SIM).
 
+## The first `m` produced no boot.img or recovery.img
+
+The successful build (`out/target/product/rk3399/`) contained `super.img`, `system.img`,
+`product.img`, `system_ext.img`, `odm.img`, `vendor.img`, `ramdisk.img` and `super_empty.img` - but
+no boot or recovery image, and `misc_info.txt` said `no_boot=true`. Two causes, both in our tree:
+
+1. **No partition sizes.** `build/make/core/Makefile:1282` only builds a boot image when
+   `BOARD_BOOTIMAGE_PARTITION_SIZE` is set, and the recovery image likewise needs
+   `BOARD_RECOVERYIMAGE_PARTITION_SIZE`. Set them from the live unit's `/proc/partitions`: boot is
+   `mmcblk2p7` = 32768 KiB (33,554,432 B), recovery is `mmcblk2p8` = 98304 KiB (100,663,296 B).
+   Also set `BOARD_FLASH_BLOCK_SIZE := 512` (it was absent from `misc_info.txt`) and
+   `BOARD_USES_METADATA_PARTITION := true` - the HU has a 16 MiB `metadata` partition
+   (`mmcblk2p12`, mounted at `/metadata` on the stock firmware) that update_engine and vold use.
+2. **Load addresses were inert.** `BOARD_KERNEL_OFFSET`/`BOARD_RAMDISK_OFFSET`/`BOARD_SECOND_OFFSET`
+   /`BOARD_TAGS_OFFSET` are *not* read by the Makefile - it only passes `--base`, `--pagesize` and
+   `--cmdline`. Every offset has to come from `BOARD_MKBOOTIMG_ARGS`, otherwise mkbootimg writes
+   defaults and u-boot loads the kernel to the wrong address.
+
+The values now used are read straight out of the vendor's working boot image
+(`out/host/linux-x86/bin/unpack_bootimg --boot_img analysis/daisaita_a11/boot/boot.img --format
+mkbootimg`): header v2, page size 2048, base 0, kernel `0x10008000`, ramdisk `0x11000000`, second
+`0x10f00000`, tags `0x10000100`, dtb `0x11f00000`. That vendor image also embeds a DTB (157,962 B)
+and a Rockchip `RSCE` logo blob (544,768 B) as the second stage - both are kept:
+`BOARD_PREBUILT_DTBIMAGE_DIR` + `--second` in `BOARD_MKBOOTIMG_ARGS`, files in
+`device/rk3399-px6-hct4/prebuilt/`. Our boot.img is ~32.8 MB (kernel 30.4 MB + Android 14 ramdisk
+1.6 MB + logo + dtb), which fits the 32 MiB partition.
+
+Note: the Daisaita Android 11 zip writes `logo.img` into `/dev/block/by-name/logo`, a partition this
+unit does not have (its p11 is `cache`) - one more reason that package cannot be flashed here,
+besides its 4,890,558,464 B super group. Our logo lives inside boot.img instead.
+
+## fstab form for Android 14
+
+`fstab.rk30board` now uses the Android 14 layout (`device/generic/goldfish/board/fstab/arm64` is the
+reference): logical partitions are named in the `<src>` column (`system`, `vendor`, ...) with
+`wait,logical,first_stage_mount`, not block paths. `metadata` and `cache` get entries
+(`formattable,first_stage_mount`), and `userdata` keeps `checkpoint=enable` for the non-A/B OTA
+rollback. The same file is the recovery fstab (`TARGET_RECOVERY_FSTAB` in `device.mk`), because
+recovery mounts the same set before update_engine patches the logical partitions.
+`scripts/deploy_device.sh` checks the dtb dir, the `second` blob and the prebuilt vendor/kernel
+files before the build starts.
+
 ## Memory ceiling: docker vs the compile
 
 The NAS has 24 GB RAM and docker holds ~12 GB. `m -j4` climbed to ~19 GB RSS, so the box swapped
@@ -161,6 +203,8 @@ Fix: run the build with `HOME=/tmp` (inside the sandbox that is the writable tmp
 | `los-build6` | `build_fast.sh`: docker stopped, `m -j12`, docker restored on exit (also on failure) | `lineage21s/build.log`, `docker_running.txt` |
 | `los-build7`/`los-build8` | night full-blast builds; `los-build8` reached 97% of 143,745 steps before the `build-manifest` sandbox failure | `lineage21s/build.log` |
 | `los-build9` | daytime run per the owner's policy: fleet stays up, `m -j4`, resumes from the 97% cache | `lineage21s/build.log`, `docker_stopped.txt` |
+| `los-build11` | daytime `m -j4`, **build succeeded** (45 min, rc=0, docker untouched) | `lineage21s/build.log` |
+| `los-pack` | `package.sh`: device tree + vendor re-deploy, then `m bootimage`, `m recoveryimage`, `m superimage`, `m dist`, `m otapackage` (docker stays up, `-j4`) | `lineage21s/package.log` |
 
 
 `HOME`/`GOCACHE`/`TMPDIR` must be set explicitly for any AOSP build started from systemd; without them

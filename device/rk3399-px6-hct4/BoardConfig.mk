@@ -36,6 +36,11 @@ TARGET_COPY_OUT_ODM := odm
 TARGET_NO_BOOTLOADER := true
 TARGET_BOARD_PLATFORM := rk3399
 TARGET_BOARD_PLATFORM_GPU := mali-t860mp2
+TARGET_BOOTLOADER_BOARD_NAME := rk3399
+# main.mk turns these into vendor props (ro.hwui.use_vulkan / ro.sf.lcd_density); setting them here
+# avoids the duplicate-assignment error that assigning them in device.mk causes.
+TARGET_USES_VULKAN := false      # Mali-T860 has no Vulkan driver; the HCT apps use GLES
+TARGET_SCREEN_DENSITY := 240
 # gralloc/allocator/mapper 4.0 from the A11 vendor tree hand out dmabuf fds, so no ION path
 # and no libion shim (docs/decisions.md D4/D9).
 TARGET_USES_ION := false

@@ -30,9 +30,12 @@ adb push analysis/gpt/gpt_tail.bin /tmp/
 adb push out/target/product/rk3399/super.img    /tmp/     # ~2.6 GB, push takes a while
 adb push out/target/product/rk3399/boot.img     /tmp/
 adb push out/target/product/rk3399/recovery.img /tmp/
-adb push out/target/product/rk3399/dtbo.img     /tmp/
-adb push out/target/product/rk3399/vbmeta.img   /tmp/
 ```
+
+`boot.img` carries the vendor kernel, our Android 14 ramdisk, the vendor DTB and the Rockchip RSCE
+boot logo (see `docs/build-host.md`), so there is nothing else to flash: `dtbo` (p5) and `vbmeta`
+(p6) keep their current content - we do not build either, and the board boots with
+`verifiedbootstate=orange` anyway. There is no `logo` partition on this unit.
 
 Then, in order, on-device (`adb shell`):
 
@@ -53,8 +56,6 @@ Then, in order, on-device (`adb shell`):
    dd if=/tmp/super.img    of=/dev/block/mmcblk2p14 bs=1M
    dd if=/tmp/boot.img     of=/dev/block/mmcblk2p7  bs=1M
    dd if=/tmp/recovery.img of=/dev/block/mmcblk2p8  bs=1M
-   dd if=/tmp/dtbo.img     of=/dev/block/mmcblk2p5  bs=1M
-   dd if=/tmp/vbmeta.img   of=/dev/block/mmcblk2p6  bs=1M
    ```
 4. Power off, reboot, confirm the new sizes from sysfs without root (`sh allinone.sh` on the SD
    card does that), then boot into our recovery and wipe data so `userdata` is formatted as f2fs.

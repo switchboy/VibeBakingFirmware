@@ -87,11 +87,13 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
   SELinux Permissive (`getenforce` in the latest probe), and a **USB Realtek RTL8188E WiFi adapter**
   (2.4 GHz silicon). Its vendor HAL
   surface matches the reference payload except three undeclared HALs; blob hashes land in the next report.
-- M2 (LineageOS 21 tree): **in progress** - shallow source sync on the NAS (`docs/build-host.md`),
+- M2 (LineageOS 21 tree): **building cleanly** - shallow source sync on the NAS (`docs/build-host.md`),
   device tree in `device/rk3399-px6-hct4/` deployed as `device/rockchip/rk3399`, and the prebuilt
   vendor/kernel pipeline works (`scripts/prebuilt_vendor.sh` -> `vendor/hct4/vendor.img` +
-  `prebuilt/kernel_a11`). Source sync is complete and `lunch lineage_rk3399-ap2a-userdebug` works; the compile runs as unit
-  `los-build3` (`m -j4`). What the first lunch attempts exposed is in `docs/build-host.md`.
+  `prebuilt/kernel_a11`). `m -j4` finished with rc=0 in 45 min (`los-build11`): `super.img` 2.01 GB,
+  `system.img` 922 MB, `product.img` 456 MB, `system_ext.img` 385 MB, `odm.img` 811 KB,
+  `vendor.img` 292 MB. Packaging (`los-pack`: boot/recovery/super/dist/otapackage) is running now.
+  What the lunch attempts and the missing boot image exposed is written up in `docs/build-host.md`.
 - Next: M2b (repartition: super 8 GiB / userdata 49.84 GiB - D8 decided; `docs/repartition.md` +
   `docs/flash.md` for the Boot-ADB first flash), then M3 (framework-only boot test). The unit still
   needs one more `sh allinone.sh` run so `analysis/hu_partition_offsets.txt` holds the real LBAs.

@@ -41,11 +41,14 @@ PRODUCT_COPY_FILES += \
 # ---- properties ---------------------------------------------------------------
 # ro.hardware comes from the bootloader cmdline (androidboot.hardware=rk30board),
 # which is what names the prebuilt HAL modules (hwcomposer.rk30board.so, gps.default.so).
+#
+# ro.hwui.use_vulkan and ro.sf.lcd_density are NOT set here: build/make/core/main.mk:337 puts
+# `ro.hwui.use_vulkan=$(TARGET_USES_VULKAN)` and `ro.sf.lcd_density=$(TARGET_SCREEN_DENSITY)` into
+# ADDITIONAL_VENDOR_PROPERTIES, so assigning them in device.mk makes post_process_props abort with
+# "found duplicate sysprop assignments". Use the TARGET_* variables in BoardConfig.mk instead.
 PRODUCT_PROPERTY_OVERRIDES += \
     ro.hardware.egl=mali \
     ro.opengles.version=196610 \
-    ro.hwui.use_vulkan=false \
-    ro.sf.lcd_density=240 \
     dalvik.vm.heapsize=256m \
     dalvik.vm.heapgrowthlimit=192m \
     config.disable_rtt=true \
