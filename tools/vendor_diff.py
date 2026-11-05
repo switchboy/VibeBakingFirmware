@@ -77,8 +77,8 @@ def main():
     print("   nothing added: %s" % (not added))
 
     allowed = set(OVERLAYS) | {"/etc/init/hw/init.rockchip.rc"}
-    bad_new = [p for p in only_ours if not p.endswith("/")]
-    print("VERDICT: only overlays differ = %s" %
+    bad_new = [p for p in only_ours if p not in OVERLAYS]
+    print("VERDICT: stock blobs untouched, only our overlays added/replaced = %s" %
           (set(changed) <= allowed and not bad_new and not only_stock))
     return 0
 

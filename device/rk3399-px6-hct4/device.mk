@@ -59,3 +59,13 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     persist.sys.storage_manager.usb_storage=true \
     ro.storage_manager.enable_sdcard=false
+
+# ---- recovery OTA installer ---------------------------------------------------
+# Recovery installs OTAs through `update_engine_sideload`: the recovery binary only links the
+# update_engine *client* (its strings reference chromeos_update_engine.* and
+# /system/bin/update_engine_sideload), and LineageOS's Updater app ships no native code. The
+# module is declared `recovery: true` in system/update_engine/Android.bp, so listing it in
+# PRODUCT_PACKAGES puts it in the recovery ramdisk. Without it "Local update" / ADB sideload in
+# recovery has nothing to run the payload with.
+PRODUCT_PACKAGES += \
+    update_engine_sideload
