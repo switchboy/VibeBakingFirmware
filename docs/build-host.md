@@ -141,7 +141,10 @@ no boot or recovery image, and `misc_info.txt` said `no_boot=true`. Two causes, 
 The values now used are read straight out of the vendor's working boot image
 (`out/host/linux-x86/bin/unpack_bootimg --boot_img analysis/daisaita_a11/boot/boot.img --format
 mkbootimg`): header v2, page size 2048, base 0, kernel `0x10008000`, ramdisk `0x11000000`, second
-`0x10f00000`, tags `0x10000100`, dtb `0x11f00000`. That vendor image also embeds a DTB (157,962 B)
+`0x10f00000`, tags `0x10000100`, dtb `0x11f00000`. Note the Makefile never passes `--header_version`
+either - `BOARD_BOOT_HEADER_VERSION` by itself produced a **header v0** boot image (checked with
+`unpack_bootimg` on our `boot.img`), and header v0 cannot carry a DTB. So `--header_version 2` goes
+into `BOARD_MKBOOTIMG_ARGS` as well. That vendor image also embeds a DTB (157,962 B)
 and a Rockchip `RSCE` logo blob (544,768 B) as the second stage - both are kept:
 `BOARD_PREBUILT_DTBIMAGE_DIR` + `--second` in `BOARD_MKBOOTIMG_ARGS`, files in
 `device/rk3399-px6-hct4/prebuilt/`. Our boot.img is ~32.8 MB (kernel 30.4 MB + Android 14 ramdisk
@@ -150,6 +153,23 @@ and a Rockchip `RSCE` logo blob (544,768 B) as the second stage - both are kept:
 Note: the Daisaita Android 11 zip writes `logo.img` into `/dev/block/by-name/logo`, a partition this
 unit does not have (its p11 is `cache`) - one more reason that package cannot be flashed here,
 besides its 4,890,558,464 B super group. Our logo lives inside boot.img instead.
+
+### Duplicate sysprops in vendor/build.prop
+
+`m recoveryimage` failed at 94% on `out/target/product/rk3399/vendor/build.prop`:
+`error: found duplicate sysprop assignments: ro.hwui.use_vulkan= / ro.hwui.use_vulkan=false`.
+`build/make/core/main.mk:337` already puts `ro.hwui.use_vulkan=$(TARGET_USES_VULKAN)` and
+`ro.sf.lcd_density=$(TARGET_SCREEN_DENSITY)` into `ADDITIONAL_VENDOR_PROPERTIES`, so assigning those
+two in `device.mk` collides with them. Fixed by setting `TARGET_USES_VULKAN := false` and
+`TARGET_SCREEN_DENSITY := 240` in `BoardConfig.mk` and dropping them from `device.mk`. The same class
+of trap applies to any property main.mk derives from a `TARGET_*` variable.
+
+### `ifdef` vs `ifeq` in BoardConfig.mk
+
+`m recoveryimage` then failed with `mkbootimg: error: argument --recovery_dtbo: expected one argument`.
+`build/make/core/Makefile` guards that flag with `ifdef BOARD_INCLUDE_RECOVERY_DTBO`, which tests
+*definedness*, so writing `BOARD_INCLUDE_RECOVERY_DTBO := false` still emits the flag with an empty
+argument. The fix is to not declare the variable at all - it is now commented out in `BoardConfig.mk`.
 
 ## fstab form for Android 14
 

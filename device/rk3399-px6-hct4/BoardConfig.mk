@@ -65,13 +65,17 @@ BOARD_RECOVERYIMAGE_PARTITION_SIZE := 100663296
 BOARD_FLASH_BLOCK_SIZE := 512
 BOARD_BOOT_HEADER_VERSION := 2
 BOARD_USES_RECOVERY_AS_BOOT := false      # the HU has its own recovery partition (mmcblk2p8)
-BOARD_INCLUDE_RECOVERY_DTBO := false
+# Do NOT declare BOARD_INCLUDE_RECOVERY_DTBO at all: the Makefile tests it with `ifdef`, so setting
+# it to `false` still emits `--recovery_dtbo` with an empty value and mkbootimg aborts.
 
 # Load addresses are read straight from the vendor's working boot.img (unpack_bootimg on
 # analysis/daisaita_a11/boot/boot.img), so the vendor u-boot loads our image the same way:
 #   kernel 0x10008000  ramdisk 0x11000000  second 0x10f00000  tags 0x10000100  dtb 0x11f00000
-# The Makefile only passes --base/--pagesize/--cmdline; every offset has to come from here.
-BOARD_MKBOOTIMG_ARGS := --kernel_offset 0x10008000 \
+# The Makefile only passes --base/--pagesize/--cmdline; every offset has to come from here. It also
+# never passes --header_version, so BOARD_BOOT_HEADER_VERSION alone gives header v0 - which cannot
+# carry a DTB at all (our first boot.img came out header_version 0 with no dtb). Pass it explicitly.
+BOARD_MKBOOTIMG_ARGS := --header_version 2 \
+                        --kernel_offset 0x10008000 \
                         --ramdisk_offset 0x11000000 \
                         --second_offset 0x10f00000 \
                         --tags_offset 0x10000100 \

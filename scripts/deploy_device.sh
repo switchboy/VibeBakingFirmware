@@ -37,4 +37,13 @@ for f in "$DEST/prebuilt/boot_second_logo.bin" "$TREE/vendor/hct4/vendor.img" "$
   [ -s "$f" ] || { echo "  ! missing or empty: $f"; exit 1; }
 done
 
+# Flags the Makefile guards with `ifdef` must not be set to `false`: definedness is enough to emit
+# the flag, and mkbootimg then gets an empty argument (see docs/build-host.md).
+bad=$(grep -nE '^[[:space:]]*(BOARD_INCLUDE_RECOVERY_DTBO|BOARD_INCLUDE_DTB_IN_BOOTIMG|BOARD_INCLUDE_RECOVERY_ACPIO)[[:space:]]*:=?[[:space:]]*false' "$DEST/BoardConfig.mk" 2>/dev/null)
+if [ -n "$bad" ]; then
+  echo "  ! these ifdef-tested flags must be left undeclared, not '=false':"
+  printf '%s\n' "$bad"
+  exit 1
+fi
+
 echo "device tree -> $DEST"
