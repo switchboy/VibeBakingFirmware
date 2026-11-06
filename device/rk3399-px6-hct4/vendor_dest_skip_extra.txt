@@ -1,0 +1,11 @@
+# Vendor destinations to leave out of PRODUCT_COPY_FILES because the *build* installs that path.
+# tools/vendor_conflicts.py finds the ones installed by Soong modules (it reads
+# out/soong/installs-lineage_rk3399.mk). Legacy Make modules install paths too, but nothing
+# enumerates them statically - ckati only says so when the copy list already conflicts, and
+# scripts/package.sh records the answer here so a fresh build host converges in one pass.
+# Paths are partition-relative, i.e. `bin/hw/rild` for /vendor/bin/hw/rild. One per line; '#' is
+# a comment. scripts/prebuilt_vendor.sh merges these into vendor_build_wins.txt before generating.
+
+# A legacy Make module installs this (ckati: "previously defined at build/make/core/base_rules.mk:
+# 497"). Android 14 builds its own rild; the HU's RIL HAL implementation stays the vendor blob.
+bin/hw/rild

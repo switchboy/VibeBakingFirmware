@@ -59,13 +59,47 @@ run() {
   return $rc
 }
 
-run bootimage   || { echo "PACKAGING STOPPED on bootimage" >> "$LOG"; exit 1; }
-run recoveryimage || { echo "PACKAGING STOPPED on recoveryimage" >> "$LOG"; exit 1; }
+# PRODUCT_COPY_FILES destinations that collide with a *legacy Make* module's install rule never
+# show up in out/soong/installs-*.mk - only Soong writes that file - so ckati is the only thing
+# that reveals them (rild is such a module: "previously defined at build/make/core/base_rules.mk:
+# 497"). A parse takes ~1.5 min with Soong's cache warm, so reveal-and-retry converges fast:
+# append the revealed destination to vendor_build_wins.txt, regenerate the copy list, deploy, retry.
+DEVMK=$REPO/device/rk3399-px6-hct4
+regen_staging() {
+  python3 "$REPO/tools/gen_vendor_staging.py" "$TREE/vendor/hct4/tree/vendor" "$DEVMK" \
+    --src-prefix vendor/hct4/tree/vendor \
+    --build-prop "$TREE/vendor/hct4/prebuilt/vendor_build.prop.a11" \
+    --compat-matrix "$TREE/vendor/hct4/prebuilt/vendor_compat_matrix.a11.xml" \
+    --skip-file "$DEVMK/vendor_props_skip.txt" \
+    --dest-skip "$DEVMK/vendor_build_wins.txt" >> "$LOG" 2>&1 || return 1
+  ./scripts/deploy_device.sh ../lineage21s >> "$LOG" 2>&1 || return 1
+}
+
+m_retry() {
+  target=$1 ; tries=0
+  while :; do
+    if run "$target"; then return 0; fi
+    # `overriding commands for target \`out/target/product/rk3399/vendor/<rel>'` -> <rel>
+    bad=$(grep "overriding commands for target" "$LOG" | tail -1 |
+          awk -F"vendor/" '{print $2}' | cut -d"'" -f1)
+    [ -n "$bad" ] || return 1
+    tries=$((tries + 1))
+    if [ "$tries" -gt 12 ]; then echo "too many install collisions at $(date)" >> "$LOG"; return 1; fi
+    printf '# revealed by ckati: a legacy Make module installs this path, so it is not in\n# out/soong/installs-*.mk. Android 14 builds it; the staged blob must not be copied.\n%s\n' "$bad" \
+      >> "$DEVMK/vendor_build_wins.txt"
+    printf '%s\n' "$bad" >> "$DEVMK/vendor_dest_skip_extra.txt"   # durable: survives a fresh sync
+    echo "=== install collision #$tries: vendor/$bad -> dropped, staging regenerated at $(date) ===" >> "$LOG"
+    regen_staging || { echo "regen_staging failed at $(date)" >> "$LOG"; return 1; }
+  done
+}
+
+m_retry bootimage   || { echo "PACKAGING STOPPED on bootimage" >> "$LOG"; exit 1; }
+m_retry recoveryimage || { echo "PACKAGING STOPPED on recoveryimage" >> "$LOG"; exit 1; }
 
 # dist builds the target_files package (including IMAGES/) and tries the OTA package. With vendor
 # staged from blobs (D15) the dist pass should now produce a VENDOR/ directory; if it does not, the
 # OTA step will assert on the missing BlockDifference, so check it here rather than deep in ninja.
-if ! run dist; then
+if ! m_retry dist; then
   echo "dist failed - continuing; IMAGES/ is usually complete by the time the OTA step runs" >> "$LOG"
 fi
 STAGE=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/lineage_rk3399-target_files
@@ -82,19 +116,20 @@ STAGE=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/l
 } >> "$LOG" 2>&1
 
 # Stage super from the IMAGES that dist just wrote, then check they really are fresh.
-if ! run superimage; then echo "PACKAGING STOPPED on superimage" >> "$LOG"; exit 1; fi
+if ! m_retry superimage; then echo "PACKAGING STOPPED on superimage" >> "$LOG"; exit 1; fi
 IMAGES=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/lineage_rk3399-target_files/IMAGES
 if [ -f "$IMAGES/system.img" ] && [ "$(stat -c %Y "$IMAGES/system.img")" -lt "$START" ]; then
   echo "  ! WARNING: $IMAGES/system.img predates this pass - super would embed stale images" >> "$LOG"
 fi
 
-run otapackage
+m_retry otapackage
 
 # LineageOS's dist flow also emits debug/symbol and proguard packages we never use. They are the
 # largest files in out/dist and the SSD is tight, so drop them (they are regenerated on demand).
 if [ -d "$TREE/out/dist" ]; then
   echo "--- pruning unused dist packages ---" >> "$LOG"
-  for z in "*-symbols.zip" "*-img.zip" "*-proguard-dict*.zip" "*-proguard-usage*.zip" \
+  for z in "*-symbols.zip" "*-symbols-root.zip" "*-img.zip" "*-img-root.zip" \
+           "*-proguard-dict*.zip" "*-proguard-usage*.zip" \
            art_release.zip dexpreopt_tools.zip dexpreopt_config.zip system_server.zip appcompat.zip; do
     find "$TREE/out/dist" -maxdepth 1 -name "$z" -print -delete >> "$LOG" 2>&1
   done

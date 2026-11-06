@@ -313,6 +313,15 @@ last. All four are now fixed except the vendor one (see below).
        tree instead, the opposite fix is needed - keep the blob and remove that module from
        `PRODUCT_PACKAGES` - and the tool says so. `scripts/deploy_device.sh` re-runs the check so a
        changed product config cannot sneak a collision back into a 20-minute build.
+     - Legacy **Make** modules install paths too, and nothing enumerates them statically (only Soong
+       writes `installs-<product>.mk`), so `vendor_conflicts.py` cannot see them. The first one
+       found was `vendor/bin/hw/rild`, `previously defined at build/make/core/base_rules.mk:497`.
+       `scripts/package.sh` reveal-and-retries instead: it reads the ckati error, appends the
+       destination to `vendor_build_wins.txt` and to the committed `vendor_dest_skip_extra.txt`
+       (so a fresh build host converges in one pass), regenerates the copy list, redeploys and
+       retries - up to 12 times. With Soong's cache warm a parse costs ~1.5 min, so this converges
+       quickly and every step (`bootimage`, `recoveryimage`, `dist`, `superimage`, `otapackage`)
+       goes through the same loop.
      - The stock properties are re-declared from a saved copy of the stock `build.prop`
        (`vendor/hct4/prebuilt/vendor_build.prop.a11`), minus keys Android 14 assigns itself or that
        `device.mk` already sets; `vendor_props_skip.txt` records the collisions.
