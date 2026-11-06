@@ -102,6 +102,21 @@ m_retry() {
   done
 }
 
+# LineageOS's dist flow also emits debug/symbol and proguard packages we never use. They are the
+# largest files in out/dist (symbols-root and img-root are ~2 GB each) and the SSD is tight, so drop
+# them - they are regenerated on demand. Called right after the dist attempt as well as at the end:
+# a failing dist still writes those zips, and the disk has ~20 GB free while super/OTA need room.
+prune_dist() {
+  [ -d "$TREE/out/dist" ] || return 0
+  echo "--- pruning unused dist packages ---" >> "$LOG"
+  for z in "*-symbols.zip" "*-symbols-root.zip" "*-img.zip" "*-img-root.zip" \
+           "*-proguard-dict*.zip" "*-proguard-usage*.zip" \
+           art_release.zip dexpreopt_tools.zip dexpreopt_config.zip system_server.zip appcompat.zip; do
+    find "$TREE/out/dist" -maxdepth 1 -name "$z" -print -delete >> "$LOG" 2>&1
+  done
+  df -h "$A" | tail -1 >> "$LOG"
+}
+
 m_retry bootimage   || { echo "PACKAGING STOPPED on bootimage" >> "$LOG"; exit 1; }
 m_retry recoveryimage || { echo "PACKAGING STOPPED on recoveryimage" >> "$LOG"; exit 1; }
 
@@ -111,6 +126,7 @@ m_retry recoveryimage || { echo "PACKAGING STOPPED on recoveryimage" >> "$LOG"; 
 if ! m_retry dist; then
   echo "dist failed - continuing; IMAGES/ is usually complete by the time the OTA step runs" >> "$LOG"
 fi
+prune_dist
 STAGE=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/lineage_rk3399-target_files
 {
   echo "--- vendor staging check ---"
@@ -133,16 +149,7 @@ fi
 
 m_retry otapackage
 
-# LineageOS's dist flow also emits debug/symbol and proguard packages we never use. They are the
-# largest files in out/dist and the SSD is tight, so drop them (they are regenerated on demand).
-if [ -d "$TREE/out/dist" ]; then
-  echo "--- pruning unused dist packages ---" >> "$LOG"
-  for z in "*-symbols.zip" "*-symbols-root.zip" "*-img.zip" "*-img-root.zip" \
-           "*-proguard-dict*.zip" "*-proguard-usage*.zip" \
-           art_release.zip dexpreopt_tools.zip dexpreopt_config.zip system_server.zip appcompat.zip; do
-    find "$TREE/out/dist" -maxdepth 1 -name "$z" -print -delete >> "$LOG" 2>&1
-  done
-fi
+prune_dist
 
 echo "--- produced ---" >> "$LOG"
 {

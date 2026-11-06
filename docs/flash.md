@@ -23,7 +23,10 @@ LineageOS recovery yet), so it goes through Rockchip's Loader mode. Everything e
 
 Boot-ADB is a tiny shell in the loader that can reach the eMMC as block devices, so plain `dd`
 works. Stage the images first (`scripts/stage_flash.sh <tree> <outdir>` converts `super.img` out of
-Android's sparse format and checks every size against the real partitions), then push:
+Android's sparse format and checks every size against the real partitions), then push. The script
+also refuses a folder whose three images come from different builds (any image more than a day
+older than the newest), because all three are flashed as one set - so re-stage after every
+packaging pass instead of reusing an old folder.
 
 ```
 adb push <outdir>/super.img    /tmp/     # raw, 3,263,168,512 B - the push takes a while

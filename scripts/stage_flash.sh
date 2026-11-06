@@ -63,6 +63,21 @@ for pair in "boot.img $boot_max" "recovery.img $rec_max" "super.img $super_max";
   echo "  ok $1 $size <= $2"
 done
 
+# Freshness: the first flash writes all three images together, so they must come from the same
+# packaging pass. A stale mix is dangerous - boot.img/recovery.img from today with super.img from
+# yesterday means Android 14's recovery mounting Android 10's system/vendor. Abort when any image is
+# more than a day older than the newest one, and show the timestamps so the operator can decide.
+newest=$(for f in super.img boot.img recovery.img; do stat -c %Y "$OUT/$f"; done | sort -n | tail -1)
+for f in super.img boot.img recovery.img; do
+  age=$(( newest - $(stat -c %Y "$OUT/$f") ))
+  if [ "$age" -gt 86400 ]; then
+    echo "  ! $f is $((age / 3600)) h older than the newest staged image - from a different build"
+    echo "    mtimes: $(for g in super.img boot.img recovery.img; do printf '%s=%s ' "$g" "$(stat -c %y "$OUT/$g" | cut -c1-19)"; done)"
+    echo "    re-run scripts/package.sh (or scripts/stage_flash.sh after it) before flashing"
+    exit 1
+  fi
+done
+
 (cd "$OUT" && sha256sum super.img boot.img recovery.img > sha256sums.txt)
 echo "staged in $OUT:"
 ls -l "$OUT"
