@@ -107,12 +107,26 @@ def main():
         extra_skip |= {l.strip() for l in open(args.skip_file) if l.strip() and not l.startswith("#")}
 
     entries = []
-    manifest = None
+    odd_names = []
     for rel in walk_files(tree):
         if rel in SKIP_DEST:
             continue
+        # Make cannot carry these characters in a src:dst pair: '#' starts a comment, ':' is the
+        # separator itself, and whitespace splits the word. The only such files on this vendor
+        # partition are usb_modeswitch.d rules with a '#' suffix (12d1_#android, 12d1_#linux,
+        # 19d2_#linux), and the HU's own /vendor/bin/usb_dongle only looks up the
+        # "<vendor>_<product>" form (its strings contain /vendor/etc/usb_modeswitch.d/%04x_%04x),
+        # so dropping those three costs nothing.
+        if any(c in rel for c in ("#", ":", " ", "\t", "'", "`", "$", "\n", "\\")):
+            odd_names.append(rel)
+            continue
         dest = "$(TARGET_COPY_OUT_VENDOR)/" + rel
         entries.append("%s/%s:%s" % (args.src_prefix.rstrip("/"), rel, dest))
+    if odd_names:
+        print("  skipped %d file(s) Make cannot express (one per line):" % len(odd_names))
+        for rel in odd_names[:20]:
+            print("    %s" % rel)
+    manifest = None
     if os.path.exists(os.path.join(tree, "etc/vintf/manifest.xml")):
         manifest = "%s/etc/vintf/manifest.xml" % args.src_prefix.rstrip("/")
 
