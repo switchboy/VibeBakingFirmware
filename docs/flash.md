@@ -65,6 +65,11 @@ partition exists on this unit.
 
 ## Flashing
 
+Use `scripts/fastboot_flash.sh <staged-dir> <backup-dir>` - it refuses to run without the backup
+dumps, re-checks the staged set for freshness, compares each image with the partition size the ABL
+reports, and stops if `partition-size:super` is missing (then use the fallback below). Manual order,
+for reference:
+
 Order matters only in one respect: write `super` before `boot`/`recovery`, so the OS you boot into
 always matches the recovery next to it. Sizes come from `getvar`, not from guesses.
 
@@ -108,7 +113,9 @@ GPT blobs and must not be mixed into the first flash.
 
 ## Rollback
 
-Two independent restore paths, both mechanical, both through fastboot:
+`scripts/fastboot_rollback.sh <backup-dir>` (add `--super <super_stock.img>` to restore the rebuilt
+Android 10 super instead of the unit's own dump). Two independent restore paths, both mechanical,
+both through fastboot:
 
 1. **What the unit had** - `backup_head.bin` / `backup_tail.bin` (GPT) and `p1.bin`..`p15.bin` from
    the dump above, plus boot/recovery byte-for-byte:

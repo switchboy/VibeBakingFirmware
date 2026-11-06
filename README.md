@@ -82,7 +82,11 @@ VibeBakingFirmware/
 │   │                  install collisions, prune unused dist packages
 │   ├── verify_artifacts.sh checks a finished pass offline (VENDOR/ + vendor.map, vendor_diff,
 │   │                  super layout, VINTF compat, boot header, recovery installer, OTA zip)
-│   ├── stage_flash.sh  stages super/boot/recovery (+ sha256) for the Boot-ADB flash, sparse->raw
+│   ├── stage_flash.sh  stages super/boot/recovery (+ sha256) for the first flash, sparse->raw,
+│   │                  refuses images from different packaging passes
+│   ├── fastboot_flash.sh  guarded first flash: needs the adb-root backup, checks
+│   │                  partition-size:super/boot/recovery from the ABL, flashes super->boot->recovery
+│   ├── fastboot_rollback.sh  puts the unit's own Android 10 boot/recovery/super back
 │   ├── build_rollback_super.sh rebuilds a flashable Android 10 super from the stock package
 │   ├── check_super.py  verifies the staged super offline (lpdump layout + dumpe2fs per partition)
 │   └── upload_server.py / upload_client.sh  LAN endpoint the unit reports to
