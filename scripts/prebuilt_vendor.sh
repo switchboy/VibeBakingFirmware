@@ -57,6 +57,9 @@ fi
 rm -rf "$OUT/tree"
 mkdir -p "$TREEV" "$WORK/mnt"
 mount -o ro,loop "$REF" "$WORK/mnt"
+# The stock build.prop is not staged (Android 14 generates its own), but its properties are what
+# the Rockchip HALs read, so a copy is kept for tools/gen_vendor_staging.py.
+cp "$WORK/mnt/build.prop" "$OUT/prebuilt/vendor_build.prop.a11"
 # Deliberately not staged:
 #   build.prop / default.prop      Android 14 generates its own (props come from vendor_props.mk)
 #   recovery-from-boot.p           the Android 11 recovery payload, we ship our own recovery.img
@@ -77,25 +80,28 @@ umount "$WORK/mnt"
 # toybox aliases would each become a 489 KB copy of toybox_vendor. Those tools resolve through
 # /system/bin on Android 14 anyway, so the aliases are dropped. /vendor/bin/sh is a real file in
 # the stock vendor (314 KB), so our init service and the stock shell scripts keep working.
-# The GPU aliases are the exception: the EGL loader looks for libGLES_<ro.hardware.egl>.so, so
-# they become real copies of the blob that lives in egl/.
-COPY_LINKS="libGLES_mali.so libOpenCL.so"
-find "$TREEV" -type l -printf '%p %l\n' | while read -r link target; do
-    base=$(basename "$link")
-    keep=""
-    for name in $COPY_LINKS; do [ "$base" = "$name" ] && keep=1; done
-    if [ -n "$keep" ] && [ -e "$link" ]; then
-        cp -L "$link" "$link.materialised"
+# The GPU aliases are the exception: Android 14's EGL/OpenCL loader looks for the library named
+# by ro.hardware.egl (libGLES_mali.so) and for libOpenCL.so, in /vendor/lib(64)/ and its egl/
+# subdir, so they become real copies of the blob that lives in egl/ (Loader.cpp:284-315).
+# Materialise first, while the whole alias chain still exists, then drop every remaining link.
+find "$TREEV" -type l \( -name libGLES_mali.so -o -name libOpenCL.so \) -print | while read -r link; do
+    real=$(readlink -f "$link")
+    if [ -s "$real" ]; then
+        cp "$real" "$link.materialised"
         mv -f "$link.materialised" "$link"
-        echo "  materialised $(realpath --relative-to="$TREEV" "$link") ($(stat -c %s "$link") B)"
+        echo "  materialised $(realpath --relative-to="$TREEV" "$link") ($(stat -c %s "$link") B, from $(realpath --relative-to="$TREEV" "$real"))"
     else
         rm -f "$link"
     fi
 done
+n=$(find "$TREEV" -type l | wc -l)
+find "$TREEV" -type l -delete
+echo "  dropped $n remaining symlink(s) (toybox aliases, OpenCL .1/.1.1 aliases)"
 
 # ---- 4. the generated staging config -------------------------------------------
 python3 "$REPO/tools/gen_vendor_staging.py" "$TREEV" "$GEN" \
     --src-prefix vendor/hct4/tree/vendor \
+    --build-prop "$OUT/prebuilt/vendor_build.prop.a11" \
     --skip-file "$GEN/vendor_props_skip.txt"
 
 echo "vendor blobs: $TREEV ($(find "$TREEV" -type f | wc -l) files, $(du -sh "$TREEV" | cut -f1))"

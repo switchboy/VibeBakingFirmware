@@ -88,6 +88,10 @@ def main():
     ap.add_argument("device_dir", help="where the generated .mk files are written")
     ap.add_argument("--src-prefix", default="vendor/hct4/tree/vendor",
                     help="the tree's path as the build sees it (relative to the AOSP root)")
+    ap.add_argument("--build-prop", default=None,
+                    help="stock vendor build.prop; the staged tree excludes it (Android 14 "
+                         "generates its own), so scripts/prebuilt_vendor.sh keeps a copy in "
+                         "vendor/hct4/prebuilt/. Defaults to <tree>/build.prop if present.")
     ap.add_argument("--skip-file", help="extra property keys to drop, one per line")
     args = ap.parse_args()
 
@@ -126,8 +130,10 @@ def main():
 
     # Stock vendor properties -> PRODUCT_PROPERTY_OVERRIDES.
     props = []
-    bp = os.path.join(tree, "build.prop")
-    if os.path.exists(bp):
+    bp = args.build_prop or os.path.join(tree, "build.prop")
+    if not os.path.exists(bp):
+        print("  ! no stock vendor build.prop found at %s - vendor_props.mk will be empty" % bp)
+    else:
         for line in open(bp, encoding="utf-8", errors="replace"):
             m = PROP_PROP_RE.match(line.strip())
             if not m:
