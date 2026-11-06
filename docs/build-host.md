@@ -256,11 +256,16 @@ last. All four are now fixed except the vendor one (see below).
        (`DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE`) adds the three HALs the Android 14 framework
        matrices do not know: `android.hardware.mtc.mfi`, `rockchip.hardware.outputmanager`,
        `rockchip.hardware.rockit.hw`.
-     - Three `usb_modeswitch.d` rules are named with `#` (`12d1_#android`, `12d1_#linux`,
-       `19d2_#linux`). Make treats `#` as the start of a comment, so `lunch` died with
-       `malformed COPY_FILE "vendor/hct4/tree/vendor/etc/usb_modeswitch.d/12d1_"`. They are skipped,
-       and `/vendor/bin/usb_dongle` only looks up `/vendor/etc/usb_modeswitch.d/%04x_%04x`, so
-       nothing is lost.
+     - Make cannot express some vendor file names, and all of them are `usb_modeswitch.d` rules.
+       `#` starts a comment, so an entry is truncated and `lunch` dies with
+       `malformed COPY_FILE "vendor/hct4/tree/vendor/etc/usb_modeswitch.d/12d1_"` (3 files). `=`
+       turns the generated `$(dst): $(src)` line into an *assignment*, so `ckati` reports
+       `commands commence before first target` at `build/make/core/Makefile:161` (20 files, the
+       `uMa=`/`sMo=`/`sVe=` variant rules). Wildcards (`% * ? [ ]`) would create pattern rules and
+       whitespace splits the word, so the generator skips anything containing those too
+       (`tools/namecheck.py <tree>` shows what is present). `/vendor/bin/usb_dongle` only looks up
+       `/vendor/etc/usb_modeswitch.d/%04x_%04x`, so none of the 23 skipped rules are used; the plain
+       `<vendor>_<product>` rules are still staged.
      - ELF blobs through `PRODUCT_COPY_FILES` need `BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES :=
        true` (`definitions.mk:3184` checks with `llvm-readobj`).
      - The stock properties are re-declared from a saved copy of the stock `build.prop`

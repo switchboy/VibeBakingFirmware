@@ -53,7 +53,11 @@ VibeBakingFirmware/
 ├── tools/               analysis + packaging tooling (Python, no root needed)
 │   ├── reassemble.py    transfer.list + *.new.dat  -> raw ext4 partition images
 │   ├── ext4_ls.py       recursive listing / file dump from ext4 images via debugfs
-│   └── hal_gap.py       vendor manifest vs framework matrix gap report
+│   ├── hal_gap.py       vendor manifest vs framework matrix gap report
+│   ├── gen_vendor_staging.py  turns vendor/hct4/tree/vendor into vendor_staging.mk + vendor_props.mk
+│   ├── namecheck.py     lists vendor file names Make cannot stage (# : = whitespace wildcards)
+│   ├── extract_vendor.py  debugfs-based extraction of a vendor partition into a tree
+│   └── vendor_diff.py   built vendor.img vs the stock reference, differences classified
 ├── analysis/            generated artefacts (gitignored: images, dumps, listings)
 ├── device/rk3399-px6-hct4/  → device tree for this unit (deployed as device/rockchip/rk3399)
 ├── hal/               → HAL wrappers / shims for the legacy vendor blobs

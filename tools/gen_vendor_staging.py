@@ -111,13 +111,18 @@ def main():
     for rel in walk_files(tree):
         if rel in SKIP_DEST:
             continue
-        # Make cannot carry these characters in a src:dst pair: '#' starts a comment, ':' is the
-        # separator itself, and whitespace splits the word. The only such files on this vendor
-        # partition are usb_modeswitch.d rules with a '#' suffix (12d1_#android, 12d1_#linux,
-        # 19d2_#linux), and the HU's own /vendor/bin/usb_dongle only looks up the
-        # "<vendor>_<product>" form (its strings contain /vendor/etc/usb_modeswitch.d/%04x_%04x),
-        # so dropping those three costs nothing.
-        if any(c in rel for c in ("#", ":", " ", "\t", "'", "`", "$", "\n", "\\")):
+        # Make cannot carry these characters in a src:dst pair, and each breaks the build in a
+        # different way: '#' starts a comment (the entry is truncated -> "malformed COPY_FILE"),
+        # ':' is the pair separator itself, whitespace splits the word, '=' makes the generated
+        # `$(dst): $(src)` line an assignment ("commands commence before first target",
+        # build/make/core/Makefile:161), and % * ? [ ] are wildcard characters that turn the rule
+        # into a pattern rule. The rest are shell/Make-function meaningful in the recipe.
+        # tools/namecheck.py <tree> lists whatever is present. On this vendor partition the hits
+        # are all usb_modeswitch.d rules: three named with '#' (12d1_#android, 12d1_#linux,
+        # 19d2_#linux) and twenty named with '=' (uMa=/sMo=/sVe= variant rules). The HU's own
+        # /vendor/bin/usb_dongle only looks up "/vendor/etc/usb_modeswitch.d/%04x_%04x", so none of
+        # them are used, and the plain <vendor>_<product> rules are still staged.
+        if any(c in rel for c in "#:= \t\n%*?[]{}()<>|;&'\"`$\\"):
             odd_names.append(rel)
             continue
         dest = "$(TARGET_COPY_OUT_VENDOR)/" + rel
