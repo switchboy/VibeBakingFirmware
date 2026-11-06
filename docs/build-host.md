@@ -270,6 +270,19 @@ last. All four are now fixed except the vendor one (see below).
        - Our own framework matrix adds the three HALs the Android 14 framework matrices do not
          know: `android.hardware.mtc.mfi`, `rockchip.hardware.outputmanager`,
          `rockchip.hardware.rockit.hw`. It lands in `system/etc/vintf/compatibility_matrix.device.xml`.
+     - A HAL must be declared **once**. Android 14's vendor modules install their own manifest
+       fragment in `/vendor/etc/vintf/manifest/` (pack21 installed two:
+       `android.hardware.health@2.1.xml` and `android.hardware.cas@1.2-service.xml`), and
+       `assemble_vintf` merges that directory into `/vendor/etc/vintf/manifest.xml`. The stock
+       Android 11 manifest already declares health@2.1, so the merged manifest said
+       `Conflicting FqInstance: @2.1::IHealth/default (from /vendor/etc/vintf/manifest.xml) vs.
+       ... (from .../android.hardware.health@2.1.xml)` and `check_vintf_compatible.log` failed ->
+       `m dist` rc=1 and `m otapackage` rc=1. `tools/gen_vendor_staging.py` now drops the stock
+       blocks listed in `vintf/manifest_fragments.txt` (the fragment carries the declaration, so the
+       merged manifest on device is unchanged). The key is `<name>@<version>::<interface>`; a
+       manifest's `<fqname>` is already version-prefixed (`@2.1::IHealth/default`), so the version is
+       taken from the fqname - building the key from `<version>` + `<fqname>` gives
+       `health@2.1::@2.1::IHealth/default` and matches nothing.
      - VINTF compatibility is checked *by the build*: dist runs `checkvintf --check-one` per
        partition and `--check-compat` over the target_files set (`build/make/core/Makefile:5162`,
        `:5391`) into `obj/PACKAGING/check_vintf_intermediates/*.log`, and fails the build when
