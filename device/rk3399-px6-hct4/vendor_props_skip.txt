@@ -1,4 +1,5 @@
-# Extra stock vendor properties to drop. tools/gen_vendor_staging.py reads this (one key per line).
+# Extra stock vendor properties to drop. tools/gen_vendor_staging.py reads this: one key per
+# line, and everything after a '#' is a comment.
 #
 # Only add keys here when the build actually complains: post_process_props.py aborts with
 # "found duplicate sysprops" if a key is assigned twice in the *same* build.prop file, and the
@@ -13,3 +14,12 @@ dalvik.vm.heapsize
 dalvik.vm.heapgrowthlimit
 ro.hardware.egl
 ro.opengles.version
+
+# Collisions with what Lineage itself assigns in the same vendor/build.prop. post_process_props.py
+# tolerates a key twice only when every assignment has the *same value* (line 113), so these five
+# would abort the packaging step. The HU's stock values also point at sounds that are not in our
+# Android 14 system (/system/media/audio), so Lineage's own values are the better ones:
+ro.com.google.clientidbase     # Lineage: android-google / $(PRODUCT_GMS_CLIENTID_BASE); stock: android-rockchip
+ro.config.alarm_alert          # Lineage: Hassium.ogg; stock: Oxygen.ogg
+ro.config.notification_sound   # Lineage: Argon.ogg; stock: pixiedust.ogg
+ro.config.ringtone             # Lineage: Orion.ogg (telephony.mk); stock: Ring_Synth_04.ogg

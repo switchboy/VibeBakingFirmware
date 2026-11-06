@@ -55,6 +55,7 @@ VibeBakingFirmware/
 │   ├── ext4_ls.py       recursive listing / file dump from ext4 images via debugfs
 │   ├── hal_gap.py       vendor manifest vs framework matrix gap report
 │   ├── gen_vendor_staging.py  turns vendor/hct4/tree/vendor into vendor_staging.mk + vendor_props.mk
+│   │                          + prebuilt_apps/Android.mk (vendor APKs the copy list cannot carry)
 │   ├── namecheck.py     lists vendor file names Make cannot stage (# : = whitespace wildcards)
 │   ├── extract_vendor.py  debugfs-based extraction of a vendor partition into a tree
 │   └── vendor_diff.py   built vendor.img vs the stock reference, differences classified
@@ -67,7 +68,7 @@ VibeBakingFirmware/
 │   ├── deploy_device.sh  copies the device tree into a LineageOS checkout
 │   ├── prebuilt_vendor.sh stages the stock Android 11 vendor partition into the build tree
 │   │                  (read-only loop mount -> vendor/hct4/tree/vendor, GPU aliases materialised,
-│   │                  then runs tools/gen_vendor_staging.py)
+│   │                  vendor APKs mirrored for the module build, then runs tools/gen_vendor_staging.py)
 │   ├── repartition_gpt.sh builds the new GPT blobs with sgdisk
 │   ├── apply_tree_patches.sh applies patches/ to the LineageOS checkout (idempotent, git apply)
 │   ├── package.sh      the packaging pass on the NAS: patches -> vendor staging -> deploy ->
@@ -103,8 +104,10 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
   device tree in `device/rk3399-px6-hct4/` deployed as `device/rockchip/rk3399`. Per **D15** the vendor
   is now *built from staged blobs* instead of being prebuilt: `scripts/prebuilt_vendor.sh` mirrors the
   stock Android 11 vendor partition into `vendor/hct4/tree/vendor` and `tools/gen_vendor_staging.py`
-  turns it into `vendor_staging.mk` (1228 copy entries + the VINTF manifest/matrix) and
-  `vendor_props.mk` (100 stock properties); the kernel comes from `prebuilt/kernel_a11`. `m -j4`
+  turns it into `vendor_staging.mk` (1207 copy entries + the VINTF manifest/matrix),
+  `vendor_props.mk` (100 stock properties) and `prebuilt_apps/Android.mk` (the stock vendor RRO,
+  which `PRODUCT_COPY_FILES` refuses as an `.apk` destination); the kernel comes from
+  `prebuilt/kernel_a11`. `m -j4`
   finished with rc=0 in 45 min (`los-build11`): `super.img` 2.01 GB, `system.img` 922 MB,
   `product.img` 456 MB, `system_ext.img` 385 MB, `odm.img` 811 KB. `boot.img` (32,796,672 B in a
   33,554,432 B partition: vendor kernel + Android 14 ramdisk + vendor DTB + RSCE logo) and

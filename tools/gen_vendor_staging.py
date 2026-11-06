@@ -110,7 +110,10 @@ def main():
 
     extra_skip = PROP_SKIP_KEYS
     if args.skip_file and os.path.exists(args.skip_file):
-        extra_skip |= {l.strip() for l in open(args.skip_file) if l.strip() and not l.startswith("#")}
+        # One key per line; a '#' starts a comment, so inline notes are allowed.
+        extra_skip |= {line.split("#", 1)[0].strip()
+                       for line in open(args.skip_file)
+                       if line.strip() and not line.strip().startswith("#")}
 
     entries = []
     odd_names = []

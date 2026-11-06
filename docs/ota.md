@@ -53,8 +53,10 @@ found no `VENDOR/` directory entry, so `GetBlockDifferences` produced no vendor 
 
 **Fixed by D15**: vendor is *built from staged blobs*. `scripts/prebuilt_vendor.sh` mirrors the stock
 Android 11 partition into `vendor/hct4/tree/vendor`, and `tools/gen_vendor_staging.py` generates
-`vendor_staging.mk` (1208 `PRODUCT_COPY_FILES` entries + `DEVICE_MANIFEST_FILE` + a `DEVICE_MATRIX_FILE`
-without the `<vendor-ndk>` block) and `vendor_props.mk` (100 stock properties). The build then produces
+`vendor_staging.mk` (1207 `PRODUCT_COPY_FILES` entries + `DEVICE_MANIFEST_FILE` + a `DEVICE_MATRIX_FILE`
+without the `<vendor-ndk>` block), `vendor_props.mk` (100 stock properties) and
+`prebuilt_apps/Android.mk` - a `BUILD_PREBUILT` module for the stock vendor RRO, because
+`PRODUCT_COPY_FILES` rejects `.apk` destinations. The build then produces
 the `VENDOR/` staging directory, `vendor.map`, the vendor manifest and a vendor `build.prop`, while
 `tools/vendor_diff.py` keeps the blob carried-over honest. `package.sh` verifies the `VENDOR/` directory
 and `vendor.map` after `m dist`.

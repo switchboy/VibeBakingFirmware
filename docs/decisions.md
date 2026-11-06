@@ -196,9 +196,14 @@ in the super group has a `BlockDifference`. The owner chose "fix vendor staging 
   `libOpenCL.so` are the exception - Android 14's EGL loader looks for `libGLES_<ro.hardware.egl>.so`
   (`frameworks/native/opengl/libs/EGL/Loader.cpp:284-315`), so those four aliases become real copies of
   the blob in `egl/` (~111 MB added; the super group has ~1.2 GB spare).
-- `tools/gen_vendor_staging.py` turns the tree into `vendor_staging.mk` (1228 copy entries) and
+- `tools/gen_vendor_staging.py` turns the tree into `vendor_staging.mk` (1207 copy entries),
   `vendor_props.mk` (100 stock properties re-declared, since Android 14 generates its own
-  `vendor/build.prop`). VINTF metadata cannot go through `PRODUCT_COPY_FILES`
+  `vendor/build.prop`) and `prebuilt_apps/Android.mk` for the one file the copy list cannot carry -
+  `overlay/framework-res__auto_generated_rro_vendor.apk`, the stock vendor resource-overlay package
+  (`.apk` destinations are rejected by `build/make/core/Makefile:118`). It is kept because it
+  overrides the HU's auto-brightness curve and its tether/hotspot interface names
+  (`config_tether_*_regexs`), so it is installed by a `BUILD_PREBUILT` module that copies the blob
+  unchanged. VINTF metadata cannot go through `PRODUCT_COPY_FILES`
   (`build/make/core/Makefile:131`), so the manifest goes via `DEVICE_MANIFEST_FILE`, and the device
   compatibility matrix is rewritten with its `<vendor-ndk><version>30</version>` block removed -
   Android 14 has no VNDK and `checkvintf` refuses it. Our own framework matrix adds the three HALs the
