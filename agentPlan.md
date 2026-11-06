@@ -95,9 +95,19 @@ Detailed milestone breakdown: `docs/plan.md`.
 
 ## Next action
 
-1. Finish M1 with one more `sh allinone.sh` run (blob hashes vs `analysis/vendor_tree/` via
-   `tools/blob_diff.py`, `iw`/`wlan0` driver, `dumpsys`, `/system/xbin/su` result).
-2. M2b repartition: back up GPT head/tail, p1-p13, boot/recovery and the current logical
-   images (userdata content may be wiped - owner accepts factory settings), then write the new
-   GPT (super 8 GiB, userdata 49.84 GiB) and reformat userdata as F2FS.
-4. M3 framework-only boot test using the M2b backup as rollback.
+1. Get the packaging pass through: `m dist` must emit a real `VENDOR/` staging directory plus
+   `IMAGES/vendor.map` (D15), then `m superimage` and `m otapackage`. Passes `los-pack15..18`
+   converged the install collisions and built `boot.img`/`recovery.img`; the last failure was a
+   missing fstab source (`$(LOCAL_DIR)` in a product-config `.mk`, fixed in `c9d4527`).
+2. Verify the fresh artifacts offline: `tools/vendor_diff.py` (stock Android 11 vendor vs built
+   vendor, with `vendor_build_wins.txt`), `scripts/check_super.py`, `checkvintf --check-compat`,
+   and `update_engine_sideload` inside the recovery ramdisk.
+3. Re-stage the flash set with `scripts/stage_flash.sh` (it converts `super.img` to raw, checks
+   partition limits and refuses images from different builds) and re-check the sha256s.
+4. Owner input before any flash (**D14**: hold): is there a Boot-ADB/loader entry on this unit,
+   which button is `RESET`, and is there a maskrom pad? See `docs/flash.md`.
+5. M2b repartition (super 8 GiB / userdata 49.84 GiB) stays deferred - the first flash writes
+   `super`/`boot`/`recovery` only and leaves the GPT alone (**D11**).
+6. Closeout when the ROM ships: remove the extra packages installed on the build host
+   (`git-lfs repo unzip device-tree-compiler brotli gdisk zip`) and delete the temporary
+   firewall rule.
