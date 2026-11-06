@@ -74,43 +74,38 @@ Decisions this unblocks: D8 (partition layout), M9 (WiFi hardware swap).
     `<kernel target-level=.../>` (or the VINTF kernel-config workaround, see M4).
 - Deliverable: tree builds `system.img`/`product.img`/`odm.img` with the old vendor attached.
 
-### M2b - repartition the eMMC (D8 decided: shrink userdata, grow super)
-New sizes: `super` (p14) 3,263,168,512 -> **8,589,934,592** B, `userdata` (p15) 58,844,495,360 ->
-**53,517,729,280** B. Partitions p1-p13 keep size and order, so every bootloader/DT/vbmeta/boot/
-recovery/cache byte offset is unchanged and their contents stay valid - only p14/p15 move.
-Layout check: 697,827,328 (p1-p13) + 8,589,934,592 + 53,517,729,280 + 8,405,504 (padding) =
-62,813,896,704 = the whole eMMC.
+### M2b - partition layout: no change (**D8 superseded by D19, Nov 6**)
+Super (p14) stays 3,263,168,512 B and the group stays 3,258,974,208 B. Android 14's logical images
+total 2,183,183,264 B block-aligned (system 929 MB, vendor 412 MB, product 456 MB, system_ext 385 MB,
+odm 0.8 MB) - *smaller* than the stock Android 10 layout's 3,125,321,728 B - so the existing partition
+already carries them with ~1.07 GiB spare. The payload's `dynamic_partitions_op_list` recreates the
+logical partitions inside super; no partition table byte is written (**D18**), and `sgdisk` is not
+installed for this work.
 
-Order of operations (each step has a rollback):
-1. **Backup over LAN** (`scripts/upload_server.py`, raise its size cap for this): first 8 MiB and last
-   8 MiB of `mmcblk2` (GPT), p1-p13 contents (666 MB), boot + recovery, and the current logical
-   images from `dm-*` (system/product/vendor/odm). Uploads are small except super (~2.3 GiB), which
-   can go over LAN or to a USB stick.
-2. **Userdata content**: /data is reformatted and the unit boots into its first-run setup
-   (HCTProvision). **Owner confirmed losing accounts/apps/settings is fine**, so no personal-data
-   backup is required. Keep only cheap context: `pm list packages -f` (which apps were installed, so
-   we can reinstall the same set) and a screenshot/photo list of the current HCT settings if the owner
-   wants them reproduced.
-   Optional insurance if `su` works: `tar` of `/data/data/com.microntek.*` + `/data/data/com.hct.*`
-   uploaded over LAN. Those hold the settings that are *not* trivially reproducible (steering-wheel
-   key mapping from HCTWheelStudy, radio/DAB station list, DSP/EQ presets, camera calibration), so a
-   restore beats recalibrating by hand.
-3. Write the new GPT (`scripts/repartition_gpt.sh` builds `gpt_head.bin`/`gpt_tail.bin` with
-   `sgdisk`; `docs/repartition.md` has the dd sequence) keeping p1-p13 byte-identical, then format
-   the new userdata. Verify with sysfs sizes before flashing anything else.
-4. The build produces `super.img` with its own metadata + `dynamic_partitions_op_list` sized for the
-   new group, so no separate super-layout tool is needed; `BOARD_SUPER_PARTITION_SIZE` must match the
-   size `sgdisk` actually wrote (the script prints both values to paste into `BoardConfig.mk`).
-5. Only then run M3's framework-only flash.
+What this milestone does instead:
+1. Keep the `analysis/gpt/` head/tail bytes as a record (read-only, from `gdisk -p`).
+2. `/data` is reformatted on install, so the unit boots into its first-run setup (HCTProvision).
+   **Owner confirmed losing accounts/apps/settings is fine** (D10), so no personal-data backup.
+   Cheap context only: `pm list packages -f` (the app set, to reinstall the same list) and photos of
+   the current HCT settings if the owner wants them reproduced - the non-trivial ones are the
+   steering-wheel key mapping (HCTWheelStudy), radio/DAB station list and DSP/EQ presets.
+3. Verify the partition sizes after install with the SD-card probe (sysfs sizes, no root) against
+   `misc_info.txt` before judging anything else.
+4. `BOARD_SUPER_PARTITION_SIZE` stays 3,263,168,512 (`analysis/hu_partition_offsets.txt`); if the
+   images ever outgrow the group that is a fresh decision (**D19**), not a scripted GPT rewrite.
+5. Then run M3's install.
 
 Delivery of the install package (D10): the zip goes on the SD/USB stick and an updater app hands it
 to recovery via `RecoverySystem.installPackage()`; AOSP/LOS recovery has no SD-card menu, so this is
-the SD-card route that actually works. ADB sideload from the NAS is the fallback. The very first
-the first install writes logical partitions + `boot` via `update.zip`; recovery/uboot/trust/dtbo/RKLoader are never written (**D18**), so the stock recovery keeps its loader path to the mainboard MCU firmware.
+the SD-card route that actually works. ADB sideload from the NAS is the fallback.
 
-Rollback target is "bootable again", not "data preserved": restore the saved GPT bytes + p1-p13 +
-the old logical images (system/product/vendor/odm) and the old super metadata, or flash the Daisaita
-zip if the owner has a copy. The unit then factory-resets and the owner re-adds accounts/apps.
+The very first install is not an OTA of our own recovery: it runs in the **stock** recovery with the
+**stock** `update-binary` and writes the logical partitions inside super plus `boot` (**D18**).
+`recovery`, `uboot`, `trust`, `dtbo`, `RKLoader.bin` and `security` are never written, so the stock
+recovery keeps its loader path to the mainboard MCU firmware.
+
+Rollback is the official Android 10 `update.zip`, flashed the same way (owner decision Nov 6 - no
+restore tooling in this repo). The unit factory-resets either way and the owner re-adds accounts/apps.
 
 Re-setup checklist after a factory reset (owner's part, cheap): accounts, launcher, BT phone pairing,
 CarPlay/AA pairing, WiFi password, GPS map download, radio/DAB station scan, steering-wheel key
@@ -196,7 +191,7 @@ Space on the current table (D11 option A): the super group is 3,258,974,208 B an
 images take 2,056,466,432 B, leaving **1,202,507,776 B (1,147 MiB)** spare. LineageOS 21's
 MindTheGapps arm64 package is 431,524,182 B compressed and lands at roughly 550-650 MB across
 `system`/`product`/`system_ext`. So HCT apps (~113 MB) + full GApps (~600 MB) = ~713 MB fits today with
-~430 MB to spare, and a pico/nano-style subset leaves far more room. After the repartition (super
+~430 MB to spare, and a pico/nano-style subset leaves far more room. Inside the existing super (super
 group 8,585,216,000 B) the question is moot.
 
 Two caveats before baking GApps in:
@@ -213,7 +208,7 @@ Two caveats before baking GApps in:
 2. M2 build: **done on the NAS** - images, boot/recovery images and (in progress) the OTA zip.
 3. M3 first install through the unit's own update.zip flow (`docs/flash.md`): stock recovery + stock update-binary, backup p7/p8/p14 over adb root first, then
    `super`/`boot`/`recovery` only - the GPT stays as it is (D11 option A).
-4. M2b repartition **after** Android 14 boots and the Android 10 rollback is proven (`analysis/gpt/`
+4. M2b repartition is dropped (D19): no GPT write, no size change (`analysis/gpt/`
    is already built and validated against the real LBAs).
 5. M10 app layer: re-add the HCT apps, decide whether to bake GApps in; then M4 vendor-side gaps,
    M5 packaging, M7 hardening, M6 kernel rebuild. M9 stays parked (D12).

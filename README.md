@@ -46,7 +46,6 @@ VibeBakingFirmware/
 │   ├── plan.md                milestones M1..M9, order and rollback
 │   ├── head-unit-findings.md  live-unit data + Daisaita A10/A11 comparison
 │   ├── build-host.md          the NAS build box, space plan, sync/build units
-│   ├── repartition.md         new GPT (super 8 GiB / userdata 49.84 GiB) + dd sequence
 │   ├── flash.md               install via the unit's own update.zip flow; recovery/bootloader never touched
 │   ├── ota.md                 packaging the install zip and how it reaches recovery
 │   └── termux.md              how the probe runs on the unit and uploads over LAN
@@ -75,7 +74,6 @@ VibeBakingFirmware/
 │   ├── prebuilt_vendor.sh stages the stock Android 11 vendor partition into the build tree
 │   │                  (read-only loop mount -> vendor/hct4/tree/vendor, GPU aliases materialised,
 │   │                  vendor APKs mirrored for the module build, then runs tools/gen_vendor_staging.py)
-│   ├── repartition_gpt.sh builds the new GPT blobs with sgdisk
 │   ├── apply_tree_patches.sh applies patches/ to the LineageOS checkout (idempotent, git apply)
 │   ├── package.sh      the packaging pass on the NAS: patches -> vendor staging -> deploy ->
 │   │                  bootimage/recoveryimage/dist/superimage/otapackage, reveal-and-retry on
@@ -128,7 +126,8 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
   -> vendor staging -> deploy -> bootimage/recoveryimage/dist/superimage/otapackage) reruns until the
   OTA zip lands; what the lunch attempts, the missing boot image, the zip-symlink failure and the four
   OTA failures exposed is written up in `docs/build-host.md`.
-- M2b (repartition): deferred by **D11** - the first flash writes `super`/`boot`/`recovery` into the
+- M2b (repartition): **dropped** on Nov 6 (owner: no partition-size change for the test). Android 14's
+  logical images are 2,183,183,264 B inside the existing 3,258,974,208 B group, so super already fits
+  with ~1.07 GiB spare and the GPT is never touched.
   current table, no GPT rewrite. The real LBAs are captured (`analysis/hu_partition_offsets.txt`) and
-  `scripts/repartition_gpt.sh` validated against them (super 8,589,410,304 / userdata 53,517,204,992).
   Next is M3: the Boot-ADB first flash per `docs/flash.md`, then the framework-only boot test.

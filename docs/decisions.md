@@ -166,12 +166,12 @@ Consequences now baked into the tree:
 
 - `BoardConfig.mk` uses `BOARD_SUPER_PARTITION_SIZE := 3263168512` with group `3258974208`, verified
   against the unit's real LBAs (`analysis/hu_partition_offsets.txt`: super = 1,379,328-7,752,703).
-  Our images total 2,056 MB, ~1.2 GB spare. The 8 GiB pair is left there as the commented next step.
-- The repartition stays available: `scripts/repartition_gpt.sh` validated against the real offsets
-  produces super **8,589,410,304** / userdata **53,517,204,992** plus the GPT blobs in
-  `analysis/gpt/`.
-- `sgdisk` re-sorts entries by start sector, so `mmcblk2pN` numbers change after a repartition;
-  on-device steps must use `/dev/block/by-name/*` (`docs/repartition.md`, `docs/flash.md`).
+  Our images total 2,056 MB, ~1.2 GB spare, so the current layout already carries Android 14.
+- The 8 GiB pair stayed as a *proposal* only. `scripts/repartition_gpt.sh` and `docs/repartition.md`
+  were removed on Nov 6 (**D19**): a GPT rewrite is the class of write **D18** forbids, and growing
+  super buys nothing for the first install.
+- If a layout change were ever made, `sgdisk` re-sorts entries by start sector, so `mmcblk2pN` numbers
+  would change and every on-device step must use `/dev/block/by-name/*` instead of `mmcblk2pN`.
 
 ## D12 - 5 GHz WiFi for wireless CarPlay/Android Auto: **DECIDED: keep the built-in RTL8188E**
 
@@ -305,3 +305,29 @@ Owner also dropped the rollback tooling on Nov 6 (*"Forget about rollback i'll j
 update.zip if rollback is needed dont waste time on it"*): no Android 10 super rebuild, no partition
 dumps, no restore scripts. Keeping the stock `update.zip` is the rollback - it recreates the stock
 layout and runs its own loader step.
+
+## D19 - no partition-size change, and the layout math already fits
+
+Owner (Nov 6): *"For the test we dont need to alter part-size right? So we can just use the update.zip
+mechanism of how you would flash another version of android 10 dont make it more complicated then it
+has to be."*
+
+D8 (super 3.04 GiB -> 8 GiB, userdata -> 49.84 GiB) is therefore superseded. The reason it is safe to
+drop the repartition is that Android 14's logical content is smaller than Android 10's stock layout:
+
+| partition | Android 14 (built) | stock Android 10 |
+|---|---|---|
+| system | 929,140,736 | 1,442,840,576 |
+| vendor | 412,073,984 | 333,447,168 |
+| product | 456,159,232 | 925,892,608 |
+| system_ext | 384,802,816 | - (does not exist) |
+| odm | 811,008 | 556,793,856 |
+| **total** | **2,183,183,264** (block-aligned) | **3,125,321,728** |
+
+Group `hct_dynamic_partitions` is 3,258,974,208 B inside super's 3,263,168,512 B, so there is ~1.07 GiB
+spare without touching p14. What a GPT rewrite would buy is headroom for future growth, not a working
+install now - and rewriting the GPT means writing partition table bytes, which is exactly the class of
+operation **D18** forbids. `analysis/gpt/` keeps the saved head/tail bytes for the record.
+
+If Android 14's images ever grow past the group, that is a fresh decision with its own risk review, not
+a scripted `sgdisk` sequence.

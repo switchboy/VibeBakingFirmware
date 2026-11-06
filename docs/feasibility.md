@@ -74,7 +74,7 @@ room for an update snapshot. **Decision D8: grow `super` to 8 GiB and shrink `us
 53,517,729,280 B (49.84 GiB)** - partitions p1-p13 keep their byte offsets, so bootloader, DTB,
 vbmeta, boot, recovery and cache contents stay valid; only p14/p15 change. `/data` stays F2FS but
 is reformatted, so its content must be backed up first (see `docs/plan.md` M2b). With ~4 GiB spare
-after the Android 14 images, future updates can use a snapshot/rollback copy without repartitioning
+after the Android 14 images, future updates keep using this layout (no repartition, **D19**)
 again, and we no longer have to strip Google/preinstalled apps to squeeze in.
 ## Delivery/flash constraint
 

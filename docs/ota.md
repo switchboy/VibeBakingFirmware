@@ -64,10 +64,11 @@ and `vendor.map` after `m dist`.
 While the zip does not build yet, Android 14 can still go on the unit by the stock update.zip flow (`docs/flash.md`, D18)
 (`docs/flash.md`), which needs no OTA at all; upgrades after that use the zip.
 
-## Changing super's size without a full rebuild
+## Keeping super's size in sync
 
-`BOARD_SUPER_PARTITION_SIZE` has to match the partition `sgdisk` actually wrote (see
-`docs/repartition.md` - alignment can shave a few hundred KiB). If the number changes after the
+`BOARD_SUPER_PARTITION_SIZE` has to match the partition that actually exists on the unit
+(`analysis/hu_partition_offsets.txt`: 3,263,168,512 B). It never changes (**D19** - no repartition), so
+the board config value is fixed. If the number ever has to change, the
 first build, paste the new value into `device/rk3399-px6-hct4/BoardConfig.mk` and run
 
     m superimage -j4      # re-stages system/vendor/product/system_ext/odm into super.img
@@ -93,7 +94,7 @@ Fallback when no app is available yet: `adb sideload` from the NAS over the OTG 
 
 ## First install (before our recovery exists)
 
-The very first `boot`/`recovery`/`super` write cannot come from an OTA - it needs the Rockchip flash
-path (the unit's own recovery + update-binary; no loader/Boot-ADB on this board, and D18 forbids touching recovery). Per D11 that first install keeps the partition table as it is, so the GPT
-blobs in `analysis/gpt/` stay unused until the repartition (D8) is applied later; see `docs/flash.md`
-for the dd sequence and `docs/repartition.md` for the table change itself.
+The very first install cannot come from an OTA of Android 14 by our own recovery - it runs in the
+**stock** recovery with the **stock** `update-binary` (the unit's own upgrade path; no loader/Boot-ADB
+on this board, and **D18** forbids touching recovery). It keeps the partition table as it is (**D11**,
+**D19**), so the saved GPT bytes in `analysis/gpt/` are only a record. See `docs/flash.md`.

@@ -24,7 +24,7 @@ Recorded in `/srv/dev-disk-by-label-SSData/aospbuild/installed_packages.txt`:
 
     git-lfs repo unzip device-tree-compiler brotli gdisk zip
 
-`gdisk` is only needed by `scripts/repartition_gpt.sh` (`sgdisk` computes the GPT CRCs).
+`gdisk`/`sgdisk` were only needed by the dropped repartition script (**D19**); gdisk stays installed for reading the saved GPT bytes in `analysis/gpt/`.
 Already present before setup: git, python3, curl, make, gcc, g++, patch, cpio, bzip2, pkg-config.
 `repo` comes from Debian's package (launcher 2.54; repo offers 2.71 and says to upgrade - harmless).
 
@@ -450,10 +450,11 @@ and no partition dumps are taken.
 `analysis/hu_partition_offsets.txt` (probe 2026-11-05 19:14, sysfs, no root) holds the unit's actual
 LBAs: disk 122,683,392 sectors (62,813,896,704 B), `super` 1,379,328-7,752,703 = **3,263,168,512 B**,
 `userdata` 7,752,704-122,683,358 = 58,844,495,360 B, boot = 33,554,432 B, recovery = 100,663,296 B.
-Those match `BoardConfig.mk` exactly, which confirms the no-repartition layout (D11 option A).
-`scripts/repartition_gpt.sh` now validates against these LBAs and prints the values the repartition
-would really produce: super **8,589,410,304**, userdata **53,517,204,992** (sgdisk's 2048-sector
-alignment costs 524,288 B of the round 8 GiB).
+Those match `BoardConfig.mk` exactly, which confirms the no-repartition layout (**D11** option A, now
+**D19**): the offsets are read with `gdisk -p` and compared with the board config, and nothing ever
+writes the partition table. The 8 GiB layout that a repartition would have produced (super
+8,589,410,304, userdata 53,517,204,992 - sgdisk's 2048-sector alignment costs 524,288 B of the round
+8 GiB) is recorded here as the rejected alternative.
 
 ## fstab form for Android 14
 

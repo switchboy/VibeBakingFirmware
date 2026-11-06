@@ -27,11 +27,12 @@ legacy blobs are preferred over reimplementing them.
    Android 15 would require reimplementing the vendor HAL surface.
 4. **KeyMint**: Android ≥11 requires `IKeyMintDevice`; vendor ships keymaster 3.0 → must add a
    KeyMint service (software implementation, or a wrapper over `keystore.rk30board.so`).
-5. **Partition layout (D8 decided)**: super 3.04 GiB -> **8 GiB**, userdata 54.78 GiB ->
-    **49.84 GiB**. Android 14 images (~3.9 GiB) then fit with ~4 GiB spare, which leaves room for an
-    update snapshot. Partitions p1-p13 keep their byte offsets, so uboot/trust/dtb/dtbo/vbmeta/boot/
-    recovery/cache stay byte-identical; only p14/p15 move. userdata is reformatted, so its 5.4 GiB of
-    content must be backed up first (`docs/plan.md` M2b).
+5. **Partition layout (D8 superseded by D19, Nov 6)**: no change at all. Super stays 3,263,168,512 B
+    and the group stays 3,258,974,208 B. Android 14's logical images total 2,183,183,264 B block-aligned
+    (system 929 MB / vendor 412 MB / product 456 MB / system_ext 385 MB / odm 0.8 MB), so they fit with
+    ~1.07 GiB spare without touching the GPT; only the logical partitions inside super are recreated by
+    the payload's `dynamic_partitions_op_list`. Android 10's stock layout needed 3,125,321,728 B, so our
+    build is *smaller* than what the unit already holds.
 6. **Boot image format**: existing U-Boot reads Android boot header v2 (`boot.img` in payload).
    Keep header v2/v3; do not emit header v4 unless U-Boot is updated.
 7. **Flashing path**: unit's built-in upgrade flow expects a Rockchip `update.zip` (FAT32 media),
@@ -74,10 +75,11 @@ legacy blobs are preferred over reimplementing them.
 | D5 | Security posture | **decided** | pragmatic during bring-up, strict at release | fast iteration, hardened final build |
 | D6 | Head-unit apps | **decided** | keep HCT4 apps for v1 | feature parity first, replace incrementally |
 | D7 | Update/flash delivery | **decided** | keep Update.zip on USB/SD | unchanged owner workflow, payload signed by us |
-| D8 | Partition layout change | **decided** | B: shrink userdata, grow super (8 GiB super / 49.84 GiB userdata) | owner wants the OS breathing room; p1-p13 byte offsets unchanged so bootloader/recovery stay valid |
+| D8 | Partition layout change | **superseded by D19** | no layout change | Android 14's logical images (2.18 GB) fit in the existing 3.26 GB super with 1.07 GB spare, so growing it buys nothing and a GPT rewrite is a brick risk |
 | D16 | Dropped vendor destinations | **decided** | restore Android 14's own HAL modules via PRODUCT_PACKAGES; declare rild + vendor_flash_recovery.rc as the only gaps | Soong defines rules for HIDL services the product never pulls in, so dropping the blob deleted real features; blobs cannot be re-added without a Make collision |
 | D17 | First-flash transport | **superseded by D18** | fastboot kept as last resort only | owner rejected it: it bypasses the stock recovery's loader step, which may be the only path to the mainboard MCU firmware |
 | D18 | Install transport + untouchable partitions | **decided** | stock `update.zip` flow (stock recovery + stock `update-binary`); never write recovery/uboot/trust/dtbo/RKLoader/`security`; no partition resize | owner: keep it as simple as flashing another Android 10 build; an unverified custom recovery could brick the unit; rollback = the stock Android 10 update.zip |
+| D19 | Partition-size change for the test | **decided** | none - recreate logical partitions inside the existing super | owner: don't complicate it; Android 14's 2.18 GB fits in the 3.26 GB group, so no GPT write and no resize (**D18** forbids writing partition-table bytes) |
 
 
 
@@ -90,7 +92,7 @@ Detailed milestone breakdown: `docs/plan.md`.
 | MTC driver source unavailable → kernel frozen | kernel CVEs unpatched | keep kernel; mitigate by hardening userspace/SELinux, network-facing services disabled; later rebuild kernel from Rockchip BSP + vendor's driver source if obtainable |
 | VNDK/legacy lib drift in Android 14 build | blobs fail to link | ship vendor-local copies of Android-10 era libs; test each HAL with VTS-ish smoke tests |
 | Ion vs dmabuf allocator path | graphics breakage | keep HIDL allocator/mapper 2.0 + vendor `libion` shim talking to `/dev/ion` (kernel 4.19 has Rockchip ion) |
-| Super partition too small for Android 14 | install fails | resolved by D8: super grows to 8 GiB (userdata 49.84 GiB). Remaining risk is the repartition itself - keep the saved GPT bytes + p1-p13 + old images so the old layout can be restored exactly |
+| Super partition too small for Android 14 | install fails | no longer a risk: Android 14 needs 2.18 GB of logical content and the group is 3.26 GB (1.07 GB spare). If it ever stops fitting, that is a fresh layout decision (**D19**), not a scripted GPT rewrite |
 | HCT apps depend on framework internals | features break | keep app layer from current firmware initially; test early on real car |
 | Bricking the unit | hardware loss | **only one unit**: backup GPT head/tail, p1-p13, boot/recovery and the current logical images before any flash; never flash without a verified restore path. Losing accounts/apps/settings is acceptable per the owner, so backup only needs to be firmware-level |
 | Installed firmware is a Daisaita build, not the reference ROM | vendor assumptions could be wrong | largely resolved: the live HAL set matches the reference manifest except `cas`/`weaver`/`rockit.hw` (declared but binaries still present); the next report hashes every vendor blob so we can prove byte-for-byte equality |
@@ -112,7 +114,7 @@ Detailed milestone breakdown: `docs/plan.md`.
    used, and rollback is the stock Android 10 update.zip - flash it the same way if Android 14 turns
    out wrong. Nothing in this repo restores partitions. Confirm the recovery entry route (the "reboot
    recovery" app, a key combo, or the stick-prompt behaviour) against XDA before the first attempt.
-5. M2b repartition (super 8 GiB / userdata 49.84 GiB) stays deferred - the first flash writes
+5. M2b repartition is dropped (**D19**) - the install writes
    `super`/`boot`/`recovery` only and leaves the GPT alone (**D11**).
 6. Closeout when the ROM ships: remove the extra packages installed on the build host
    (`git-lfs repo unzip device-tree-compiler brotli gdisk zip`) and delete the temporary

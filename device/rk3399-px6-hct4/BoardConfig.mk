@@ -104,28 +104,28 @@ BOARD_MKBOOTIMG_ARGS := --header_version 2 \
 BOARD_INCLUDE_DTB_IN_BOOTIMG := true
 BOARD_PREBUILT_DTBIMAGE_DIR := device/rockchip/rk3399/prebuilt/dtb
 
-# ---- dynamic partitions (decision D8: super 8 GiB, userdata 49.84 GiB) --------
 BOARD_USE_DYNAMIC_PARTITIONS := true
 BOARD_BUILD_SUPER_IMAGE_BY_DEFAULT := true
+
 # ---- dynamic partitions (super) -----------------------------------------------
 # p14's size must match BOARD_SUPER_PARTITION_SIZE exactly, or super's metadata disagrees with the
-# partition and Android refuses to boot. Two sets are possible:
+# partition and Android refuses to boot.
 #
-#   B. GPT untouched - CHOSEN for the first flash (D11): p14 stays 3186688 KiB = 3,263,168,512 B.
-#      Our images total ~2.056 GB (system 922.4 + vendor 292.3 + product 456.1 + system_ext 384.7 +
-#      odm 0.8 MB), so they fit with ~1.2 GB spare, and that is exactly the group the stock Android
-#      10 rollback zip uses. The first flash writes super/boot/recovery only - no GPT rewrite.
-#   A. Repartitioned (D8, needs a root/Boot-ADB shell): super = 8 GiB, userdata shrunk to ~49.84 GiB.
-#      scripts/repartition_gpt.sh prints the exact numbers sgdisk wrote; paste them here once the
-#      repartition has actually been applied and the ROM is proven to boot.
+# The layout is NOT changed (D19, owner Nov 6; superseding D8's "grow super to 8 GiB"): p14 stays
+# 3186688 KiB = 3,263,168,512 B, which is what the probe measured in
+# analysis/hu_partition_offsets.txt. Android 14's logical images are block-aligned to
+# 2,183,183,264 B (system 929.1 + vendor 412.1 + product 456.4 + system_ext 384.8 + odm 0.8 MB), so
+# they fit inside the 3,258,974,208 B group with ~1.07 GiB spare - less than the stock Android 10
+# layout's 3,125,321,728 B. The install recreates the logical partitions inside super through the
+# payload's dynamic_partitions_op_list and never writes the partition table (docs/flash.md, D18).
 #
-# Whichever is active, re-run `m superimage` (cheap: only re-stages logical partitions, no full
-# build) and re-flash super.img.
+# The rejected alternative, recorded for the day the images outgrow the group: super 8 GiB
+# (BOARD_SUPER_PARTITION_SIZE := 8589934592, BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 8585710080) with
+# userdata shrunk to ~49.84 GiB. That needs a GPT rewrite, which is a fresh risk decision, not a
+# routine step.
 BOARD_SUPER_PARTITION_SIZE := 3263168512
 BOARD_SUPER_PARTITION_GROUPS := hct_dynamic_partitions
 BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 3258974208    # super minus 4 MiB metadata overhead
-# After the repartition (D8): BOARD_SUPER_PARTITION_SIZE := 8589934592
-#                            BOARD_HCT_DYNAMIC_PARTITIONS_SIZE := 8585710080
 BOARD_HCT_DYNAMIC_PARTITIONS_PARTITION_LIST := system vendor product system_ext odm
 
 # ---- filesystem ---------------------------------------------------------------
