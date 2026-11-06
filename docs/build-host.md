@@ -249,13 +249,33 @@ last. All four are now fixed except the vendor one (see below).
        other links are deleted: `libOpenCL.so -> .1 -> .1.1 -> ./egl/libGLES_mali.so` is a chain
        that only resolves while all three links exist (~111 MB added, the super group has ~1.2 GB
        spare).
-     - `vendor/etc/vintf/` cannot go through `PRODUCT_COPY_FILES` (`Makefile:131`): the manifest goes
-       via `DEVICE_MANIFEST_FILE`, and the device compatibility matrix is rewritten with its
-       `<vendor-ndk><version>30</version>` block removed - Android 14 has no VNDK and `checkvintf`
-       reports "Vndk version 30 is not supported". Our own framework matrix
-       (`DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE`) adds the three HALs the Android 14 framework
-       matrices do not know: `android.hardware.mtc.mfi`, `rockchip.hardware.outputmanager`,
-       `rockchip.hardware.rockit.hw`.
+     - `vendor/etc/vintf/` cannot go through `PRODUCT_COPY_FILES` (`Makefile:131`), so both VINTF
+       files are re-written into `device/rk3399-px6-hct4/vintf/` and declared through the vintf
+       variables: `DEVICE_MANIFEST_FILE += vintf/vendor_manifest.xml`, `DEVICE_MATRIX_FILE +=
+       vintf/device_matrix.xml`, `DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE +=
+       vintf/device_framework_matrix.xml`.
+       - The device matrix loses its `<vendor-ndk><version>30</version>` block: Android 14 has no
+         VNDK and `checkvintf` reports "Vndk version 30 is not supported".
+       - The vendor manifest loses its `<sepolicy><version>30.0</version></sepolicy>`.
+         `assemble_vintf` fills a value in *only when the file has none*
+         (`system/libvintf/AssembleVintf.cpp:148-174`); an existing value that differs from the
+         build's is fatal, so Android 14's `BOARD_SEPOLICY_VERS=202404` aborted `dist` with
+         `Cannot override existing value 30.0 with BOARD_SEPOLICY_VERS (which is 202404)`. Dropping
+         the block makes the build write 202404 - which is the truth here, because the vendor
+         sepolicy in this ROM is Android 14's, compiled by the build.
+       - `target-level="5"` is *kept*. Android 14 still ships
+         `system/etc/vintf/compatibility_matrix.5.xml`, so an Android 11-era device manifest stays
+         compatible; raising the level would drop the HIDL HALs the head unit needs (audio@6.0,
+         bluetooth@1.0, camera.provider@2.4, gnss@1.0, composer@2.1, sensors@1.0, weaver@1.0).
+       - Our own framework matrix adds the three HALs the Android 14 framework matrices do not
+         know: `android.hardware.mtc.mfi`, `rockchip.hardware.outputmanager`,
+         `rockchip.hardware.rockit.hw`. It lands in `system/etc/vintf/compatibility_matrix.device.xml`.
+     - VINTF compatibility is checked *by the build*: dist runs `checkvintf --check-one` per
+       partition and `--check-compat` over the target_files set (`build/make/core/Makefile:5162`,
+       `:5391`) into `obj/PACKAGING/check_vintf_intermediates/*.log`, and fails the build when
+       incompatible. It cannot be reproduced offline the same way: `--check-compat` also needs
+       `/apex/apex-info-list.xml`, which only exists on a running device (the build passes the
+       apex info file it generated). `scripts/verify_artifacts.sh` therefore reads those logs.
      - Make cannot express some vendor file names, and all of them are `usb_modeswitch.d` rules.
        `#` starts a comment, so an entry is truncated and `lunch` dies with
        `malformed COPY_FILE "vendor/hct4/tree/vendor/etc/usb_modeswitch.d/12d1_"` (3 files). `=`

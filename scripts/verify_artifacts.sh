@@ -51,35 +51,23 @@ python3 "$REPO/tools/vendor_diff.py" "$TREE/vendor/hct4/prebuilt/vendor_a11.img"
 say "=== super layout ==="
 TREE="$TREE" WORK="$WORK" python3 "$REPO/scripts/check_super.py" 2>&1 | tail -14
 
-say "=== VINTF compatibility ==="
-CV=$(find "$TREE/out/host" -name checkvintf -type f 2>/dev/null | head -1)
-# The framework side is the system manifest plus every framework compatibility matrix the image
-# carries (compatibility_matrix.<n>.xml, highest n = this release) and our own device-side
-# framework matrix, which is what declares android.hardware.mtc.mfi and the rockchip HALs.
-if [ -n "$CV" ]; then
-  fw="$STAGE/SYSTEM/etc/vintf/manifest.xml"
-  fwmat=$(ls "$STAGE/SYSTEM/etc/vintf/compatibility_matrix."*.xml 2>/dev/null | sort -V | tail -1)
-  dev="$STAGE/VENDOR/etc/vintf/manifest.xml"
-  devmat="$STAGE/VENDOR/etc/vintf/compatibility_matrix.xml"
-  mats=()
-  for m in "$STAGE/SYSTEM/etc/vintf/device_framework_matrix.xml" "$STAGE/SYSTEM/etc/vintf/compatibility_matrix.device.xml"; do
-    if [ -s "$m" ]; then mats+=("$m"); fi
+say "=== VINTF compatibility (the build ran checkvintf during dist) ==="
+# dist runs checkvintf --check-one per partition and --check-compat over the whole target_files set,
+# and fails the build if anything is incompatible, so the logs are the authoritative result. Running
+# it ourselves offline is not equivalent: --check-compat needs /apex/apex-info-list.xml, which only
+# exists on a running device (the build passes the apex info file it generated).
+logs=$(find "$PROD/obj/PACKAGING" -name "check_vintf*.log" 2>/dev/null | sort)
+if [ -n "$logs" ]; then
+  for lg in $logs; do
+    name=$(basename "$lg")
+    if grep -q "^ERROR\|Incompatible\|Cannot " "$lg"; then
+      bad "$name reports a problem: $(grep -m2 "^ERROR\|Incompatible\|Cannot " "$lg" | tr "\n" " ")"
+    else
+      say "  $name: $(grep -c . "$lg") lines, verdict $(grep -m1 "COMPATIBLE\|Success\|status" "$lg" | tail -c 60)"
+    fi
   done
-  extra=""; names=""
-  for m in "${mats[@]}"; do names+=" + $(basename "$m")"; extra+=" --framework-mat=$m"; done
-  if [ -s "$fw" ] && [ -s "$fwmat" ] && [ -s "$dev" ] && [ -s "$devmat" ]; then
-    say "  framework: $(basename "$fw") + $(basename "$fwmat")$names"
-    say "  device:    $(basename "$dev") + $(basename "$devmat")"
-    "$CV" --no_local --check-compat --framework="$fw" --framework-mat="$fwmat" \
-      --device="$dev" --device-mat="$devmat" $extra 2>&1 | tail -4 | sed 's/^/  /'
-    "$CV" --no_local --check-compat --framework="$fw" --framework-mat="$fwmat" \
-      --device="$dev" --device-mat="$devmat" $extra >/dev/null 2>&1 || \
-      bad "checkvintf reports incompatibility"
-  else
-    bad "missing VINTF files in target_files: fw=$fw fwmat=${fwmat:-none} dev=$dev devmat=$devmat"
-  fi
 else
-  bad "no checkvintf in out/host"
+  bad "no check_vintf logs - dist did not run the VINTF check"
 fi
 
 say "=== boot image header (what u-boot loads) ==="
