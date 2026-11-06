@@ -2,7 +2,12 @@
 """Which libraries do the kept Rockchip vendor blobs link against, and does the built image really
 provide them?
 
-  tools/blob_deps.py <vendor-tree-dir> [<drop-list-file>] [<built-vendor.img> | <installed-files-vendor.txt>]
+  tools/blob_deps.py <vendor-tree-dir> [<drop-list-file>] \
+                     [<built-vendor.img> | <installed-files-vendor.txt>] [<vendor_dest_keep.txt>]
+
+vendor_dest_keep.txt names the destinations that are in the drop list (Soong defines a rule, so the
+blob cannot be copied) but that scripts/inject_vendor_blobs.sh writes into /vendor anyway: those
+sonames resolve and are not reported as "the build replaces them".
 
 For every ELF under the staged vendor tree that is *not* in the drop list, read the DT_NEEDED
 entries, then resolve each soname the way the dynamic loader will: a blob installed in /vendor/lib64
@@ -84,6 +89,9 @@ def inventory(arg):
 def main():
     root = sys.argv[1]
     drop_rels, drop_names = drop_paths(sys.argv[2:3])
+    # Injected anyway (Android 14 builds them for /system only): they exist in /vendor, so a blob
+    # that needs them loads fine. Do not call those "replaced by the build".
+    keep_rels, keep_names = drop_paths(sys.argv[4:5]) if len(sys.argv) > 4 else (set(), set())
     inv = inventory(sys.argv[3]) if len(sys.argv) > 3 else set()
 
     all_rels = sorted(elf_files(root))
@@ -100,6 +108,8 @@ def main():
         d = os.path.dirname(rel)
         for lib in needed(os.path.join(root, rel)):
             same_dir = os.path.join(d, lib) if d else lib
+            if same_dir in keep_rels or lib in keep_names:
+                continue                                  # injected into /vendor by inject_vendor_blobs.sh
             if same_dir in drop_rels or lib in drop_names:
                 replaced.setdefault(lib, []).append(rel)
                 continue

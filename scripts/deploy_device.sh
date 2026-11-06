@@ -87,9 +87,7 @@ fi
 # drops those destinations (vendor_build_wins.txt), so a collision here means the product config
 # changed since the staging was generated - regenerate instead of building.
 if ls "$TREE"/out/soong/installs-*.mk >/dev/null 2>&1; then
-  INSTALLED=$(ls "$TREE"/out/target/product/*/installed-files-vendor.txt 2>/dev/null | head -1)
-  conflicts=$(python3 "$REPO/tools/vendor_conflicts.py" "$TREE" "$DEST" \
-    --keep-file "$DEST/vendor_dest_keep.txt" ${INSTALLED:+--installed-file "$INSTALLED"} 2>&1 | tail -20)
+  conflicts=$(python3 "$REPO/tools/vendor_conflicts.py" "$TREE" "$DEST" 2>&1 | tail -20)
   if ! printf '%s\n' "$conflicts" | grep -q "no collisions"; then
     echo "  ! the copy list collides with modules the build installs:"
     printf '%s\n' "$conflicts" | grep -E "^COLLISIONS|blob must win|^     " | head -6

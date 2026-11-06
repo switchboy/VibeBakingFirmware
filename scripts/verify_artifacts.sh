@@ -54,7 +54,8 @@ python3 "$REPO/tools/vendor_dropped_check.py" "$TREE" "$TREE/device/rockchip/rk3
 
 say "=== kept vendor blobs resolve their DT_NEEDED in the built image ==="
 python3 "$REPO/tools/blob_deps.py" "$TREE/vendor/hct4/tree/vendor" \
-  "$TREE/device/rockchip/rk3399/vendor_build_wins.txt" "$PROD/installed-files-vendor.txt" 2>&1 | tail -14
+  "$TREE/device/rockchip/rk3399/vendor_build_wins.txt" "$PROD/vendor.img" \
+  "$TREE/device/rockchip/rk3399/vendor_dest_keep.txt" 2>&1 | tail -14
 [ "${PIPESTATUS[0]}" = 0 ] || bad "a staged vendor blob needs a library that /vendor does not provide"
 
 say "=== super layout ==="

@@ -35,6 +35,13 @@ For every collision it also names the module that installs the path, which decid
 Source of install targets:
   out/soong/installs-<product>.mk   the install rules Soong defines for this product's modules
 
+A rule is a collision even when the module is never pulled in: Make merges Soong's rule file, so
+PRODUCT_COPY_FILES may not define the same target (pack24 died on libchrome.so, whose vendor
+variant nothing installs). Dropping the blob is therefore forced. Android 14 builds some of those
+libraries for /system only (no VNDK), so a vendor HAL would lose its library: those destinations are
+recorded in vendor_dest_keep.txt and re-added to the staging directory by
+scripts/inject_vendor_blobs.sh, not through PRODUCT_COPY_FILES.
+
 The previous build's staging directory is deliberately *not* an oracle: it holds the blobs that an
 earlier pass copied, so every staged path would look "installed by the build" and attribution is
 impossible. Legacy Make modules install paths too, but nothing enumerates them statically; ckati
@@ -148,17 +155,12 @@ def main():
     ap.add_argument("--write-drop-list",
                     help="write the destinations to drop from the copy list (build wins) here, "
                          "so tools/gen_vendor_staging.py --dest-skip can regenerate without them")
-    ap.add_argument("--installed-file",
-                    help="out/target/product/<device>/installed-files-vendor.txt from the previous "
-                         "build. With it, only paths that were REALLY installed into /vendor count as "
-                         "collisions: out/soong/installs-*.mk holds rules for modules this product "
-                         "never pulls in, and Android 14 installs some libraries into /system instead, "
-                         "so a rule alone proves nothing")
-    ap.add_argument("--keep-file",
-                    help="paths that must stay staged even though a module defines a rule for them: "
-                         "Android 14 installs that file into /system, not /vendor (no VNDK), so there "
-                         "is no Make collision and a vendor HAL would lose its library. Written from a "
-                         "real build by tools/vendor_dropped_check.py --write-keep-list")
+    # Deliberately no --keep-file / --installed-file here: a Soong install rule for a /vendor path
+    # collides with PRODUCT_COPY_FILES whether or not the module ever materialises (pack24: ckati
+    # aborted on `overriding commands for target .../vendor/lib/libchrome.so` although nothing
+    # installed it). So every /vendor rule means "drop the blob", and the libraries Android 14 only
+    # builds for /system come back through scripts/inject_vendor_blobs.sh.
+
     args = ap.parse_args()
 
     tree = args.tree
@@ -167,46 +169,13 @@ def main():
     targets = install_targets(tree)
     mentions = product_lists(tree) if os.path.isdir(os.path.join(tree, "vendor")) else {}
 
-    installed = None
-    if args.installed_file and os.path.exists(args.installed_file):
-        installed = set()
-        for line in open(args.installed_file, errors="replace"):
-            m = re.search(r"/vendor/(\S+)$", line.strip())
-            if m:
-                installed.add(m.group(1))
-        print("previous build installed %d paths in /vendor (the only real collisions)" % len(installed))
-    keep = set()
-    if args.keep_file and os.path.exists(args.keep_file):
-        keep = {line.split("#", 1)[0].strip() for line in open(args.keep_file, errors="replace")
-                if line.strip() and not line.strip().startswith("#")}
     collisions = []
-    kept = []
     for rel in sorted(dests):
-        hit = [dest for dest, (_mod, _src, _where) in targets.items() if dest.endswith("/vendor/" + rel)]
-        if not hit:
-            continue
-        if installed is not None and rel not in installed:
-            # A rule exists, but nothing installed this path last build: Make defines no rule for it
-            # either, so copying the blob cannot collide, and the file is genuinely needed in /vendor.
-            kept.append((rel, hit[0]))
-            continue
-        # A rule for /vendor/<rel> does not mean the product installs it there: Android 14 may build
-        # the same library for /system only. Those paths stay staged (no collision, needed library).
-        if rel in keep:
-            kept.append((rel, hit[0]))
-            continue
         for dest, (mod, src, where) in targets.items():
             if dest.endswith("/vendor/" + rel):
                 collisions.append((rel, mod, src, where))
 
-    print("staged destinations: %d ; build install targets under /vendor: %d ; kept despite a rule: %d"
-          % (len(dests), len(targets), len(kept)))
-    if kept:
-        print("  kept as vendor blobs (no rule materialised: not installed in /vendor, or built for /system):")
-        for rel, dest in sorted(kept)[:12]:
-            print("     %-52s (rule exists as %s)" % (rel, dest.split("/vendor/")[-1]))
-        if len(kept) > 12:
-            print("     ... %d more" % (len(kept) - 12))
+    print("staged destinations: %d ; build install targets under /vendor: %d" % (len(dests), len(targets)))
     if not collisions:
         print("no collisions - the copy list can be parsed")
         if args.write_drop_list:

@@ -18,7 +18,10 @@ Three inputs are cross-checked:
      which are reported but never fail the check.
 
 A replacement must be a *same-kind* file: a service in bin/hw is only replaced by another service
-in bin/hw, a 64-bit lib only by a 64-bit lib. Matching android.hardware.bluetooth@1.0-service
+in bin/hw, a 64-bit lib only by a 64-bit lib. Destinations Android 14 builds for /system instead of
+/vendor are listed separately and written to `--write-keep-list <file>` for
+scripts/inject_vendor_blobs.sh; if one of them is missing from the image the check fails, because a
+vendor process cannot read /system. Matching android.hardware.bluetooth@1.0-service
 against etc/permissions/android.hardware.bluetooth.xml, or lib64/libwifi-hal.so against
 lib/libwifi-hal.so, is not a replacement - that is what the first version of this tool wrongly
 accepted.
@@ -146,15 +149,39 @@ def main():
     for p in in_image:
         by_kind.setdefault(kind(p), []).append(p)
 
-    real_loss, substituted, shifted = [], [], []
+    # Android 14 has no VNDK: libchrome/libdrm/libvpx/libopus/libstagefright_*/libvorbisidec/
+    # libhwbinder/libkeymaster4support are built for /system only, while Soong still defines an
+    # install rule for the /vendor path. So the blob cannot be copied (ckati: "overriding
+    # commands") and nothing lands in /vendor, and a vendor process cannot read /system. Those
+    # destinations are listed in vendor_dest_keep.txt and written into the vendor staging
+    # directory by scripts/inject_vendor_blobs.sh.
+    #
+    # Derived from the drop list + the non-vendor inventory, not from what is missing: after the
+    # injection the paths *are* in the image, and the list must still be regenerable.
+    shifted = sorted((p, sorted(moved[os.path.basename(p)])) for p in dropped
+                     if os.path.basename(p) in moved)
+    if keep_out:
+        header = (
+            '# Vendor destinations Android 14 installs into /system (or /product) instead of /vendor.\n'
+            '# Android 14 has no VNDK, so no vendor variant is installed, but Soong still defines an\n'
+            '# install rule for the /vendor path: PRODUCT_COPY_FILES may not copy the stock blob\n'
+            '# there (ckati says "overriding commands"), and a vendor process cannot read /system.\n'
+            '# scripts/inject_vendor_blobs.sh writes these from the staged tree into the vendor\n'
+            '# staging directory after the install rules have run. Regenerate after every build:\n'
+            '#   tools/vendor_dropped_check.py <tree> <device-dir> <vendor.img> --write-keep-list <this file>\n'
+        )
+        with open(keep_out, "w") as f:
+            f.writelines(header)
+            for p, _parts in shifted:
+                f.write("%s\n" % p)
+        print("wrote %s (%d destinations to inject into /vendor)" % (keep_out, len(shifted)))
+
+    real_loss, substituted = [], []
     for p in lost:
-        parts = moved.get(os.path.basename(p))
-        if parts:
-            # The build installed the same file name into /system or /product, not /vendor. The
-            # vendor copy is gone and a vendor process cannot read those partitions: keep the blob.
-            shifted.append((p, sorted(parts)))
-            real_loss.append((p, "moved to /%s by Android 14 (no VNDK) - keep the staged vendor blob"
-                              % "/, /".join(sorted(parts))))
+        if os.path.basename(p) in moved:
+            real_loss.append((p, "Android 14 builds this for /%s only (no VNDK) - "
+                              "scripts/inject_vendor_blobs.sh did not put it in /vendor"
+                              % "/, /".join(sorted(moved[os.path.basename(p)]))))
             continue
         alts = [q for q in by_kind.get(kind(p), []) if q != p]
         if alts:
@@ -176,31 +203,19 @@ def main():
             print("   %-52s %s" % (p, accepted[p][:70]))
 
     if shifted:
-        print("installed OUTSIDE /vendor by Android 14 (%d) - a vendor HAL cannot load these:" % len(shifted))
-        for p, parts in sorted(shifted):
+        print("built OUTSIDE /vendor by Android 14 (%d) - injected by scripts/inject_vendor_blobs.sh:" % len(shifted))
+        for p, parts in shifted:
             print("   %-52s -> /%s" % (p, ", /".join(parts)))
-        if keep_out:
-            header = (
-                '# Destinations Android 14 installs into /system (or /product) instead of /vendor.\n'
-                '# Android 14 has no VNDK, so the vendor copy of these libraries is not built, and\n'
-                '# a vendor process cannot read /system: the HAL keeps its staged vendor copy.\n'
-                '# tools/vendor_dropped_check.py writes this from a real build;\n'
-                '# scripts/prebuilt_vendor.sh feeds it back so these blobs are never dropped again.\n'
-            )
-            with open(keep_out, "w") as f:
-                f.writelines(header)
-                for p, _parts in sorted(shifted):
-                    f.write("%s\n" % p)
-            print("wrote %s (%d destinations to keep as blobs)" % (keep_out, len(shifted)))
 
     if real_loss:
         print("LOST with no replacement (%d) - the vendor partition would lack these:" % len(real_loss))
         for p, why in sorted(real_loss):
             print("   %-52s %s" % (p, why))
         print("\nFix: add the Android 14 module that installs the path to PRODUCT_PACKAGES "
-              "(tools/vendor_module_names.py names it), or keep the blob staged by removing the "
-              "path from vendor_build_wins.txt. Declare an intentional gap in "
-              "vendor_dest_deviations.txt. Dropping a HAL service silently removes the feature.")
+              "(tools/vendor_module_names.py names it); for a library Android 14 builds for /system "
+              "only, run scripts/inject_vendor_blobs.sh (vendor_dest_keep.txt names it); declare an "
+              "intentional gap in vendor_dest_deviations.txt. Dropping a HAL service silently "
+              "removes the feature.")
         return 1
 
     print("every dropped destination is present, substituted, or declared as a deviation")

@@ -123,6 +123,14 @@ prune_dist() {
 m_retry bootimage   || { echo "PACKAGING STOPPED on bootimage" >> "$LOG"; exit 1; }
 m_retry recoveryimage || { echo "PACKAGING STOPPED on recoveryimage" >> "$LOG"; exit 1; }
 
+# The libraries Android 14 builds for /system only (no VNDK) are written into the vendor staging
+# directory now: they cannot be PRODUCT_COPY_FILES entries (Soong's vendor-variant rule collides) and
+# nothing installs them, so without this the Rockchip HALs would miss libchrome/libdrm/libhwbinder.
+# It removes the stale vendor.img so `m dist` rebuilds it from the staging dir.
+echo "=== injecting the /system-only vendor libraries ===" >> "$LOG"
+"$REPO/scripts/inject_vendor_blobs.sh" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
+  || { echo "PACKAGING STOPPED on inject_vendor_blobs" >> "$LOG"; exit 1; }
+
 # dist builds the target_files package (including IMAGES/) and tries the OTA package. With vendor
 # staged from blobs (D15) the dist pass should now produce a VENDOR/ directory; if it does not, the
 # OTA step will assert on the missing BlockDifference, so check it here rather than deep in ninja.
