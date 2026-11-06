@@ -74,7 +74,10 @@ VibeBakingFirmware/
 │   ├── repartition_gpt.sh builds the new GPT blobs with sgdisk
 │   ├── apply_tree_patches.sh applies patches/ to the LineageOS checkout (idempotent, git apply)
 │   ├── package.sh      the packaging pass on the NAS: patches -> vendor staging -> deploy ->
-│   │                  bootimage/recoveryimage/dist/superimage/otapackage
+│   │                  bootimage/recoveryimage/dist/superimage/otapackage, reveal-and-retry on
+│   │                  install collisions, prune unused dist packages
+│   ├── verify_artifacts.sh checks a finished pass offline (VENDOR/ + vendor.map, vendor_diff,
+│   │                  super layout, VINTF compat, boot header, recovery installer, OTA zip)
 │   ├── stage_flash.sh  stages super/boot/recovery (+ sha256) for the Boot-ADB flash, sparse->raw
 │   ├── build_rollback_super.sh rebuilds a flashable Android 10 super from the stock package
 │   ├── check_super.py  verifies the staged super offline (lpdump layout + dumpe2fs per partition)

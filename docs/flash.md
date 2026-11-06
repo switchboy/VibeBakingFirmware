@@ -21,6 +21,12 @@ LineageOS recovery yet), so it goes through Rockchip's Loader mode. Everything e
 
 ## Flashing through Boot-ADB
 
+Before staging anything, `scripts/verify_artifacts.sh <tree>` must pass on the build host: it
+confirms the vendor partition was really built from the staged blobs (`VENDOR/` + `vendor.map`),
+that every stock blob survived in `vendor.img`, that super's logical partitions are byte-identical
+to their images, that `checkvintf` is COMPATIBLE, that the boot header matches what u-boot loads,
+and that recovery carries `update_engine_sideload` and our `recovery.fstab`.
+
 Boot-ADB is a tiny shell in the loader that can reach the eMMC as block devices, so plain `dd`
 works. Stage the images first (`scripts/stage_flash.sh <tree> <outdir>` converts `super.img` out of
 Android's sparse format and checks every size against the real partitions), then push. The script
