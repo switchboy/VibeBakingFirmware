@@ -135,6 +135,9 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
   OTA failures exposed is written up in `docs/build-host.md`.
 - M2b (repartition): **dropped** on Nov 6 (owner: no partition-size change for the test). Android 14's
   logical images are 2,183,183,264 B inside the existing 3,258,974,208 B group, so super already fits
-  with ~1.07 GiB spare and the GPT is never touched.
-  current table, no GPT rewrite. The real LBAs are captured (`analysis/hu_partition_offsets.txt`) and
-  Next is M3: the Boot-ADB first flash per `docs/flash.md`, then the framework-only boot test.
+  with ~1.07 GiB spare and the GPT is never touched (**D19**, **D11**). The real LBAs are captured in
+  `analysis/hu_partition_offsets.txt`.
+- Next is M3: build the payload with `scripts/build_hu_package.sh` and flash it through the unit's own
+  `update.zip` route - stick at the root, stock recovery, stock `update-binary` (**D18**,
+  `docs/flash.md`) - then run the on-device probe. Fastboot/Boot-ADB is not used; MASKROM, which does
+  exist on the PX6 board, is only a brick rescue and writes the boot chain, so it stays out.

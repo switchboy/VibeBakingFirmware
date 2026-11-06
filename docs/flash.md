@@ -54,12 +54,37 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
    scripts - keeping the zip is enough because the stock package recreates the stock layout and runs its
    own loader step.
 
-## Installing
+## Getting into the recovery
 
-Owner's route (needs confirming against XDA before the first attempt): a `update.zip` in the root of a
-flash drive prompts the unit to install, and the unit boots into recovery for you; there is also a
-"reboot recovery" app and a key combination. Confirm which one works on this unit before relying on
-it - if neither reaches the stock recovery, stop and do not attempt the fastboot fallback yet.
+Three routes are reported for PX6/RK3399 head units; they are not guesses, they are what owners did:
+
+* **Stick in before boot.** `update.zip` at the root of a FAT32 USB stick or SD card, inserted before
+  powering on: the unit offers the update, and on units that no longer show the menu the recovery menu
+  comes back with the card inserted. Iker Gomez (Dasaita forum, 7 Jul 2022) lists it as the recovery
+  recovery method: "on a FAT32 formatted SDcard just copy the A10 OTA file (update.zip) and reboot with
+  the Sdcard inserted... Some guys reported that after inserting the SDCARD and booting... the recovery
+  menu was again accessible". This is the owner's route and the one our payload is built for.
+* **Power-button sequence.** Long press the power key, wait for the unit to flash about five times,
+  release and press again - that reached a recovery with an "install update" entry on a PX6 Android 10
+  unit (alfondehesa, XDA, 22 Jul 2020). Units with no hardware buttons only have the reset key: holding
+  it ~10 s did *not* bring the menu back on the unit that went black-screen in the Dasaita thread.
+* **The menu tells its own version.** The third line of the recovery menu prints the build, so before
+  flashing anything, read that line and check the package is something that recovery can apply.
+
+The stock `update-binary` is not a plain AOSP updater: it carries Rockchip's USB OTA module
+(`CRKUsbComm`, `emmc_point`, `/mnt/scratch`, `drmboot.ko`) and the loader step ("Start to update loader
+from update.zip"), which is why a stick at the root of a card is picked up at all. That is also the
+reason it must stay byte-for-byte the stock binary (**D18**).
+
+**The known hazard on this platform.** Dasaita's own rule is that an OTA file must match the Android
+major version already installed - "you can NEVER upgrade the Android 10 to Android 11 by means of OTA
+files.... you can corrupt your boot system". In that thread a unit that was flashed with an Android 11
+package ended stuck at the logo, and a further package left it black-screen with no recovery. Those
+packages write `uboot.img`, `trust.img`, `dtbo.img` and the loader (`write_raw_loader_image()`), i.e. a
+boot chain from a different variant. Our payload deliberately never writes those (see above), so the
+observed brick is not our path - but we are still crossing a major version through a recovery built for
+Android 10, which no offline check can prove. Before the first flash: read the recovery menu's version
+line, and confirm the route on XDA/Dasaita for this exact unit.
 
 Then: select the update package, let it run, and reboot. The script asserts
 `ro.product.device == "rk3399"`, recreates the logical partitions, writes system / vendor / product /
@@ -68,10 +93,11 @@ formats `/data` fresh (Android 10's data, vold metadata and app data are not rea
 factory settings, accepted for v1 per **D10**).
 
 Watch for `E2001`/`E3004` in the recovery output: `E3004` means the device assert failed, `E2001`
-means a partition write failed. If `update_dynamic_partitions` refuses the group rename or the new
-`system_ext` partition, the updater aborts before any image is written - that is a safe failure and
-tells us the stock updater cannot carry Android 14's layout, which is then a decision point, not a
-brick.
+means a partition write failed. `dynamic_partitions_op_list` does not rename anything: it is the stock
+vocabulary - `remove scratch`, `remove_all_groups`, then `add_group hct_dynamic_partitions 3258974208`,
+`add` and `resize` per partition, with `system_ext` as a fifth partition. If `update_dynamic_partitions`
+refuses that op list, the updater aborts before any image is written - a safe failure that tells us the
+stock updater cannot carry Android 14's layout, which is then a decision point, not a brick.
 
 ## First boot
 
@@ -99,3 +125,19 @@ transport. It is not used (**D18**): it writes `recovery` and `boot` while bypas
 recovery's loader step, which may be the sole route to the mainboard MCU firmware. Its scripts were
 removed on Nov 6 - if the update.zip route ever proves impossible that is a fresh decision, not a
 fallback to reach for.
+
+## If the unit ever stops booting
+
+The last resort on this SoC is MASKROM, and it does exist on the PX6 - it is just not reachable through
+the unit's own ports, which is what the owner checked (**D14**). The community route is: open the case,
+get at the PX6 board, connect it over USB with a made cable (XDA's PX3/PX5 thread, and the PX6 pinout on
+page 2 of the PX6 MASKROM thread, t3989407), short two pins to enter MASKROM, then flash a full
+`update.img` with AndroidTool. Shorting pins on some boards instead enters the *recovery* menu
+(skipraider, XDA, 22 Jul 2020). Dasaita's support answer for a unit that will not boot is the same
+escalation: card-with-`update.zip` first, then a full image, then "a complete flashing (you will need a
+USBA to USBA cable)".
+
+A MASKROM flash writes the whole boot chain (uboot, trust, dtbo, loader) from whatever `update.img` is
+chosen, so it is outside **D18** and outside this repo's tooling: it is a rescue operation for a
+bricked unit, not an install transport, and it needs the board opened and soldering. Nothing here
+shorts pins or writes loader images.

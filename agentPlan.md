@@ -114,12 +114,20 @@ Detailed milestone breakdown: `docs/plan.md`.
    installer and the OTA zip.
 3. Build the flashable payload - `scripts/build_hu_package.sh ../lineage21s "extracted update.zip"
    ../tmp/hu-package/update.zip` - it has never been run. Check `unzip -l`, each transfer list's size and
-   the sha256, and watch whether the stock recovery's `update_dynamic_partitions` accepts renaming the
-   group to `hct_dynamic_partitions` and adding `system_ext` (docs/flash.md records the risk).
-4. Owner answered **D14**/**D17**/**D18** (Nov 6): the board has no loader/Boot-ADB, fastboot is not
-   used, and rollback is the stock Android 10 update.zip - flash it the same way if Android 14 turns
-   out wrong. Nothing in this repo restores partitions. Confirm the recovery entry route (the "reboot
-   recovery" app, a key combo, or the stick-prompt behaviour) against XDA before the first attempt.
+   the sha256. The op list is stock vocabulary (`remove_all_groups`, `add_group
+   hct_dynamic_partitions 3258974208`, `add`, `resize`) with `system_ext` as a fifth partition, so the
+   question is whether the Android 10 recovery's `update_engine` accepts that op list and the
+   `.new.dat.br` payloads (docs/flash.md records the risk).
+4. Owner answered **D14**/**D17**/**D18** (Nov 6): no reachable loader/Boot-ADB, fastboot is not used,
+   and rollback is the stock Android 10 update.zip - flash it the same way if Android 14 turns out
+   wrong. Nothing in this repo restores partitions. The recovery-entry routes are now sourced, not
+   guessed (docs/flash.md "Getting into the recovery"): stick with `update.zip` at the root inserted
+   before boot brings the menu back or prompts the install (Dasaita forum, Iker Gomez, 7 Jul 2022);
+   long-press power until it flashes ~5 times, release and press again reaches the recovery menu on a
+   PX6 Android 10 unit (XDA, alfondehesa, 22 Jul 2020); the menu's third line prints its version, so
+   read it before flashing. Dasaita's rule - never cross Android major versions with an OTA file - is
+   why the payload skips uboot/trust/dtbo/loader, and why the first flash still needs the unit's own
+   menu confirmed.
 5. M2b repartition is dropped (**D19**): the install recreates the logical partitions inside the
    existing super and never writes the GPT (**D11**, **D18**).
 6. Closeout when the ROM ships: remove the extra packages installed on the build host
