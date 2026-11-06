@@ -80,6 +80,7 @@ legacy blobs are preferred over reimplementing them.
 | D17 | First-flash transport | **superseded by D18** | fastboot kept as last resort only | owner rejected it: it bypasses the stock recovery's loader step, which may be the only path to the mainboard MCU firmware |
 | D18 | Install transport + untouchable partitions | **decided** | stock `update.zip` flow (stock recovery + stock `update-binary`); never write recovery/uboot/trust/dtbo/RKLoader/`security`; no partition resize | owner: keep it as simple as flashing another Android 10 build; an unverified custom recovery could brick the unit; rollback = the stock Android 10 update.zip |
 | D19 | Partition-size change for the test | **decided** | none - recreate logical partitions inside the existing super | owner: don't complicate it; Android 14's 2.18 GB fits in the 3.26 GB group, so no GPT write and no resize (**D18** forbids writing partition-table bytes) |
+| D20 | Libraries Android 14 does not install into /vendor | **decided** | request Android 14's own `<name>.vendor`/`<name>.vendor_32` modules through PRODUCT_PACKAGES (generated `vendor_modules_extra.mk`); public libraries load from /system through the linker config; inject only the leftovers | Android 14 dropped the VNDK, so the Android 10 route (/system/lib/vndk-29) is gone; a requested module is an install dep of vendor.img, which is what build_image.py's file filter is built from - an injected file is not (docs/decisions.md D20) |
 
 
 
@@ -102,20 +103,25 @@ Detailed milestone breakdown: `docs/plan.md`.
 
 ## Next action
 
-1. Get the packaging pass through: `m dist` must emit a real `VENDOR/` staging directory plus
-   `IMAGES/vendor.map` (D15), then `m superimage` and `m otapackage`. Passes `los-pack15..18`
-   converged the install collisions and built `boot.img`/`recovery.img`; the last failure was a
-   missing fstab source (`$(LOCAL_DIR)` in a product-config `.mk`, fixed in `c9d4527`).
-2. Verify the fresh artifacts offline: `tools/vendor_diff.py` (stock Android 11 vendor vs built
-   vendor, with `vendor_build_wins.txt`), `scripts/check_super.py`, `checkvintf --check-compat`,
-   and `update_engine_sideload` inside the recovery ramdisk.
-   partition limits and refuses images from different builds) and re-check the sha256s.
+1. Run pack26 with the vendor variants requested (**D20**). `scripts/package.sh` now runs
+   `tools/vendor_link_closure.py` before the deploy (it writes `vendor_modules_extra.mk`, which
+   `device.mk` `-include`s), injects whatever has no vendor variant module, runs dist, re-runs the
+   closure and `tools/vendor_abi_check.py` after dist, syncs `vendor.img` if anything was injected,
+   then `m superimage` and `m otapackage`.
+2. Verify the pass offline with `scripts/verify_artifacts.sh`: VENDOR/ + vendor.map, `vendor_diff.py`,
+   `vendor_dropped_check.py`, `blob_deps.py` DT_NEEDED, the closure (0 unresolved sonames), the ABI
+   check (0 unresolved symbols), `check_super.py`, the VINTF verdict, the boot header, the recovery
+   installer and the OTA zip.
+3. Build the flashable payload - `scripts/build_hu_package.sh ../lineage21s "extracted update.zip"
+   ../tmp/hu-package/update.zip` - it has never been run. Check `unzip -l`, each transfer list's size and
+   the sha256, and watch whether the stock recovery's `update_dynamic_partitions` accepts renaming the
+   group to `hct_dynamic_partitions` and adding `system_ext` (docs/flash.md records the risk).
 4. Owner answered **D14**/**D17**/**D18** (Nov 6): the board has no loader/Boot-ADB, fastboot is not
    used, and rollback is the stock Android 10 update.zip - flash it the same way if Android 14 turns
    out wrong. Nothing in this repo restores partitions. Confirm the recovery entry route (the "reboot
    recovery" app, a key combo, or the stick-prompt behaviour) against XDA before the first attempt.
-5. M2b repartition is dropped (**D19**) - the install writes
-   `super`/`boot`/`recovery` only and leaves the GPT alone (**D11**).
+5. M2b repartition is dropped (**D19**): the install recreates the logical partitions inside the
+   existing super and never writes the GPT (**D11**, **D18**).
 6. Closeout when the ROM ships: remove the extra packages installed on the build host
    (`git-lfs repo unzip device-tree-compiler brotli gdisk zip`) and delete the temporary
    firewall rule.

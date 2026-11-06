@@ -420,16 +420,32 @@ matched. `scripts/package.sh` now runs dist first, then superimage, and warns if
   load is a *service* (`service vendor.insmod_sh /vendor/bin/init.insmod.sh`), not `insmod` lines -
   which is why we supply our own `hu_insmod.sh`. SELinux is permissive for M3
   (`WITH_PERMISSIVE_SELINUX := true`), so a root vendor service is not denied during the boot test.
-- `tools/blob_deps.py <vendor-tree> <drop-list> <installed-vendor-list>` proves the kept blobs can
-  still load. Of the 217 staged ELF files, 184 stay as blobs and 33 go to the build's own modules.
-  None of the kept ones links any library we dropped (libchrome, libdrm, libusb, libvpx, libopus and
-  libvorbisidec are dropped with no kept user), and every `DT_NEEDED` resolves:
-  `libEGL.so`, `libGLESv2.so`, `libbinder_ndk.so`, `libnativewindow.so`, `libsync.so`, `liblog.so`,
-  `libdl.so`, `libm.so` and `libselinux.so` are all in `/system/etc/llndk.libraries.txt`, so the
-  vendor namespace may load them, and `libutils.so` + `libbase.so` are installed into
-  `/vendor/lib(64)/` by the build's own modules. So `hwcomposer.rk30board.so` (needs libEGL and
-  libGLESv2), the midgard allocator/mapper and `camera.rk30board.so` (need libnativewindow and
-  libsync) all find their dependencies.
+- `tools/blob_deps.py <vendor-tree> <drop-list> <built-vendor.img> [<keep.txt>]` proves the kept blobs
+  can still load: every `DT_NEEDED` must resolve in the built `/vendor`, in the staged tree as a kept
+  blob, in the injected keep list, or through the vendor namespace's **public** `/system` libraries
+  (`system/etc/linker.config.pb` - Android 14 has no `llndk.libraries.txt`/`vndk-sp`, so that pb is the
+  only route; it lists `libc.so`, `libm.so`, `libdl.so`, `liblog.so`, `libsync.so`, `libselinux.so`,
+  `libEGL.so`, `libGLESv2.so`, `libbinder_ndk.so`, `libnativewindow.so`, ...). Pack25 still reported 68
+  missing sonames, which is what led to the closure below.
+- `tools/vendor_link_closure.py <tree> <device-dir>` walks the kept blobs' `DT_NEEDED` graph and sorts
+  each soname: public library (nothing to do), kept staged blob (the Android 11 copy, whose ABI the blob
+  was compiled against), **Android 14's `<name>.vendor` / `<name>.vendor_32` module** (written to
+  `vendor_modules_extra.mk`, which `device.mk` `-include`s), inject (`vendor_dest_keep.txt`), or
+  unresolved. On pack25's artifacts that is 56 modules, 0 injections, 0 unresolved - see D20 in
+  `docs/decisions.md`. Requesting a vendor variant is what makes the file an install dependency of
+  `vendor.img`, and that dependency list is exactly what `build_image.py
+  --input-directory-filter-file <vendor_intermediates>/file_list.txt` packs, which is why a file written
+  into the staging dir by hand does not appear in the product image (pack25: product `vendor.img`
+  412,073,984 B without `libchrome.so`, dist's `IMAGES/vendor.img` 460,693,504 B with it).
+  `scripts/package.sh`'s `sync_vendor_image()` covers those leftovers by comparing dist's image with the
+  product image per path, after converting both out of Android sparse format.
+- `tools/vendor_abi_check.py <tree> <device-dir>` is the other half: `DT_NEEDED` being satisfiable does
+  not mean the symbol the blob calls still exists. It collects every undefined symbol of each kept blob
+  and checks it is defined by something the vendor namespace can load (files in `/vendor`, the other kept
+  blobs, public `/system` libraries), stripping symbol versions (`memcpy@@LIBC`). This is the check that
+  would catch Android 14 rewriting a library's ABI under an Android 11 blob - the failure is a boot-time
+  `dlopen failed: cannot locate symbol ...`, invisible to every partition check. Both are gated in
+  `scripts/verify_artifacts.sh`.
 - LineageOS **Updater** is in the image: `system_ext/priv-app/Updater/Updater.apk` plus its
   `init.lineage-updater.rc`, privapp whitelist and default-permissions files.
 - The recovery ramdisk carries our fstab as `system/etc/recovery.fstab` (556 entries, gzip cpio),

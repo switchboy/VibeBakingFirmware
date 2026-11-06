@@ -331,3 +331,48 @@ operation **D18** forbids. `analysis/gpt/` keeps the saved head/tail bytes for t
 
 If Android 14's images ever grow past the group, that is a fresh decision with its own risk review, not
 a scripted `sgdisk` sequence.
+
+## D20 - how /vendor gets the libraries Android 14 does not install there
+
+Android 14 removed the VNDK, so the vendor partition no longer carries a copy of every library a HAL
+links. On the stock Android 10 unit those libraries came from `/system/lib/vndk-29/` (VNDK-sp), which the
+vendor namespace was allowed to read. Android 14 has no vndk directory: the vendor namespace may load
+from `/system` **only** what `system/etc/linker.config.pb` lists as public libraries - `libc.so`,
+`libm.so`, `libdl.so`, `liblog.so`, `libsync.so`, `libselinux.so`, `libEGL.so`, `libGLESv2.so`,
+`libbinder_ndk.so`, `libnativewindow.so` and friends - and `linkerconfig` turns that list into
+`/linkerconfig/ld.config.txt` at boot. Everything else a Rockchip blob links must be in `/vendor`.
+
+`tools/vendor_link_closure.py` walks the DT_NEEDED graph of every staged blob we keep and sorts each
+soname into one of four answers:
+
+| answer | what happens | example |
+|---|---|---|
+| public library | nothing to do, it loads out of /system | `liblog.so`, `libc.so`, `libsync.so` |
+| staged blob kept | `PRODUCT_COPY_FILES` copies the Android 11 copy | `libstagefright_foundation.so` |
+| Android 14 has a `<name>.vendor` / `<name>.vendor_32` module | **requested through `PRODUCT_PACKAGES`** (`device.mk` includes the generated `vendor_modules_extra.mk`) | `android.hardware.wifi@1.4.vendor`, `libchrome.vendor_32`, `libaudioroute.vendor`, `android.hardware.light-V1-ndk_platform.vendor` |
+| nothing builds it | injected into the staging dir (`vendor_dest_keep.txt`) | normally none |
+
+Requesting the vendor variant is preferred over copying a file into the staging directory for two
+reasons: the file is Android 14's own build, so its ABI matches Android 14's `libhidlbase.so` /
+`libbinder_ndk.so`; and a requested module is an *install dependency* of `vendor.img`, which is what
+`build_image.py --input-directory-filter-file <vendor_intermediates>/file_list.txt` is generated from.
+A hand-written file in the staging dir is not in that filter, so pack25's product `vendor.img`
+(412,073,984 B) left the injected libraries out while dist's `IMAGES/vendor.img` (460,693,504 B) had them
+- the payload would have shipped a `/vendor` that could not load its own HALs. `sync_vendor_image()` in
+`scripts/package.sh` still covers the injected leftovers, by comparing the two images per path.
+
+On pack25's artifacts the closure found **56 vendor variant modules, zero injections and zero
+unresolved sonames**: `android.hardware.wifi@1.0-1.4`, `wifi.hostapd@1.0-1.2`, `wifi.supplicant@1.0-1.3`,
+`drm@1.0-1.3`, `gatekeeper@1.0`, `keymaster@4.0`, `weaver@1.0`, `libaudioroute`, `libion`, `libssl`,
+`libsqlite`, `libnetutils`, `libsysutils`, `libusbhost`, `libutilscallstack`, `libwifi-system-iface`,
+`libgatekeeper`, `libchrome`, `libdrm`, `libhwbinder`, `libkeymaster4support`, `libvpx`, `libopus`,
+`libvorbisidec`, plus `android.hardware.light-V1-ndk_platform` and `android.hardware.power-V1-ndk_platform`
+(Android 14 still ships the `ndk_platform` AIDL variants, so the Rockchip lights/power services keep their
+own binaries).
+
+DT_NEEDED being satisfiable is only half the question, so `tools/vendor_abi_check.py` also checks the
+**symbols**: for each kept blob, every undefined symbol must be defined by something the vendor namespace
+can load (files installed in /vendor, the other kept blobs, public /system libraries). That is the check
+that catches Android 14 having rewritten a library's ABI underneath an Android 11 blob - the failure
+mode is a boot-time `dlopen failed: cannot locate symbol`, which no partition check would show. Symbol
+versions (`memcpy@@LIBC`) are stripped, because the linker matches the base name.

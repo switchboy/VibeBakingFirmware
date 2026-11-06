@@ -58,6 +58,19 @@ python3 "$REPO/tools/blob_deps.py" "$TREE/vendor/hct4/tree/vendor" \
   "$TREE/device/rockchip/rk3399/vendor_dest_keep.txt" 2>&1 | tail -14
 [ "${PIPESTATUS[0]}" = 0 ] || bad "a staged vendor blob needs a library that /vendor does not provide"
 
+say "=== vendor link closure (Android 14 vendor variants / injections / gaps) ==="
+# Writes vendor_modules_extra.mk + vendor_dest_keep.txt from this build. Unresolved sonames mean a blob
+# would not load and no Android 14 module or reference copy exists for it.
+python3 "$REPO/tools/vendor_link_closure.py" "$TREE" "$REPO/device/rk3399-px6-hct4" 2>&1 | tail -22
+[ "${PIPESTATUS[0]}" = 0 ] || bad "a vendor blob links a soname Android 14 does not build and no reference image provides"
+
+say "=== kept Android 11 blobs resolve their symbols against Android 14's libraries ==="
+# DT_NEEDED is only half the story: a library can be present and still not export the symbol the blob
+# calls (Android 14 turned libstagefright_foundation's AString into std::string). A missing symbol is a
+# boot-time `dlopen failed: cannot locate symbol`, so this is the real gate.
+python3 "$REPO/tools/vendor_abi_check.py" "$TREE" "$REPO/device/rk3399-px6-hct4" 2>&1 | tail -22
+[ "${PIPESTATUS[0]}" = 0 ] || bad "a kept blob needs symbols Android 14 does not export - it would not dlopen"
+
 say "=== super layout ==="
 TREE="$TREE" WORK="$WORK" python3 "$REPO/scripts/check_super.py" 2>&1 | tail -14
 

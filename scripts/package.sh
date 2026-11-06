@@ -1,6 +1,9 @@
 #!/bin/bash
 # Packaging pass on the NAS: device tree + vendor, boot/recovery images, dist, super, OTA zip.
-# No big compiles here, so the docker fleet stays up and we use -j4 (owner's daytime policy).
+# The job count follows the owner's policy (see the block below): -j4 with the whole docker fleet up
+# during the day, -j12 at night with the containers stopped except Pi-hole/Home Assistant. Requesting
+# Android 14's vendor variants (D20) makes this a real compile too - libchrome is built for both
+# arches - so the hour decides how much of the fleet stays running.
 #
 #   systemd-run --unit=los-packN --working-directory=/srv/.../lineage21s \
 #     /srv/.../aospbuild/VibeBakingFirmware/scripts/package.sh
@@ -18,7 +21,36 @@ mkdir -p "$GOCACHE" "$TMPDIR"
 A=/srv/dev-disk-by-label-SSData/aospbuild
 TREE=$A/lineage21s
 REPO=$A/VibeBakingFirmware
+DEVMK=$REPO/device/rk3399-px6-hct4      # generated files (vendor_staging.mk, vendor_modules_extra.mk)
 LOG=$TREE/package.log
+
+# The owner's build policy (docs/build-host.md "Memory ceiling"): the NAS has 24 GB RAM and docker holds
+# ~12 GB, so the job count depends on the hour.
+#   daytime   07:00-22:00: leave the whole fleet running, build -j4 (slow, services stay up)
+#   night     22:00-07:00: stop every container except Pi-hole and Home Assistant, build -j12
+# Stopped containers are recorded and restarted on exit, failure included. Pi-hole stays up because it
+# is this workstation's DNS.
+JOBS=4
+H=$(date +%H)
+if [ "$H" -lt 7 ] || [ "$H" -ge 22 ]; then
+  JOBS=12
+  KEEP='pi-hole|pihole|homeassistant|home-assistant'
+  STOPPED=$A/docker_stopped.txt
+  : > "$STOPPED"
+  restore_docker() {
+    while read -r c; do
+      [ -n "$c" ] && docker start "$c" >> "$LOG" 2>&1
+    done < "$STOPPED"
+    echo "=== docker restarted: $(wc -l < "$STOPPED") container(s) at $(date) ===" >> "$LOG"
+  }
+  trap restore_docker EXIT
+  echo "=== night policy: -j$JOBS, stopping docker except Pi-hole/Home Assistant at $(date) ===" >> "$LOG"
+  for c in $(docker ps --format '{{.Names}}'); do
+    if printf '%s' "$c" | grep -qiE "$KEEP"; then continue; fi
+    if docker stop "$c" >> "$LOG" 2>&1; then echo "$c" >> "$STOPPED"; fi
+  done
+  echo "  docker still running: $(docker ps -q | wc -l)" >> "$LOG"
+fi
 
 cd "$TREE"
 : > "$LOG"
@@ -46,14 +78,30 @@ for z in "$A/daisaita_a11.zip" "$REPO/../diatsia fw/update.zip"; do
   if [ -s "$z" ]; then ZIPARG="$z"; break; fi
 done
 ./scripts/prebuilt_vendor.sh "$ZIPARG" ../lineage21s >> "$LOG" 2>&1 || { echo "prebuilt_vendor failed at $(date)" >> "$LOG"; exit 1; }
+
+# ---- what /vendor has to contain -----------------------------------------------
+# tools/vendor_link_closure.py walks the DT_NEEDED graph of the kept vendor blobs and writes two
+# generated files into the repo's device folder (deploy_device.sh copies them into the tree):
+#   vendor_modules_extra.mk  Android 14's *vendor variant* modules to request. device.mk -includes it,
+#                            so Soong installs e.g. /vendor/lib64/android.hardware.wifi@1.4.so. That
+#                            is the preferred route: Android 14's own ABI, and an install dep, which is
+#                            what build_image.py's file filter is generated from.
+#   vendor_dest_keep.txt     the leftovers with no vendor variant module and no public-liberty -
+#                            injected into the staging dir by scripts/inject_vendor_blobs.sh.
+# It reads the previous pass's vendor.img and out/soong/module-info-*.json, so on a cold tree it has
+# nothing to say; the pass after a build is the one that converges.
+echo "=== vendor link closure ===" >> "$LOG"
+"$REPO/tools/vendor_link_closure.py" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
+  || echo "  ! closure left unresolved sonames (see the report above)" >> "$LOG"
+
 ./scripts/deploy_device.sh ../lineage21s >> "$LOG" 2>&1 || { echo "deploy_device failed at $(date)" >> "$LOG"; exit 1; }
 
 cd "$TREE"
 START=$(date +%s)
 
 run() {
-  echo "=== m $1 -j4 at $(date) ===" >> "$LOG"
-  m "$1" -j4 >> "$LOG" 2>&1
+  echo "=== m $1 -j$JOBS at $(date) ===" >> "$LOG"
+  m "$1" -j"$JOBS" >> "$LOG" 2>&1
   rc=$?
   echo "=== m $1 rc=$rc at $(date) ===" >> "$LOG"
   return $rc
@@ -123,11 +171,9 @@ prune_dist() {
 m_retry bootimage   || { echo "PACKAGING STOPPED on bootimage" >> "$LOG"; exit 1; }
 m_retry recoveryimage || { echo "PACKAGING STOPPED on recoveryimage" >> "$LOG"; exit 1; }
 
-# The libraries Android 14 builds for /system only (no VNDK) are written into the vendor staging
-# directory now: they cannot be PRODUCT_COPY_FILES entries (Soong's vendor-variant rule collides) and
-# nothing installs them, so without this the Rockchip HALs would miss libchrome/libdrm/libhwbinder.
-# It removes the stale vendor.img so `m dist` rebuilds it from the staging dir.
-echo "=== injecting the /system-only vendor libraries ===" >> "$LOG"
+# The leftovers: libraries Android 14 has no vendor variant for and that are not public libraries. On
+# a converged tree vendor_dest_keep.txt is absent, and this says so and exits 0.
+echo "=== injecting the vendor libraries no module installs ===" >> "$LOG"
 "$REPO/scripts/inject_vendor_blobs.sh" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
   || { echo "PACKAGING STOPPED on inject_vendor_blobs" >> "$LOG"; exit 1; }
 
@@ -150,6 +196,72 @@ STAGE=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/l
     echo "  ! no VENDOR/ directory in the target_files staging tree - otapackage will assert"
   fi
 } >> "$LOG" 2>&1
+
+# Re-run the closure now that dist has installed whatever device.mk asked for, and check the ABI of
+# the blobs that stay byte-for-byte copies: an Android 11 HAL whose symbols Android 14's libraries no
+# longer export would fail to dlopen at boot (`dlopen failed: cannot locate symbol ...`), which no
+# amount of partition checking would reveal. Both are reported, not fatal - a gap is a decision, not a
+# build error.
+echo "=== closure after dist ===" >> "$LOG"
+"$REPO/tools/vendor_link_closure.py" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
+  || echo "  ! closure left unresolved sonames (see the report above)" >> "$LOG"
+echo "=== vendor ABI check (kept blobs vs Android 14's symbols) ===" >> "$LOG"
+python3 "$REPO/tools/vendor_abi_check.py" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
+  || echo "  ! at least one kept blob has unresolved symbols (see the report above)" >> "$LOG"
+
+# Injected files are not install dependencies, so Make's file filter excludes them and the *product*
+# vendor.img omits them (pack25: product vendor.img 412,073,984 B without libchrome.so, dist's
+# IMAGES/vendor.img 460,693,504 B with it). dist's image is built from VENDOR/, a copy of the staging
+# directory, so when the keep list is non-empty we take it; when nothing is injected, ninja's own
+# vendor.img is authoritative.
+sync_vendor_image() {
+  local prod="$TREE/out/target/product/rk3399/vendor.img" imv="$STAGE/IMAGES/vendor.img"
+  local keep="$DEVMK/vendor_dest_keep.txt" need=""
+  if [ -s "$keep" ]; then
+    need=$(sed 's|#.*||' "$keep" | awk -F'\t' '$1 != "" { print $1 }')
+  fi
+  if [ -z "$need" ]; then
+    echo "  nothing injected -> ninja's own vendor.img is authoritative ($(stat -c %s "$prod") B)" >> "$LOG"
+    return 0
+  fi
+  [ -s "$imv" ] || { echo "  ! no dist IMAGES/vendor.img to sync from" >> "$LOG"; return 1; }
+  # Android sparse magic 0xED26FF3A is stored little-endian, so it reads 3a ff 26 ed; debugfs cannot
+  # read a sparse image at all, so convert both before comparing.
+  local prod_raw="$TMPDIR/vendor_prod_raw.img" dist_raw="$TMPDIR/vendor_dist_raw.img"
+  for pair in "$prod:$prod_raw" "$imv:$dist_raw"; do
+    local src=${pair%%:*} dst=${pair##*:}
+    if head -c 4 "$src" | od -An -tx1 | tr -d ' \n' | grep -q "3aff26ed"; then
+      "$TREE/out/host/linux-x86/bin/simg2img" "$src" "$dst" >> "$LOG" 2>&1 || return 1
+    else
+      cp -a "$src" "$dst"
+    fi
+  done
+  local missing=0
+  for rel in $need; do
+    local dir=$(dirname "$rel") base=$(basename "$rel")
+    local in_prod=$(debugfs -R "ls -l -r /$dir" "$prod_raw" 2>/dev/null | awk '{print $NF}' | grep -cx "$base")
+    local in_dist=$(debugfs -R "ls -l -r /$dir" "$dist_raw" 2>/dev/null | awk '{print $NF}' | grep -cx "$base")
+    if [ "$in_prod" -ge 1 ]; then continue; fi
+    missing=$((missing + 1))
+    echo "  $rel: missing from the product image ($(stat -c %s "$prod") B), present in dist's ($(stat -c %s "$imv") B)" >> "$LOG"
+  done
+  rm -f "$prod_raw" "$dist_raw"
+  if [ "$missing" -gt 0 ]; then
+    echo "  vendor.img lacks $missing injected file(s) -> taking dist's IMAGES/vendor.img" >> "$LOG"
+    local sync_raw="$TMPDIR/vendor_sync.img"
+    if head -c 4 "$imv" | od -An -tx1 | tr -d ' \n' | grep -q "3aff26ed"; then
+      "$TREE/out/host/linux-x86/bin/simg2img" "$imv" "$sync_raw" >> "$LOG" 2>&1 || return 1
+    else
+      cp -a "$imv" "$sync_raw"
+    fi
+    cp -a "$sync_raw" "$prod"
+    rm -f "$sync_raw"
+    echo "  product vendor.img <- dist's ($(stat -c %s "$prod") B)" >> "$LOG"
+  else
+    echo "  every injected file is already in ninja's vendor.img ($(stat -c %s "$prod") B)" >> "$LOG"
+  fi
+}
+if ! sync_vendor_image; then echo "PACKAGING STOPPED on sync_vendor_image" >> "$LOG"; exit 1; fi
 
 # Stage super from the IMAGES that dist just wrote, then check they really are fresh.
 if ! m_retry superimage; then echo "PACKAGING STOPPED on superimage" >> "$LOG"; exit 1; fi

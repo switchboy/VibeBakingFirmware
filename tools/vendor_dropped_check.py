@@ -19,9 +19,10 @@ Three inputs are cross-checked:
 
 A replacement must be a *same-kind* file: a service in bin/hw is only replaced by another service
 in bin/hw, a 64-bit lib only by a 64-bit lib. Destinations Android 14 builds for /system instead of
-/vendor are listed separately and written to `--write-keep-list <file>` for
-scripts/inject_vendor_blobs.sh; if one of them is missing from the image the check fails, because a
-vendor process cannot read /system. Matching android.hardware.bluetooth@1.0-service
+/vendor are listed separately ("built OUTSIDE /vendor"); they are missing from the image unless
+Android 14's *vendor variant* is requested through vendor_modules_extra.mk (tools/vendor_link_closure.py
+writes it) or the file is injected by scripts/inject_vendor_blobs.sh, because a vendor process cannot
+read /system except through the linker config's public-library list. Matching android.hardware.bluetooth@1.0-service
 against etc/permissions/android.hardware.bluetooth.xml, or lib64/libwifi-hal.so against
 lib/libwifi-hal.so, is not a replacement - that is what the first version of this tool wrongly
 accepted.
@@ -148,11 +149,6 @@ def main():
     dev_prod = os.path.join(prod, os.listdir(prod)[0]) if os.path.isdir(prod) else ""
     moved = other_partitions(dev_prod) if dev_prod else {}
     built_in_vendor = vendor_installed(tree)
-    keep_out = None
-    if "--write-keep-list" in sys.argv:
-        keep_out = sys.argv[sys.argv.index("--write-keep-list") + 1]
-        sys.argv = [a for i, a in enumerate(sys.argv) if i not in (sys.argv.index("--write-keep-list"),
-                                                                   sys.argv.index("--write-keep-list") + 1)]
     dropped = drop_list(device_dir)
     accepted = deviations(device_dir)
     rules, in_image = installed_paths(tree, image)
@@ -172,41 +168,26 @@ def main():
         by_kind.setdefault(kind(p), []).append(p)
 
     # Android 14 has no VNDK: libchrome/libdrm/libvpx/libopus/libstagefright_*/libvorbisidec/
-    # libhwbinder/libkeymaster4support are built for /system only, while Soong still defines an
-    # install rule for the /vendor path. So the blob cannot be copied (ckati: "overriding
-    # commands") and nothing lands in /vendor, and a vendor process cannot read /system. Those
-    # destinations are listed in vendor_dest_keep.txt and written into the vendor staging
-    # directory by scripts/inject_vendor_blobs.sh.
+    # libhwbinder/libkeymaster4support are built for /system only, while Soong still defines an install
+    # rule for the /vendor path - so the staged blob may not be copied there (ckati: "overriding
+    # commands"), and a vendor process cannot read /system unless the library is on the linker config's
+    # public list. The answer is Android 14's own vendor variant: tools/vendor_link_closure.py writes
+    # vendor_modules_extra.mk (PRODUCT_PACKAGES += <name>.vendor) and, for the few with no vendor
+    # variant module, vendor_dest_keep.txt for scripts/inject_vendor_blobs.sh. This tool does not write
+    # either file; it only reports what the built image ended up with.
     #
     # Derived from the drop list + the non-vendor inventory, not from what is missing: after the
-    # injection the paths *are* in the image, and the list must still be regenerable.
-    # Only paths the build does NOT install in /vendor need injecting. liblog/libeffectsconfig/...
-    # exist in both /system and /vendor: their name is in /system, but the vendor variant is built,
-    # so they must not end up in vendor_dest_keep.txt.
+    # vendor variant is installed the path *is* in the image, so this stays a check, not a generator.
+    # liblog/libeffectsconfig/... exist in both /system and /vendor: their name is in /system, but the
+    # vendor variant is installed, so they are not listed here.
     shifted = sorted((p, sorted(moved[os.path.basename(p)])) for p in dropped
                      if os.path.basename(p) in moved and p not in built_in_vendor)
-    if keep_out:
-        header = (
-            '# Vendor destinations Android 14 installs into /system (or /product) instead of /vendor.\n'
-            '# Android 14 has no VNDK, so no vendor variant is installed, but Soong still defines an\n'
-            '# install rule for the /vendor path: PRODUCT_COPY_FILES may not copy the stock blob\n'
-            '# there (ckati says "overriding commands"), and a vendor process cannot read /system.\n'
-            '# scripts/inject_vendor_blobs.sh writes these from the staged tree into the vendor\n'
-            '# staging directory after the install rules have run. Regenerate after every build:\n'
-            '#   tools/vendor_dropped_check.py <tree> <device-dir> <vendor.img> --write-keep-list <this file>\n'
-        )
-        with open(keep_out, "w") as f:
-            f.writelines(header)
-            for p, _parts in shifted:
-                f.write("%s\n" % p)
-        print("wrote %s (%d destinations to inject into /vendor)" % (keep_out, len(shifted)))
 
     real_loss, substituted = [], []
     for p in lost:
         if p not in built_in_vendor and os.path.basename(p) in moved:
-            real_loss.append((p, "Android 14 builds this for /%s only (no VNDK) - "
-                              "scripts/inject_vendor_blobs.sh did not put it in /vendor"
-                              % "/, /".join(sorted(moved[os.path.basename(p)]))))
+            real_loss.append((p, "Android 14 builds this for /%s only (no VNDK) and no vendor variant "
+                              "of it is installed" % "/, /".join(sorted(moved[os.path.basename(p)]))))
             continue
         alts = [q for q in by_kind.get(kind(p), []) if q != p]
         if alts:
@@ -228,7 +209,8 @@ def main():
             print("   %-52s %s" % (p, accepted[p][:70]))
 
     if shifted:
-        print("built OUTSIDE /vendor by Android 14 (%d) - injected by scripts/inject_vendor_blobs.sh:" % len(shifted))
+        print("built OUTSIDE /vendor by Android 14 (%d) - needs a vendor variant (vendor_modules_extra.mk) "
+              "or an injection:" % len(shifted))
         for p, parts in shifted:
             print("   %-52s -> /%s" % (p, ", /".join(parts)))
 
@@ -236,11 +218,12 @@ def main():
         print("LOST with no replacement (%d) - the vendor partition would lack these:" % len(real_loss))
         for p, why in sorted(real_loss):
             print("   %-52s %s" % (p, why))
-        print("\nFix: add the Android 14 module that installs the path to PRODUCT_PACKAGES "
-              "(tools/vendor_module_names.py names it); for a library Android 14 builds for /system "
-              "only, run scripts/inject_vendor_blobs.sh (vendor_dest_keep.txt names it); declare an "
-              "intentional gap in vendor_dest_deviations.txt. Dropping a HAL service silently "
-              "removes the feature.")
+        print("\nFix: run tools/vendor_link_closure.py - it names the Android 14 vendor variant to "
+              "request\n(vendor_modules_extra.mk, included by device.mk) and, for a library with no "
+              "vendor variant\nmodule, the file to inject (vendor_dest_keep.txt). "
+              "tools/vendor_module_names.py names a plain\nmodule that installs the path; declare an "
+              "intentional gap in vendor_dest_deviations.txt.\nDropping a HAL service silently removes "
+              "the feature.")
         return 1
 
     print("every dropped destination is present, substituted, or declared as a deviation")

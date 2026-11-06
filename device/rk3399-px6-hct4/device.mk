@@ -10,6 +10,16 @@
 include device/rockchip/rk3399/vendor_staging.mk
 include device/rockchip/rk3399/vendor_props.mk
 
+# Android 14 has no VNDK, so a vendor binary cannot link a library the framework builds for /system
+# unless that library is a *public* library (system/etc/linker.config.pb lists what the vendor
+# namespace may load). tools/vendor_link_closure.py walks the DT_NEEDED graph of the kept blobs and
+# asks for Android 14's own vendor variant of whatever they link and is not public - e.g.
+# `android.hardware.wifi@1.4.vendor`, which Soong installs as /vendor/lib64/android.hardware.wifi@1.4.so.
+# Requesting the module also makes it an install dependency of vendor.img, which is what
+# build_image.py's file filter is built from; a hand-written file in the staging dir is not.
+# The file is generated on the build host after a packaging pass, so `-include` (absent = nothing).
+-include device/rockchip/rk3399/vendor_modules_extra.mk
+
 # The Android 14 framework matrices do not know the Rockchip/MTC HALs, so they need our own
 # framework matrix entries; see device/rk3399-px6-hct4/vintf/device_framework_matrix.xml.
 DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \

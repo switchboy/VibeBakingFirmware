@@ -61,6 +61,11 @@ VibeBakingFirmware/
 │   ├── vendor_dropped_check.py  post-build: every dropped destination must be present, same-kind
 │   │                        substituted, or declared in vendor_dest_deviations.txt
 │   ├── vendor_module_names.py   names the module behind each missing destination, for PRODUCT_PACKAGES
+│   ├── vendor_link_closure.py  walks the kept blobs' DT_NEEDED graph and answers each soname:
+│   │                  public library (loads from /system), kept staged blob, Android 14's
+│   │                  <name>.vendor module (=> vendor_modules_extra.mk), inject, or unresolved
+│   ├── vendor_abi_check.py  the symbols half: every undefined symbol of a kept blob must be
+│   │                  defined by something the vendor namespace can load
 │   ├── blob_deps.py       kept blobs' DT_NEEDED resolved against the built image inventory
 │   ├── extract_vendor.py  debugfs-based extraction of a vendor partition into a tree
 │   └── vendor_diff.py   built vendor.img vs the stock reference, differences classified
@@ -83,7 +88,7 @@ VibeBakingFirmware/
 │   ├── build_hu_package.sh  builds the update.zip the unit's stock recovery installs: stock
 │   │                  update-binary reused, op list from misc_info.txt, no bootloader writes
 │   ├── gen_hu_payload.py    (used by it) transfer lists + brotli payload + op list
-│   ├── inject_vendor_blobs.sh  puts the libs Android 14 builds for /system into /vendor
+│   ├── inject_vendor_blobs.sh  writes the few libs with no vendor variant module into /vendor
 │   ├── check_super.py  verifies the staged super offline (lpdump layout + dumpe2fs per partition)
 │   └── upload_server.py / upload_client.sh  LAN endpoint the unit reports to
 ```
