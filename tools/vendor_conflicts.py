@@ -148,6 +148,11 @@ def main():
     ap.add_argument("--write-drop-list",
                     help="write the destinations to drop from the copy list (build wins) here, "
                          "so tools/gen_vendor_staging.py --dest-skip can regenerate without them")
+    ap.add_argument("--keep-file",
+                    help="paths that must stay staged even though a module defines a rule for them: "
+                         "Android 14 installs that file into /system, not /vendor (no VNDK), so there "
+                         "is no Make collision and a vendor HAL would lose its library. Written from a "
+                         "real build by tools/vendor_dropped_check.py --write-keep-list")
     args = ap.parse_args()
 
     tree = args.tree
@@ -156,13 +161,33 @@ def main():
     targets = install_targets(tree)
     mentions = product_lists(tree) if os.path.isdir(os.path.join(tree, "vendor")) else {}
 
+    keep = set()
+    if args.keep_file and os.path.exists(args.keep_file):
+        keep = {line.split("#", 1)[0].strip() for line in open(args.keep_file, errors="replace")
+                if line.strip() and not line.strip().startswith("#")}
     collisions = []
+    kept = []
     for rel in sorted(dests):
+        hit = [dest for dest, (_mod, _src, _where) in targets.items() if dest.endswith("/vendor/" + rel)]
+        if not hit:
+            continue
+        # A rule for /vendor/<rel> does not mean the product installs it there: Android 14 may build
+        # the same library for /system only. Those paths stay staged (no collision, needed library).
+        if rel in keep:
+            kept.append((rel, hit[0]))
+            continue
         for dest, (mod, src, where) in targets.items():
             if dest.endswith("/vendor/" + rel):
                 collisions.append((rel, mod, src, where))
 
-    print("staged destinations: %d ; build install targets under /vendor: %d" % (len(dests), len(targets)))
+    print("staged destinations: %d ; build install targets under /vendor: %d ; kept despite a rule: %d"
+          % (len(dests), len(targets), len(kept)))
+    if kept:
+        print("  kept as vendor blobs (Android 14 installs them into /system):")
+        for rel, dest in sorted(kept)[:12]:
+            print("     %-52s (rule exists as %s)" % (rel, dest.split("/vendor/")[-1]))
+        if len(kept) > 12:
+            print("     ... %d more" % (len(kept) - 12))
     if not collisions:
         print("no collisions - the copy list can be parsed")
         if args.write_drop_list:

@@ -105,8 +105,29 @@ def kind(rel):
     return "file-" + rel                               # anything else: only the identical path counts
 
 
+def other_partitions(prod):
+    """Every file name the build installed outside /vendor, mapped to its partition. Android 14
+    dropped the VNDK, so libchrome/libdrm/libvpx/... are built for /system only: a vendor HAL that
+    links one of them cannot load it, so the staged vendor copy has to stay."""
+    out = {}
+    for part in ("system", "system_ext", "product", "odm"):
+        root = os.path.join(prod, part)
+        for dirpath, _dirs, files in os.walk(root):
+            for name in files:
+                out.setdefault(name, set()).add(part)
+    return out
+
+
 def main():
     tree, device_dir, image = sys.argv[1], sys.argv[2], sys.argv[3]
+    prod = os.path.join(tree, "out", "target", "product")
+    dev_prod = os.path.join(prod, os.listdir(prod)[0]) if os.path.isdir(prod) else ""
+    moved = other_partitions(dev_prod) if dev_prod else {}
+    keep_out = None
+    if "--write-keep-list" in sys.argv:
+        keep_out = sys.argv[sys.argv.index("--write-keep-list") + 1]
+        sys.argv = [a for i, a in enumerate(sys.argv) if i not in (sys.argv.index("--write-keep-list"),
+                                                                   sys.argv.index("--write-keep-list") + 1)]
     dropped = drop_list(device_dir)
     accepted = deviations(device_dir)
     rules, in_image = installed_paths(tree, image)
@@ -125,8 +146,16 @@ def main():
     for p in in_image:
         by_kind.setdefault(kind(p), []).append(p)
 
-    real_loss, substituted = [], []
+    real_loss, substituted, shifted = [], [], []
     for p in lost:
+        parts = moved.get(os.path.basename(p))
+        if parts:
+            # The build installed the same file name into /system or /product, not /vendor. The
+            # vendor copy is gone and a vendor process cannot read those partitions: keep the blob.
+            shifted.append((p, sorted(parts)))
+            real_loss.append((p, "moved to /%s by Android 14 (no VNDK) - keep the staged vendor blob"
+                              % "/, /".join(sorted(parts))))
+            continue
         alts = [q for q in by_kind.get(kind(p), []) if q != p]
         if alts:
             substituted.append((p, alts))
@@ -145,6 +174,24 @@ def main():
         print("declared deviations, not restored (%d):" % len(excused))
         for p in excused:
             print("   %-52s %s" % (p, accepted[p][:70]))
+
+    if shifted:
+        print("installed OUTSIDE /vendor by Android 14 (%d) - a vendor HAL cannot load these:" % len(shifted))
+        for p, parts in sorted(shifted):
+            print("   %-52s -> /%s" % (p, ", /".join(parts)))
+        if keep_out:
+            header = (
+                '# Destinations Android 14 installs into /system (or /product) instead of /vendor.\n'
+                '# Android 14 has no VNDK, so the vendor copy of these libraries is not built, and\n'
+                '# a vendor process cannot read /system: the HAL keeps its staged vendor copy.\n'
+                '# tools/vendor_dropped_check.py writes this from a real build;\n'
+                '# scripts/prebuilt_vendor.sh feeds it back so these blobs are never dropped again.\n'
+            )
+            with open(keep_out, "w") as f:
+                f.writelines(header)
+                for p, _parts in sorted(shifted):
+                    f.write("%s\n" % p)
+            print("wrote %s (%d destinations to keep as blobs)" % (keep_out, len(shifted)))
 
     if real_loss:
         print("LOST with no replacement (%d) - the vendor partition would lack these:" % len(real_loss))

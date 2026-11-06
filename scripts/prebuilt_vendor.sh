@@ -131,6 +131,7 @@ python3 "$REPO/tools/gen_vendor_staging.py" "$TREEV" "$GEN" \
 INSTALLS=$(ls "$TREE"/out/soong/installs-*.mk 2>/dev/null | head -1)
 if [ -n "$INSTALLS" ]; then
     python3 "$REPO/tools/vendor_conflicts.py" "$TREE" "$GEN" \
+      --keep-file "$GEN/vendor_dest_keep.txt" \
         --write-drop-list "$GEN/vendor_build_wins.txt" 2>&1 | tail -6
     # Destinations discovered by ckati in earlier passes: legacy Make modules install paths, and no
     # generated file lists them, so vendor_conflicts.py cannot find them statically.

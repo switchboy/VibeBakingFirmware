@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ext4_ls import walk  # noqa: E402
 
 READELF = "readelf"
