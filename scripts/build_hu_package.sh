@@ -23,7 +23,11 @@ PROD=$TREE/out/target/product/rk3399
 [ -d "$PROD" ] || { echo "no built product dir: $PROD"; exit 1; }
 [ -s "$STOCK/META-INF/com/google/android/update-binary" ] || { echo "no stock update-binary in $STOCK"; exit 1; }
 
-WORK=$(mktemp -d "$REPO/.hupkg.XXXXXX")
+# The payload needs ~2 GB of uncompressed .new.dat plus the compressed copies, so keep the scratch
+# on the build host's data disk, not in the repo folder or sshd's small PrivateTmp /tmp.
+SCRATCH=${SCRATCH:-/srv/dev-disk-by-label-SSData/aospbuild/tmp}
+[ -d "$SCRATCH" ] || SCRATCH="${TMPDIR:-/tmp}"
+WORK=$(mktemp -d "$SCRATCH/hupkg.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 echo "=== payload files ==="
