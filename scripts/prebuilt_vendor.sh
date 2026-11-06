@@ -130,8 +130,10 @@ python3 "$REPO/tools/gen_vendor_staging.py" "$TREEV" "$GEN" \
 # up in the build instead.
 INSTALLS=$(ls "$TREE"/out/soong/installs-*.mk 2>/dev/null | head -1)
 if [ -n "$INSTALLS" ]; then
+    INSTALLED=$(ls "$TREE"/out/target/product/*/installed-files-vendor.txt 2>/dev/null | head -1)
     python3 "$REPO/tools/vendor_conflicts.py" "$TREE" "$GEN" \
       --keep-file "$GEN/vendor_dest_keep.txt" \
+      ${INSTALLED:+--installed-file "$INSTALLED"} \
         --write-drop-list "$GEN/vendor_build_wins.txt" 2>&1 | tail -6
     # Destinations discovered by ckati in earlier passes: legacy Make modules install paths, and no
     # generated file lists them, so vendor_conflicts.py cannot find them statically.
@@ -140,6 +142,15 @@ if [ -n "$INSTALLS" ]; then
             case "$p" in ''|'#'*) continue ;; esac
             grep -qxF "$p" "$GEN/vendor_build_wins.txt" || printf '%s\n' "$p" >> "$GEN/vendor_build_wins.txt"
         done < "$GEN/vendor_dest_skip_extra.txt"
+    fi
+    # Declared gaps (vendor_dest_deviations.txt): neither the blob nor an Android 14 module. Without
+    # this merge the stock blob would land back in /vendor and init would start a daemon nothing
+    # asked for (rild against a modem that does not exist).
+    if [ -s "$GEN/vendor_dest_deviations.txt" ]; then
+        while read -r p; do
+            case "$p" in ''|'#'*) continue ;; esac
+            grep -qxF "$p" "$GEN/vendor_build_wins.txt" || printf '%s\n' "$p" >> "$GEN/vendor_build_wins.txt"
+        done < "$GEN/vendor_dest_deviations.txt"
     fi
     python3 "$REPO/tools/gen_vendor_staging.py" "$TREEV" "$GEN" \
         --src-prefix vendor/hct4/tree/vendor \
