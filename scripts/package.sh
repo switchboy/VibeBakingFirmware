@@ -79,16 +79,24 @@ regen_staging() {
 m_retry() {
   target=$1 ; tries=0
   while :; do
+    # Only the output this attempt produced may be interpreted as a collision. Grepping the whole
+    # log would re-read an earlier attempt's "overriding commands" line after an unrelated failure
+    # (pack18 hit that: the ninja fstab error was treated as a collision, burned 12 regenerations
+    # and ~75 min), so remember where the log ended before `m`.
+    start=$(stat -c %s "$LOG" 2>/dev/null || echo 0)
     if run "$target"; then return 0; fi
     # `overriding commands for target \`out/target/product/rk3399/vendor/<rel>'` -> <rel>
-    bad=$(grep "overriding commands for target" "$LOG" | tail -1 |
-          awk -F"vendor/" '{print $2}' | cut -d"'" -f1)
-    [ -n "$bad" ] || return 1
+    bad=$(tail -c +"$((start + 1))" "$LOG" |
+          grep -o "overriding commands for target \`out/target/product/rk3399/vendor/[^']*" |
+          tail -1 | sed 's|.*rk3399/vendor/||')
+    [ -n "$bad" ] || { echo "attempt of '$target' failed for a non-collision reason at $(date)" >> "$LOG"; return 1; }
     tries=$((tries + 1))
     if [ "$tries" -gt 12 ]; then echo "too many install collisions at $(date)" >> "$LOG"; return 1; fi
-    printf '# revealed by ckati: a legacy Make module installs this path, so it is not in\n# out/soong/installs-*.mk. Android 14 builds it; the staged blob must not be copied.\n%s\n' "$bad" \
-      >> "$DEVMK/vendor_build_wins.txt"
-    printf '%s\n' "$bad" >> "$DEVMK/vendor_dest_skip_extra.txt"   # durable: survives a fresh sync
+    grep -qxF "$bad" "$DEVMK/vendor_build_wins.txt" || \
+      printf '# revealed by ckati: a legacy Make module installs this path, so it is not in\n# out/soong/installs-*.mk. Android 14 builds it; the staged blob must not be copied.\n%s\n' "$bad" \
+        >> "$DEVMK/vendor_build_wins.txt"
+    # durable: survives a fresh sync, so the next host converges without re-discovering it
+    grep -qxF "$bad" "$DEVMK/vendor_dest_skip_extra.txt" || printf '%s\n' "$bad" >> "$DEVMK/vendor_dest_skip_extra.txt"
     echo "=== install collision #$tries: vendor/$bad -> dropped, staging regenerated at $(date) ===" >> "$LOG"
     regen_staging || { echo "regen_staging failed at $(date)" >> "$LOG"; return 1; }
   done

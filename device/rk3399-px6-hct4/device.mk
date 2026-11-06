@@ -17,15 +17,18 @@ DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
 
 # ---- our HU files -------------------------------------------------------------
 # These four override the stock equivalents (the generator leaves those paths out of the copy list).
+# The paths are spelled out literally, not as $(LOCAL_DIR)/$(LOCAL_PATH): a product config .mk is
+# included from AndroidProducts.mk, so inside this file those variables are whatever kati last set -
+# here `build/make/target/product/`. With $(LOCAL_DIR) ninja asked for
+# 'build/make/target/product/fstab.rk30board' and failed: "missing and no known rule to make it".
 PRODUCT_COPY_FILES += \
-    $(LOCAL_DIR)/fstab.rk30board:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.rk30board \
-    $(LOCAL_DIR)/configs/ueventd.rk30board.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
-    $(LOCAL_DIR)/configs/init.hu.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hu.rc \
-    $(LOCAL_DIR)/configs/hu_insmod.sh:$(TARGET_COPY_OUT_VENDOR)/etc/hu_insmod.sh
+    device/rockchip/rk3399/fstab.rk30board:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.rk30board \
+    device/rockchip/rk3399/configs/ueventd.rk30board.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
+    device/rockchip/rk3399/configs/init.hu.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hu.rc \
+    device/rockchip/rk3399/configs/hu_insmod.sh:$(TARGET_COPY_OUT_VENDOR)/etc/hu_insmod.sh
 
 # ---- recovery -----------------------------------------------------------------
-# Recovery mounts the same partition set as init, so it uses the same fstab. The path is spelled
-# out: kati's LOCAL_DIR inside an inherited .mk is the AndroidProducts.mk directory, not this file's.
+# Recovery mounts the same partition set as init, so it uses the same fstab.
 TARGET_RECOVERY_FSTAB := device/rockchip/rk3399/fstab.rk30board
 
 # ---- framework-facing features ------------------------------------------------

@@ -29,6 +29,18 @@ if [ "$missing" = 1 ]; then
   exit 1
 fi
 
+# $(LOCAL_DIR)/$(LOCAL_PATH) are only meaningful inside a module's own Android.mk. In a product
+# config .mk (included from AndroidProducts.mk) kati leaves them at whatever it last set, which is
+# `build/make/target/product/` here - so a copy entry written as $(LOCAL_DIR)/fstab.rk30board asks
+# ninja for that file and aborts with "missing and no known rule to make it". Spell device paths
+# literally instead.
+bad=$(grep -rn '\$(LOCAL_DIR)\|\$(LOCAL_PATH)' "$DEST"/*.mk 2>/dev/null || true)
+if [ -n "$bad" ]; then
+  echo "  ! \$(LOCAL_DIR)/\$(LOCAL_PATH) is unset in product-config .mk files; spell the path out:"
+  printf '%s\n' "$bad"
+  exit 1
+fi
+
 # BoardConfig.mk points at files that are not in device.mk. mkbootimg/lpmake fail late, so check:
 #   dtb dir must hold exactly one .dtb (the rule copies the wildcard), boot/recovery need `second`,
 #   and the vendor staging comes from scripts/prebuilt_vendor.sh + tools/gen_vendor_staging.py.

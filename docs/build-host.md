@@ -314,14 +314,28 @@ last. All four are now fixed except the vendor one (see below).
        `PRODUCT_PACKAGES` - and the tool says so. `scripts/deploy_device.sh` re-runs the check so a
        changed product config cannot sneak a collision back into a 20-minute build.
      - Legacy **Make** modules install paths too, and nothing enumerates them statically (only Soong
-       writes `installs-<product>.mk`), so `vendor_conflicts.py` cannot see them. The first one
-       found was `vendor/bin/hw/rild`, `previously defined at build/make/core/base_rules.mk:497`.
-       `scripts/package.sh` reveal-and-retries instead: it reads the ckati error, appends the
-       destination to `vendor_build_wins.txt` and to the committed `vendor_dest_skip_extra.txt`
-       (so a fresh build host converges in one pass), regenerates the copy list, redeploys and
-       retries - up to 12 times. With Soong's cache warm a parse costs ~1.5 min, so this converges
-       quickly and every step (`bootimage`, `recoveryimage`, `dist`, `superimage`, `otapackage`)
-       goes through the same loop.
+       writes `installs-<product>.mk`), so `vendor_conflicts.py` cannot see them. ckati reveals one
+       per parse, and pack16/18 found eleven of them: `bin/hw/rild` + `etc/init/rild.rc` +
+       `lib(64)/libril.so` + `lib(64)/libreference-ril.so` (`base_rules.mk:497`/`594`), the legacy
+       gralloc stub `lib(64)/hw/gralloc.default.so`, the two **empty** fs_config files
+       `etc/fs_config_dirs` and `etc/fs_config_files`, and `etc/NOTICE.xml.gz`
+       (`os_licensing.mk:44`). All are Android 14's own build of the same component, and no Rockchip
+       HAL is among them - the unit's graphics HAL is the staged midgard allocator/mapper, and its
+       radio HAL implementation stays a blob.
+       `scripts/package.sh` reveal-and-retries: it reads the ckati error, appends the destination to
+       `vendor_build_wins.txt` and to the committed `vendor_dest_skip_extra.txt` (so a fresh build
+       host converges in one pass), regenerates the copy list, redeploys and retries - up to 12
+       times. With Soong's cache warm a parse costs ~1.5 min, so this converges quickly and every
+       step (`bootimage`, `recoveryimage`, `dist`, `superimage`, `otapackage`) goes through the same
+       loop. It only reads the slice of `package.log` written by the *current* attempt: pack18
+       grepped the whole log, so an unrelated failure (a missing file) was read as the previous
+       collision and burned 12 regenerations before giving up.
+     - `$(LOCAL_DIR)` / `$(LOCAL_PATH)` are **not** usable in a product-config `.mk`: device.mk is
+       included from `AndroidProducts.mk`, so kati leaves them at `build/make/target/product/`. The
+       fstab copy written that way made ninja say `'build/make/target/product/fstab.rk30board',
+       needed by 'out/target/product/rk3399/vendor/etc/fstab.rk30board', missing and no known rule
+       to make it`. Device paths are spelled literally (`device/rockchip/rk3399/...`), and
+       `scripts/deploy_device.sh` rejects those variables in the deployed `.mk` files.
      - The stock properties are re-declared from a saved copy of the stock `build.prop`
        (`vendor/hct4/prebuilt/vendor_build.prop.a11`), minus keys Android 14 assigns itself or that
        `device.mk` already sets; `vendor_props_skip.txt` records the collisions.
