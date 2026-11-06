@@ -76,7 +76,8 @@ legacy blobs are preferred over reimplementing them.
 | D7 | Update/flash delivery | **decided** | keep Update.zip on USB/SD | unchanged owner workflow, payload signed by us |
 | D8 | Partition layout change | **decided** | B: shrink userdata, grow super (8 GiB super / 49.84 GiB userdata) | owner wants the OS breathing room; p1-p13 byte offsets unchanged so bootloader/recovery stay valid |
 | D16 | Dropped vendor destinations | **decided** | restore Android 14's own HAL modules via PRODUCT_PACKAGES; declare rild + vendor_flash_recovery.rc as the only gaps | Soong defines rules for HIDL services the product never pulls in, so dropping the blob deleted real features; blobs cannot be re-added without a Make collision |
-| D17 | First-flash transport | **decided** | fastboot in the Android 10 ABL (`adb reboot bootloader`) | owner: this board has no Rockchip loader/Boot-ADB entry; fastboot is the only first-write path, so the adb-root backup in docs/flash.md is mandatory |
+| D17 | First-flash transport | **superseded by D18** | fastboot kept as last resort only | owner rejected it: it bypasses the stock recovery's loader step, which may be the only path to the mainboard MCU firmware |
+| D18 | Install transport + untouchable partitions | **decided** | stock `update.zip` flow (stock recovery + stock `update-binary`); never write recovery/uboot/trust/dtbo/RKLoader/`security`; no partition resize | owner: keep it as simple as flashing another Android 10 build; an unverified custom recovery could brick the unit; rollback = the stock Android 10 update.zip |
 
 
 

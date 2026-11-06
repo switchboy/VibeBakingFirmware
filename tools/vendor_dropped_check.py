@@ -108,6 +108,27 @@ def kind(rel):
     return "file-" + rel                               # anything else: only the identical path counts
 
 
+def vendor_installed(tree):
+    """The /vendor paths the build's install rules produce (installed-files-vendor.txt). Injected
+    blobs are not listed there, so this stays the oracle for "the build installs it in /vendor by
+    itself" even after scripts/inject_vendor_blobs.sh put the blob in the image."""
+    out = set()
+    prod = os.path.join(tree, "out", "target", "product")
+    if not os.path.isdir(prod):
+        return out
+    for device in os.listdir(prod):
+        for root, _dirs, files in os.walk(os.path.join(prod, device)):
+            if os.path.dirname(root) != prod:
+                continue                       # only the device dir itself, not subdirs
+            for name in files:
+                if name.startswith("installed-files-vendor"):
+                    for line in open(os.path.join(root, name), errors="replace"):
+                        m = re.search(r"/vendor/(\S+)$", line.strip())
+                        if m:
+                            out.add(m.group(1))
+    return out
+
+
 def other_partitions(prod):
     """Every file name the build installed outside /vendor, mapped to its partition. Android 14
     dropped the VNDK, so libchrome/libdrm/libvpx/... are built for /system only: a vendor HAL that
@@ -126,6 +147,7 @@ def main():
     prod = os.path.join(tree, "out", "target", "product")
     dev_prod = os.path.join(prod, os.listdir(prod)[0]) if os.path.isdir(prod) else ""
     moved = other_partitions(dev_prod) if dev_prod else {}
+    built_in_vendor = vendor_installed(tree)
     keep_out = None
     if "--write-keep-list" in sys.argv:
         keep_out = sys.argv[sys.argv.index("--write-keep-list") + 1]
@@ -158,8 +180,11 @@ def main():
     #
     # Derived from the drop list + the non-vendor inventory, not from what is missing: after the
     # injection the paths *are* in the image, and the list must still be regenerable.
+    # Only paths the build does NOT install in /vendor need injecting. liblog/libeffectsconfig/...
+    # exist in both /system and /vendor: their name is in /system, but the vendor variant is built,
+    # so they must not end up in vendor_dest_keep.txt.
     shifted = sorted((p, sorted(moved[os.path.basename(p)])) for p in dropped
-                     if os.path.basename(p) in moved)
+                     if os.path.basename(p) in moved and p not in built_in_vendor)
     if keep_out:
         header = (
             '# Vendor destinations Android 14 installs into /system (or /product) instead of /vendor.\n'
@@ -178,7 +203,7 @@ def main():
 
     real_loss, substituted = [], []
     for p in lost:
-        if os.path.basename(p) in moved:
+        if p not in built_in_vendor and os.path.basename(p) in moved:
             real_loss.append((p, "Android 14 builds this for /%s only (no VNDK) - "
                               "scripts/inject_vendor_blobs.sh did not put it in /vendor"
                               % "/, /".join(sorted(moved[os.path.basename(p)]))))

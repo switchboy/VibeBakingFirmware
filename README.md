@@ -47,7 +47,7 @@ VibeBakingFirmware/
 │   ├── head-unit-findings.md  live-unit data + Daisaita A10/A11 comparison
 │   ├── build-host.md          the NAS build box, space plan, sync/build units
 │   ├── repartition.md         new GPT (super 8 GiB / userdata 49.84 GiB) + dd sequence
-│   ├── flash.md               fastboot first flash (no loader on this board) + backup path
+│   ├── flash.md               install via the unit's own update.zip flow; recovery/bootloader never touched
 │   ├── ota.md                 packaging the install zip and how it reaches recovery
 │   └── termux.md              how the probe runs on the unit and uploads over LAN
 ├── tools/               analysis + packaging tooling (Python, no root needed)
@@ -84,9 +84,11 @@ VibeBakingFirmware/
 │   │                  super layout, VINTF compat, boot header, recovery installer, OTA zip)
 │   ├── stage_flash.sh  stages super/boot/recovery (+ sha256) for the first flash, sparse->raw,
 │   │                  refuses images from different packaging passes
-│   ├── fastboot_flash.sh  guarded first flash: needs the adb-root backup, checks
-│   │                  partition-size:super/boot/recovery from the ABL, flashes super->boot->recovery
-│   ├── fastboot_rollback.sh  puts the unit's own Android 10 boot/recovery/super back
+│   ├── build_hu_package.sh  builds the update.zip the unit's stock recovery installs: stock
+│   │                  update-binary reused, op list from misc_info.txt, no bootloader writes
+│   ├── gen_hu_payload.py    (used by it) transfer lists + brotli payload + op list
+│   ├── inject_vendor_blobs.sh  puts the libs Android 14 builds for /system into /vendor
+│   ├── fastboot_flash.sh  last resort only (D18): guarded fastboot flash + rollback scripts
 │   ├── build_rollback_super.sh rebuilds a flashable Android 10 super from the stock package
 │   ├── check_super.py  verifies the staged super offline (lpdump layout + dumpe2fs per partition)
 │   └── upload_server.py / upload_client.sh  LAN endpoint the unit reports to

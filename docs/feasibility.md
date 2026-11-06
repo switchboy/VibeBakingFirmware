@@ -81,8 +81,9 @@ again, and we no longer have to strip Google/preinstalled apps to squeeze in.
 The unit installs firmware via `Update.zip` on FAT32 USB/SD using its built-in upgrade path, driven
 by a custom 3 MB `update-binary` that implements Rockchip-specific edify functions
 (`write_raw_loader_image()`, `do_rk_firmware_upgrade()`) and writes `uboot/trust/dtbo/boot` plus the
-dynamic partitions. Alternatives: fastboot in the ABL (this board has no USB loader/Boot-ADB), or a
-custom recovery/TWRP we ship. Whatever we choose, a **rollback path** (keep the current zip + a
+dynamic partitions. Alternatives considered and rejected for v1 (**D18**): fastboot in the ABL (this
+board has no USB loader/Boot-ADB, and it bypasses the recovery's loader step), or a custom
+recovery/TWRP - nobody can prove it boots or reads touch input on this board. Whatever we choose, a **rollback path** (keep the current zip + a
 full partition dump) is mandatory.
 
 ## Candidate strategies (cost/risk)

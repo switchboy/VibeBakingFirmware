@@ -372,7 +372,7 @@ last. All four are now fixed except the vendor one (see below).
      - The stock properties are re-declared from a saved copy of the stock `build.prop`
        (`vendor/hct4/prebuilt/vendor_build.prop.a11`), minus keys Android 14 assigns itself or that
        `device.mk` already sets; `vendor_props_skip.txt` records the collisions.
-   - **Ship without an OTA**: flash Android 14 with `fastboot flash` in the ABL (M3). That needs none of the
+   - **Ship without an OTA**: install Android 14 with the unit's own update.zip flow (M3, D18). That needs none of the
      above, but then upgrades need the first option.
 4. **No installer inside recovery**: `system/bin/recovery` links only the update_engine *client*
    (its strings name `chromeos_update_engine.*` and `/system/bin/update_engine_sideload`), and

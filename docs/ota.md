@@ -61,7 +61,7 @@ the `VENDOR/` staging directory, `vendor.map`, the vendor manifest and a vendor 
 `tools/vendor_diff.py` keeps the blob carried-over honest. `package.sh` verifies the `VENDOR/` directory
 and `vendor.map` after `m dist`.
 
-While the zip does not build yet, Android 14 can still go on the unit by `fastboot flash`
+While the zip does not build yet, Android 14 can still go on the unit by the stock update.zip flow (`docs/flash.md`, D18)
 (`docs/flash.md`), which needs no OTA at all; upgrades after that use the zip.
 
 ## Changing super's size without a full rebuild
@@ -94,6 +94,6 @@ Fallback when no app is available yet: `adb sideload` from the NAS over the OTG 
 ## First install (before our recovery exists)
 
 The very first `boot`/`recovery`/`super` write cannot come from an OTA - it needs the Rockchip flash
-path (fastboot in the ABL; this board has no loader/Boot-ADB). Per D11 that first flash keeps the partition table as it is, so the GPT
+path (the unit's own recovery + update-binary; no loader/Boot-ADB on this board, and D18 forbids touching recovery). Per D11 that first install keeps the partition table as it is, so the GPT
 blobs in `analysis/gpt/` stay unused until the repartition (D8) is applied later; see `docs/flash.md`
 for the dd sequence and `docs/repartition.md` for the table change itself.

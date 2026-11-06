@@ -149,9 +149,11 @@ Owner wants SD-card installs ("cleanest route"). Consequences:
   `RecoverySystem.installPackage()`. Our ROM ships LineageOS's own **Updater** app, whose menu entry
   **"Local update"** imports a zip from external storage, verifies it, and installs it - so the SD
   route needs no extra app and no TWRP.
-- Recovery itself has to exist first: we flash our own `boot`+`recovery` images (built with
-  `BOARD_USES_RECOVERY_AS_BOOT := false`, the HU keeps its recovery partition p8). That first flash
-  needs fastboot in the ABL (`adb reboot bootloader`) - this board has no loader/Boot-ADB mode - not the SD card.
+- The first install runs in the **stock** recovery with the **stock** `update-binary` (**D18**), and it
+  wipes `userdata`/`cache` inside the updater-script, so our own recovery is not needed for it. Our
+  `recovery.img` (built with `BOARD_USES_RECOVERY_AS_BOOT := false`, p8 stays the recovery partition) is
+  built and verified but **not flashed** in v1: the stock recovery may be the only path to the mainboard
+  MCU firmware, and an unverified custom recovery could brick the unit.
 - After that, every upgrade is: copy zip to the stick -> updater app -> reboot to recovery ->
   update_engine applies the logical partitions. The GPT itself is never touched by an upgrade.
 
@@ -268,3 +270,33 @@ The reason is a subtlety in how `PRODUCT_COPY_FILES` conflicts are discovered:
   and attribution said `module=?`; `scripts/deploy_device.sh` then refused a deploy for paths nothing
   installs (`bin/rz`, `bin/sz`, `bin/rkhelper`, ...). Removed - ckati remains the authority for legacy
   Make installs, and `vendor_dest_skip_extra.txt` carries its answers forward.
+
+## D18 - the transport is the stock update.zip flow; recovery, uboot, trust, dtbo and RKLoader are never written
+
+Owner (Nov 6, verbatim): *"For the test we dont need to alter part-size right? So we can just use the
+update.zip mechanism of how you would flash another version of android 10 dont make it more complicated
+then it has to be."* and *"For costum recovery there are a couple of caveats from the community there is
+no costum recovery. There might be a good reason for this. The PX6 is like a cardridge that sits on a
+mainboard. There is seperate firmware MCU for this mainboard maybe the current recovery is the only
+thing able to flash that? Also do we know that a costum recovery will boot and that it is able to detect
+touch or button input. If not the device is a brick if we touch that."*
+
+That settles two things:
+
+- **Install transport**: the unit's own `update.zip` mechanism. `scripts/build_hu_package.sh` writes a
+  package in the stock format (brotli `.new.dat.br`, empty `.patch.dat`, one `flash` command per
+  transfer list, the stock `update-binary` reused verbatim) and an updater-script that uses only the
+  functions that binary already implements: `update_dynamic_partitions`, `map_partition`,
+  `block_image_update`, `package_extract_file`, `wipe_block_device`. No partition is resized
+  (**D11** keeps p14 at 3,263,168,512 B); only the logical partitions *inside* super are recreated,
+  and Android 14's `system_ext` is added to the group.
+- **Never written**: `recovery`, `uboot`, `trust`, `dtbo`, `RKLoader.bin`, the stock script's
+  `write_raw_loader_image()` step, and the stock script's wipe of `/dev/block/by-name/security`. The
+  stock recovery is plausibly the only path to the mainboard MCU firmware, and a custom recovery whose
+  boot, UI and touch/button handling are unverified would brick the unit if it fails. Our
+  `recovery.img` is built and verified but stays unflashed until Android 14 boots and the board's
+  recovery handling is proven.
+
+D17 (fastboot as the first-flash transport) is **superseded**: fastboot stays in the repo as a last
+resort only, because it bypasses the stock recovery's loader step and cannot reach that firmware path.
+Rollback is the stock Android 10 `update.zip` installed the same way - not a fastboot write.
