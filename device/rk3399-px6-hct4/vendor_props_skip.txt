@@ -1,0 +1,15 @@
+# Extra stock vendor properties to drop. tools/gen_vendor_staging.py reads this (one key per line).
+#
+# Only add keys here when the build actually complains: post_process_props.py aborts with
+# "found duplicate sysprops" if a key is assigned twice in the *same* build.prop file, and the
+# message names both assignments. Keys the build generates itself or that device.mk already sets
+# are handled by PROP_SKIP_KEYS / PROP_SKIP_PREFIXES in the generator, so this file normally
+# stays empty. Do not prune a key just to be tidy: the Rockchip HALs read wifi.interface,
+# ro.vendor.mpp_buf_type, ro.rk.* and friends, and a missing property fails the HAL quietly.
+#
+# Collisions with our own device.mk assignments (already skipped by PROP_SKIP_KEYS, listed here
+# so the reason is visible):
+dalvik.vm.heapsize
+dalvik.vm.heapgrowthlimit
+ro.hardware.egl
+ro.opengles.version

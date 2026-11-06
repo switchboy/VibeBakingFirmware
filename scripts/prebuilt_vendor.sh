@@ -1,60 +1,104 @@
 #!/usr/bin/env bash
-# Build the prebuilt vendor image for the PX6 HU from the Daisaita Android 11 package.
+# Stage the stock Android 11 vendor partition into the build tree, so vendor.img is *built*.
 #
-#   scripts/prebuilt_vendor.sh "../diatsia fw/update.zip" /srv/.../lineage21
+#   scripts/prebuilt_vendor.sh <update.zip> <lineage-tree>     # first run: unpack + extract
+#   scripts/prebuilt_vendor.sh "" <lineage-tree>               # later runs: reuse the reference
 #
-# Needs root on the build host (loop-mount). Run it on the build host, not on the unit.
-# The blobs stay byte-identical; only our HU files are overlaid, and Rockchip's patched-init
-# `insmod` lines are stripped so LineageOS init can parse the rc files.
+# Why: Android 14's OTA packer needs a real VENDOR/ staging directory, vendor.map and a vendor
+# build.prop. BOARD_PREBUILT_VENDORIMAGE produces none of those, so `m otapackage` asserts
+# ("vendor is in super_hct_dynamic_partitions_partition_list but no BlockDifference object is
+# provided"). The blobs are staged through PRODUCT_COPY_FILES instead, byte-for-byte;
+# tools/vendor_diff.py checks the built image against the stock reference afterwards.
+#
+# Run on the build host as root (loop mount). Idempotent, and it re-runs the generator, so
+# deploy_device.sh must run *after* this script.
 set -eu
 
-ZIP=${1:?usage: prebuilt_vendor.sh <update.zip> <lineage-tree>}
-TREE=${2:?usage: prebuilt_vendor.sh <update.zip> <lineage-tree>}
+ZIP=${1:-}
+TREE=${2:?usage: prebuilt_vendor.sh <update.zip|empty> <lineage-tree>}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-DEV="$REPO/device/rk3399-px6-hct4"
 OUT="$TREE/vendor/hct4"
-# Work inside the build volume: the vendor payload is ~260 MB and the host's /tmp may be
-# a size-limited tmpfs.
-WORK=$(mktemp -d "$TREE/.vendor-work.XXXXXX")
+REF="$OUT/prebuilt/vendor_a11.img"
+KERNEL="$OUT/prebuilt/kernel_a11"
+TREEV="$OUT/tree/vendor"
+GEN="$REPO/device/rk3399-px6-hct4"
+WORK=$(mktemp -d "$OUT/.work.XXXXXX")
 trap 'umount "$WORK/mnt" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 
-unzip -qo "$ZIP" -d "$WORK"
-if [ -f "$WORK/vendor.new.dat.br" ]; then
-    brotli -d -f "$WORK/vendor.new.dat.br" -o "$WORK/vendor.new.dat"
-fi
-python3 "$REPO/tools/reassemble.py" --dir "$WORK" --out "$WORK/images" --partition vendor
-
-mkdir -p "$OUT/prebuilt" "$OUT/tree"
-cp "$WORK/images/vendor.img" "$OUT/prebuilt/vendor_a11.img"
-
-# The kernel that matches this vendor tree's module vermagic (4.19.193 #24).
-python3 - "$WORK/boot.img" "$OUT/prebuilt/kernel_a11" <<'PY'
+# ---- 1. reference image, and the kernel whose module vermagic matches it --------
+# The zip is ~1 GB, so it is only unpacked when something is still missing.
+if [ ! -s "$REF" ] || [ ! -s "$KERNEL" ]; then
+    [ -n "$ZIP" ] || { echo "missing $REF / $KERNEL and no update.zip given"; exit 1; }
+    unzip -qo "$ZIP" -d "$WORK/pkg"
+    mkdir -p "$OUT/prebuilt"
+    if [ ! -s "$REF" ]; then
+        if [ -f "$WORK/pkg/vendor.new.dat.br" ]; then
+            brotli -d -f "$WORK/pkg/vendor.new.dat.br" -o "$WORK/pkg/vendor.new.dat"
+        fi
+        python3 "$REPO/tools/reassemble.py" --dir "$WORK/pkg" --out "$WORK/images" --partition vendor
+        cp "$WORK/images/vendor.img" "$REF"
+    fi
+    if [ ! -s "$KERNEL" ]; then
+        # boot.img header v2: kernel sits at page_size, kernel_size bytes.
+        python3 - "$WORK/pkg/boot.img" "$KERNEL" <<'PY'
 import struct, sys
 d = open(sys.argv[1], "rb").read()
 page = struct.unpack_from("<I", d, 56)[0] or 2048
 ksize = struct.unpack_from("<I", d, 8)[0]
 open(sys.argv[2], "wb").write(d[page:page + ksize])
 PY
+    fi
+fi
+[ -s "$REF" ] && [ -s "$KERNEL" ] || { echo "reference image or kernel missing"; exit 1; }
 
-python3 "$REPO/tools/extract_vendor.py" "$WORK/images/vendor.img" "$OUT/tree" >/dev/null
-
-# Overlay onto a working copy of the image so the vendor blobs are untouched.
-IMG="$OUT/vendor.img"
-cp "$WORK/images/vendor.img" "$IMG"
-# The vendor image is 99.7% full: extend the file and grow the filesystem offline, otherwise
-# copying our own fstab/init files into it fails with ENOSPC. 32 MiB headroom, block-aligned.
-ORIG=$(stat -c %s "$IMG")
-truncate -s $(( ORIG + 32 * 1024 * 1024 )) "$IMG"
-resize2fs "$IMG"
-mkdir -p "$WORK/mnt"
-mount -o rw "$IMG" "$WORK/mnt"
-cp "$DEV/fstab.rk30board"            "$WORK/mnt/etc/fstab.rk30board"
-cp "$DEV/configs/ueventd.rk30board.rc" "$WORK/mnt/etc/ueventd.rc"
-cp "$DEV/configs/init.hu.rc"         "$WORK/mnt/etc/init/hu.rc"
-cp "$DEV/configs/hu_insmod.sh"       "$WORK/mnt/etc/hu_insmod.sh"
-chmod 0755 "$WORK/mnt/etc/hu_insmod.sh"
-sed -i '/^[[:space:]]*insmod /d' "$WORK/mnt/etc/init/hw/init.rockchip.rc"
+# ---- 2. extract the partition tree ----------------------------------------------
+# A read-only loop mount gives real symlinks (debugfs dumps them as 0-byte sidecars, which
+# loses the target), so the tree is a faithful mirror of the partition.
+rm -rf "$OUT/tree"
+mkdir -p "$TREEV" "$WORK/mnt"
+mount -o ro,loop "$REF" "$WORK/mnt"
+# Deliberately not staged:
+#   build.prop / default.prop      Android 14 generates its own (props come from vendor_props.mk)
+#   recovery-from-boot.p           the Android 11 recovery payload, we ship our own recovery.img
+#   odm                            a symlink to the odm partition, which we build from source
+#   etc/vintf/manifest/            manifest fragments -> VINTF metadata in PRODUCT_COPY_FILES is
+#                                  a build error (build/make/core/Makefile:131); the assembled
+#                                  manifest.xml goes through DEVICE_MANIFEST_FILE instead
+#   etc/vintf/compatibility_matrix.xml  it declares <vendor-ndk><version>30</version>, and Android
+#                                  14 has no VNDK, so checkvintf rejects it (see docs/build-host.md)
+rsync -a --exclude='lost+found/' --exclude='build.prop' --exclude='default.prop' \
+      --exclude='recovery-from-boot.p' --exclude='odm' \
+      --exclude='etc/vintf/compatibility_matrix.xml' --exclude='etc/vintf/manifest/' \
+      "$WORK/mnt/" "$TREEV/"
 umount "$WORK/mnt"
 
-echo "vendor image: $IMG"
-echo "kernel:       $OUT/prebuilt/kernel_a11"
+# ---- 3. symlinks ---------------------------------------------------------------
+# PRODUCT_COPY_FILES copies with acp/cp, which *dereferences* symlinks: the 178 /vendor/bin
+# toybox aliases would each become a 489 KB copy of toybox_vendor. Those tools resolve through
+# /system/bin on Android 14 anyway, so the aliases are dropped. /vendor/bin/sh is a real file in
+# the stock vendor (314 KB), so our init service and the stock shell scripts keep working.
+# The GPU aliases are the exception: the EGL loader looks for libGLES_<ro.hardware.egl>.so, so
+# they become real copies of the blob that lives in egl/.
+COPY_LINKS="libGLES_mali.so libOpenCL.so"
+find "$TREEV" -type l -printf '%p %l\n' | while read -r link target; do
+    base=$(basename "$link")
+    keep=""
+    for name in $COPY_LINKS; do [ "$base" = "$name" ] && keep=1; done
+    if [ -n "$keep" ] && [ -e "$link" ]; then
+        cp -L "$link" "$link.materialised"
+        mv -f "$link.materialised" "$link"
+        echo "  materialised $(realpath --relative-to="$TREEV" "$link") ($(stat -c %s "$link") B)"
+    else
+        rm -f "$link"
+    fi
+done
+
+# ---- 4. the generated staging config -------------------------------------------
+python3 "$REPO/tools/gen_vendor_staging.py" "$TREEV" "$GEN" \
+    --src-prefix vendor/hct4/tree/vendor \
+    --skip-file "$GEN/vendor_props_skip.txt"
+
+echo "vendor blobs: $TREEV ($(find "$TREEV" -type f | wc -l) files, $(du -sh "$TREEV" | cut -f1))"
+echo "reference:    $REF"
+echo "kernel:       $KERNEL"
+echo "run scripts/deploy_device.sh after this (it copies the generated .mk files)"

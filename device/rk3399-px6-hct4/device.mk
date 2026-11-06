@@ -1,10 +1,22 @@
 # HU device config. Deployed as device/rockchip/rk3399/device.mk.
 
 # ---- vendor blobs -------------------------------------------------------------
-# The vendor image is prebuilt from the Daisaita Android 11 package (docs/decisions.md D9)
-# and set in BoardConfig.mk via BOARD_PREBUILT_VENDORIMAGE. Because the image is prebuilt,
-# PRODUCT_COPY_FILES into $(TARGET_COPY_OUT_VENDOR) below are ignored by the build - they are
-# listed here as documentation of what scripts/prebuilt_vendor.sh overlays into the image.
+# Android 14's OTA packer needs a *built* vendor image (it wants a VENDOR/ staging directory,
+# vendor.map and a vendor build.prop), so the stock Android 11 blobs are staged through the build
+# instead of being used as BOARD_PREBUILT_VENDORIMAGE (docs/decisions.md D9 updated, docs/ota.md).
+# scripts/prebuilt_vendor.sh extracts the vendor partition into vendor/hct4/tree/vendor and
+# tools/gen_vendor_staging.py turns it into the two generated includes below. The blobs are copied
+# byte-for-byte; tools/vendor_diff.py checks the generated image against the stock reference.
+include device/rockchip/rk3399/vendor_staging.mk
+include device/rockchip/rk3399/vendor_props.mk
+
+# The Android 14 framework matrices do not know the Rockchip/MTC HALs, so they need our own
+# framework matrix entries; see device/rk3399-px6-hct4/vintf/device_framework_matrix.xml.
+DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
+    device/rockchip/rk3399/vintf/device_framework_matrix.xml
+
+# ---- our HU files -------------------------------------------------------------
+# These four override the stock equivalents (the generator leaves those paths out of the copy list).
 PRODUCT_COPY_FILES += \
     $(LOCAL_DIR)/fstab.rk30board:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.rk30board \
     $(LOCAL_DIR)/configs/ueventd.rk30board.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \

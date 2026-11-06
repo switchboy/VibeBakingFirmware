@@ -33,11 +33,20 @@ cd "$TREE"
 } >> "$LOG" 2>&1
 if [ "$TARGET_PRODUCT" != "lineage_rk3399" ]; then echo "lunch failed at $(date)" >> "$LOG"; exit 1; fi
 
-# Our tree patches must be in place before releasetools runs, and the device tree must be deployed.
+# Order: tree patches, then the vendor staging, then the device deploy. prebuilt_vendor.sh runs
+# tools/gen_vendor_staging.py, which writes vendor_staging.mk / vendor_props.mk into the repo's
+# device folder, and deploy_device.sh is what copies those into the build tree.
 cd "$REPO"
 ./scripts/apply_tree_patches.sh ../lineage21s >> "$LOG" 2>&1 || { echo "apply_tree_patches failed at $(date)" >> "$LOG"; exit 1; }
+
+# The firmware zip is only needed the first time; afterwards the extracted reference image and
+# kernel in vendor/hct4/prebuilt/ are reused (it is ~1 GB, so re-unpacking every pass is waste).
+ZIPARG=""
+for z in "$A/daisaita_a11.zip" "$REPO/../diatsia fw/update.zip"; do
+  if [ -s "$z" ]; then ZIPARG="$z"; break; fi
+done
+./scripts/prebuilt_vendor.sh "$ZIPARG" ../lineage21s >> "$LOG" 2>&1 || { echo "prebuilt_vendor failed at $(date)" >> "$LOG"; exit 1; }
 ./scripts/deploy_device.sh ../lineage21s >> "$LOG" 2>&1 || { echo "deploy_device failed at $(date)" >> "$LOG"; exit 1; }
-./scripts/prebuilt_vendor.sh ../daisaita_a11.zip ../lineage21s >> "$LOG" 2>&1 || { echo "prebuilt_vendor failed at $(date)" >> "$LOG"; exit 1; }
 
 cd "$TREE"
 START=$(date +%s)

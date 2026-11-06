@@ -1,0 +1,38 @@
+<!--
+  Our own framework compatibility matrix entries (DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE).
+
+  Android 14's framework compatibility matrices (FCM level 5+) do not know these three HALs, so
+  `checkvintf --check-compat` reports them as "in the device manifest but not specified in the
+  framework compatibility matrix". They are device-specific services the HCT apps talk to:
+    android.hardware.mtc.mfi@1.0::IMfi              CAN/MTC bus access (radio preset, steering-wheel
+                                                    buttons, reversing gear, AMP state)
+    rockchip.hardware.outputmanager@1.0::IRkOutputManager  display/video output routing
+    rockchip.hardware.rockit.hw@1.0::IRockitHwService      Rockchip HW service (tuner/AMP/AV-in side)
+  optional="true" keeps the framework happy without demanding them.
+-->
+<compatibility-matrix version="1.0" type="framework">
+    <hal format="hidl" optional="true">
+        <name>android.hardware.mtc.mfi</name>
+        <version>1.0</version>
+        <interface>
+            <name>IMfi</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>rockchip.hardware.outputmanager</name>
+        <version>1.0</version>
+        <interface>
+            <name>IRkOutputManager</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>rockchip.hardware.rockit.hw</name>
+        <version>1.0</version>
+        <interface>
+            <name>IRockitHwService</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+</compatibility-matrix>
