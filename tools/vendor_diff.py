@@ -29,6 +29,7 @@ is what proves the module actually installed them.
 debugfs reads both images without root or mounting.
 """
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -64,7 +65,9 @@ MATERIALISED = {"lib/libGLES_mali.so", "lib/libOpenCL.so",
                 "lib64/libGLES_mali.so", "lib64/libOpenCL.so"}
 
 # Files whose content legitimately differs (generated or rewritten by us).
-REPLACED = {"build.prop", "etc/fstab.rk30board", "etc/vintf/compatibility_matrix.xml"}
+REPLACED = {"build.prop", "etc/fstab.rk30board", "etc/ueventd.rc",
+            "etc/vintf/compatibility_matrix.xml", "etc/vintf/manifest.xml",
+            "etc/NOTICE.xml.gz"}
 
 
 def inventory(image):
@@ -74,6 +77,22 @@ def inventory(image):
         path, size = line.split("\t", 1)
         inv[path.lstrip("/")] = int(size)
     return inv
+
+
+def hal_entries(text):
+    """Every <hal> block as (name, version, instance-or-fqname), for comparing manifest/matrix sets."""
+    out = set()
+    for block in re.findall(r"<hal\b.*?</hal>", text, flags=re.S):
+        name = re.search(r"<name>(.*?)</name>", block, flags=re.S)
+        if not name:
+            continue
+        version = re.search(r"<version>(.*?)</version>", block, flags=re.S)
+        inst = re.search(r"<fqname>(.*?)</fqname>", block, flags=re.S) or \
+               re.search(r"<instance>(.*?)</instance>", block, flags=re.S)
+        out.add((name.group(1).strip(),
+                 version.group(1).strip() if version else "",
+                 inst.group(1).strip() if inst else ""))
+    return out
 
 
 def main():
@@ -135,23 +154,44 @@ def main():
         ov_ok = ov_ok and same
         print("   %-28s matches device source: %s" % (in_image, same))
 
-    # The vendor manifest must survive byte-for-byte (DEVICE_MANIFEST_FILE copies the stock one).
+    # The two VINTF files are NOT byte-identical to stock, so compare them by HAL coverage:
+    #  - /vendor/etc/vintf/manifest.xml is assembled by assemble_vintf from our DEVICE_MANIFEST_FILE
+    #    plus every HAL fragment the build installs, and it gets Android 14's sepolicy version
+    #    (BOARD_SEPOLICY_VERS=202404); the stock Android 11 <sepolicy><version>30.0</version> is
+    #    dropped on purpose (assemble_vintf refuses to override a declared value).
+    #  - /vendor/etc/vintf/compatibility_matrix.xml is the stock matrix with its <vendor-ndk> block
+    #    removed (Android 14 has no VNDK).
+    # What must hold: every HAL the stock partition declared is still declared here, and neither
+    # file mentions VNDK. Extra entries are fine - those are HAL services this build adds.
     tmp = tempfile.mkdtemp(prefix="vendor-vintf-")
     dump_file(ours, "/etc/vintf/manifest.xml", os.path.join(tmp, "ours.xml"))
     dump_file(stock, "/etc/vintf/manifest.xml", os.path.join(tmp, "stock.xml"))
-    man_same = open(os.path.join(tmp, "ours.xml"), "rb").read() == open(os.path.join(tmp, "stock.xml"), "rb").read()
-    print("   /etc/vintf/manifest.xml identical to stock: %s" % man_same)
+    ours_txt = open(os.path.join(tmp, "ours.xml")).read()
+    stock_txt = open(os.path.join(tmp, "stock.xml")).read()
+    stock_hal, ours_hal = hal_entries(stock_txt), hal_entries(ours_txt)
+    lost = sorted(stock_hal - ours_hal)
+    print("   manifest HAL entries: stock=%d ours=%d (extra in ours=%d)" %
+          (len(stock_hal), len(ours_hal), len(ours_hal - stock_hal)))
+    for h in lost[:12]:
+        print("      MISSING from our manifest: %s" % ("@".join(h)))
+    sep = re.search(r"<sepolicy>\s*<version>([^<]+)</version>", ours_txt)
+    manifest_ok = not lost and "<vendor-ndk>" not in ours_txt and sep and sep.group(1).strip() != "30.0"
+    print("   manifest sepolicy version: %s (stock would say 30.0)" % (sep.group(1).strip() if sep else "none"))
+    print("   manifest keeps every stock HAL=%s, no vendor-ndk=%s" % (not lost, "<vendor-ndk>" not in ours_txt))
 
-    # The matrix is the stock one minus vendor-ndk: same HAL entries, no <vendor-ndk>.
     dump_file(ours, "/etc/vintf/compatibility_matrix.xml", os.path.join(tmp, "ours-matrix.xml"))
     dump_file(stock, "/etc/vintf/compatibility_matrix.xml", os.path.join(tmp, "stock-matrix.xml"))
-    ours_txt = open(os.path.join(tmp, "ours-matrix.xml")).read()
-    stock_txt = open(os.path.join(tmp, "stock-matrix.xml")).read()
-    print("   matrix: vendor-ndk in stock=%s, in ours=%s" %
-          ("<vendor-ndk>" in stock_txt, "<vendor-ndk>" in ours_txt))
-    hal_count = lambda t: t.count("<hal ")
-    print("   matrix HAL entries: stock=%d ours=%d equal=%s" %
-          (hal_count(stock_txt), hal_count(ours_txt), hal_count(stock_txt) == hal_count(ours_txt)))
+    ours_mat_txt = open(os.path.join(tmp, "ours-matrix.xml")).read()
+    stock_mat_txt = open(os.path.join(tmp, "stock-matrix.xml")).read()
+    stock_m, ours_m = hal_entries(stock_mat_txt), hal_entries(ours_mat_txt)
+    lost_m = sorted(stock_m - ours_m)
+    print("   matrix HAL entries: stock=%d ours=%d ; stock entries missing=%d" %
+          (len(stock_m), len(ours_m), len(lost_m)))
+    for h in lost_m[:12]:
+        print("      MISSING from our matrix: %s" % ("@".join(h)))
+    matrix_ok = not lost_m and "<vendor-ndk>" not in ours_mat_txt
+    print("   matrix vendor-ndk: stock=%s, ours=%s" % ("<vendor-ndk>" in stock_mat_txt,
+                                                      "<vendor-ndk>" in ours_mat_txt))
 
     unexpected_changed = [p for p in changed if p not in REPLACED and p not in MATERIALISED
                           and p not in build_replaced]
@@ -169,9 +209,9 @@ def main():
         if not items:
             print("   %s: none" % group)
 
-    verdict = (mat_ok and ov_ok and man_same and not unexpected_new and not unexpected_gone
-               and not unexpected_changed and not replaced_missing
-               and "<vendor-ndk>" not in ours_txt)
+    verdict = (mat_ok and ov_ok and manifest_ok and matrix_ok
+               and not unexpected_new and not unexpected_gone
+               and not unexpected_changed and not replaced_missing)
     print("VERDICT: stock blobs carried over, only the intended changes = %s" % verdict)
     return 0 if verdict else 1
 

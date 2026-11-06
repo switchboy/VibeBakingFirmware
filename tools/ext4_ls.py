@@ -6,6 +6,7 @@ debugfs `ls -l` prints: <inode> <mode> (<links>) <uid> <gid> <size> <date> <time
 Usage: ext4_ls.py <image> [start_dir] [--sizes] [--filter PATTERN] [--dirs]
 """
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -41,10 +42,15 @@ def list_dir(image: str, path: str):
 
 
 def dump_file(image: str, path: str, out_path: str):
-    res = subprocess.run(["debugfs", "-R", f'dump "{path}" "{out_path}"', image],
+    # debugfs resolves "//etc/x" and "///etc/x" as *not found* but still exits 0 and prints the
+    # error to stderr, so collapse the leading slashes and check the file really appeared.
+    norm = "/" + path.lstrip("/")
+    res = subprocess.run(["debugfs", "-R", f'dump "{norm}" "{out_path}"', image],
                          capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"dump {path} failed: {res.stderr.strip()}")
+    if not os.path.isfile(out_path) or os.path.getsize(out_path) == 0:
+        raise RuntimeError(f"dump {path} produced no file ({res.stderr.strip()})")
 
 
 def walk(image: str, root: str, sizes: bool, pattern: str | None, dirs: bool):

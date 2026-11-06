@@ -60,10 +60,17 @@ logs=$(find "$PROD/obj/PACKAGING" -name "check_vintf*.log" 2>/dev/null | sort)
 if [ -n "$logs" ]; then
   for lg in $logs; do
     name=$(basename "$lg")
-    if grep -q "^ERROR\|Incompatible\|Cannot " "$lg"; then
-      bad "$name reports a problem: $(grep -m2 "^ERROR\|Incompatible\|Cannot " "$lg" | tr "\n" " ")"
+    # These logs contain warnings too (e.g. --check-one on /system cannot read /vendor/manifest.xml,
+    # and the kernel version line is retried through three parsers). Only ERROR lines and the
+    # verdict matter: the recipe fails dist when checkvintf exits non-zero.
+    if grep -q "^ERROR" "$lg"; then
+      bad "$name: $(grep -m3 "^ERROR" "$lg" | tr "\n" " ")"
+    elif [ "$name" = check_vintf_compatible.log ] && ! grep -q "^COMPATIBLE$" "$lg"; then
+      bad "$name has no COMPATIBLE verdict"
+    elif grep -q "VINTF parse error" "$lg" && ! grep -q "Successfully processed" "$lg"; then
+      bad "$name: VINTF parse error without a successful parse"
     else
-      say "  $name: $(grep -c . "$lg") lines, verdict $(grep -m1 "COMPATIBLE\|Success\|status" "$lg" | tail -c 60)"
+      say "  $name: $(grep -c . "$lg") lines; $(grep -m1 "^COMPATIBLE\|Successfully processed" "$lg")"
     fi
   done
 else
@@ -100,8 +107,8 @@ for f in system/lib64/libfusesideload.so system/etc/recovery.fstab; do
   if [ -s "$RD/$f" ]; then say "  $f: $(stat -c %s "$RD/$f") bytes"
   else bad "$f missing from the recovery ramdisk"; fi
 done
-say "  recovery.fstab rows for the flash targets:"
-grep -E "^(/boot|/recovery|/misc|/super|/data)" "$RD/system/etc/recovery.fstab" 2>/dev/null | sed 's/^/    /' || bad "no boot/recovery/misc rows"
+say "  recovery.fstab rows for the flash targets (recovery mounts by block device):"
+grep -E "by-name/(boot|recovery|misc|userdata|metadata|cache)" "$RD/system/etc/recovery.fstab" 2>/dev/null | sed 's/^/    /' || bad "no boot/recovery/misc/userdata rows"
 
 say "=== OTA package ==="
 if [ -s "$PROD/lineage_rk3399-ota.zip" ]; then
