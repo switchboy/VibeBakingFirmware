@@ -7,7 +7,7 @@
 
 | image | goes to | note |
 |---|---|---|
-| `super.img` | partition `super` | contains system/vendor/product/system_ext/odm as logical partitions; vendor is the prebuilt A11 image. Sparse, so the pushed file is ~2.0 GB while the partition is 3,263,168,512 B |
+| `super.img` | partition `super` | contains system/vendor/product/system_ext/odm as logical partitions; vendor is built from the staged Android 11 blobs (D15). Sparse, so the pushed file is ~2.0 GB while the partition is 3,263,168,512 B |
 | `boot.img` | partition `boot` | header v2: our overlaid kernel, Android 14 ramdisk, the vendor DTB and the RSCE logo as `second` |
 | `recovery.img` | partition `recovery` | carries our fstab as `recovery.fstab`, the Updater UI hooks and - once listed in `PRODUCT_PACKAGES` - `update_engine_sideload`, which is what actually applies an OTA |
 | `dtbo.img`, `vbmeta.img` | not built, not flashed | we do not build either, so their current content stays (`verifiedbootstate=orange`) |
@@ -43,28 +43,24 @@ m dist && python3 build/make/tools/releasetools/ota_from_target_files.py \
 
 ## State of the OTA path right now
 
-The zip does not build yet. Three of the four failures are fixed (zip input + `-y`, `cache_size`,
-fstab `/boot`/`/recovery`/`/misc`, the zip dependency race - see `docs/build-host.md`); what is left
-is the vendor side, because a prebuilt vendor image gives the packaging tools nothing to read:
+The four packaging failures are now all addressed (see `docs/build-host.md`): the zip input and
+`-y`, `cache_size`, the `/boot`/`/recovery`/`/misc` fstab rows, the zip dependency race, and
+`update_engine_sideload` in `PRODUCT_PACKAGES` so recovery has an installer. The last one was the
+vendor side: with `BOARD_PREBUILT_VENDORIMAGE` the packer had nothing to read - `HasPartition()`
+found no `VENDOR/` directory entry, so `GetBlockDifferences` produced no vendor `BlockDifference` and
+`DynamicPartitionsDifference` asserted; and there was no `VENDOR/build.prop`, hence the
+`Failed to read VENDOR/build.prop` warnings and no vendor fingerprint for the compatibility checks.
 
-- `HasPartition()` looks for a `VENDOR/` directory entry, so `GetBlockDifferences` never produces a
-  vendor `BlockDifference`, and `DynamicPartitionsDifference` asserts that every partition in the
-  target group has one. A non-A/B dynamic-partition OTA has to resize and write vendor, so vendor
-  must be part of the payload.
-- There is no `VENDOR/build.prop`, hence the `Failed to read VENDOR/build.prop` warnings: no vendor
-  build fingerprint / `ro.product.first_api_level` for the compatibility and SPL checks.
-- `update_engine_sideload` was not in `PRODUCT_PACKAGES`, so recovery had no installer; fixed.
+**Fixed by D15**: vendor is *built from staged blobs*. `scripts/prebuilt_vendor.sh` mirrors the stock
+Android 11 partition into `vendor/hct4/tree/vendor`, and `tools/gen_vendor_staging.py` generates
+`vendor_staging.mk` (1208 `PRODUCT_COPY_FILES` entries + `DEVICE_MANIFEST_FILE` + a `DEVICE_MATRIX_FILE`
+without the `<vendor-ndk>` block) and `vendor_props.mk` (100 stock properties). The build then produces
+the `VENDOR/` staging directory, `vendor.map`, the vendor manifest and a vendor `build.prop`, while
+`tools/vendor_diff.py` keeps the blob carried-over honest. `package.sh` verifies the `VENDOR/` directory
+and `vendor.map` after `m dist`.
 
-**The fix that unblocks it**: build `vendor.img` from the extracted Android 11 vendor tree instead of
-using it as `BOARD_PREBUILT_VENDORIMAGE` - declare `BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE := ext4`, drop
-the prebuilt declaration, and feed the tree into `$(TARGET_OUT_VENDOR)` with a generated
-`PRODUCT_COPY_FILES` list (one entry per stock file, ~1436). The blobs stay byte-identical, and the
-build then emits `VENDOR/` staging, `vendor.map`, the vendor VINTF manifest and a vendor build.prop.
-Symlinks in the vendor tree need care (debugfs dumps them as text), and the generated vendor
-build.prop will carry our props, not the stock ones - worth checking against what the HALs read.
-
-Until that lands, Android 14 goes on the unit by `dd` through Boot-ADB (`docs/flash.md`), which needs
-no OTA at all. Upgrades after that use the zip.
+While the zip does not build yet, Android 14 can still go on the unit by `dd` through Boot-ADB
+(`docs/flash.md`), which needs no OTA at all; upgrades after that use the zip.
 
 ## Changing super's size without a full rebuild
 
