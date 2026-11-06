@@ -53,4 +53,13 @@ if [ -n "$bad" ]; then
   exit 1
 fi
 
+# The vendor APKs (the stock resource-overlay package) are installed by the generated
+# prebuilt_apps/Android.mk, because PRODUCT_COPY_FILES rejects .apk destinations. Its
+# LOCAL_SRC_FILES are relative to that folder, so make sure the blob came along.
+if [ -f "$DEST/prebuilt_apps/Android.mk" ]; then
+  while read -r src; do
+    [ -s "$DEST/prebuilt_apps/$src" ] || { echo "  ! apk referenced by prebuilt_apps/Android.mk missing: $src"; exit 1; }
+  done < <(sed -n 's/^LOCAL_SRC_FILES := //p' "$DEST/prebuilt_apps/Android.mk")
+fi
+
 echo "device tree -> $DEST"

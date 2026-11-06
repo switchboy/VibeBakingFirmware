@@ -266,6 +266,25 @@ last. All four are now fixed except the vendor one (see below).
        (`tools/namecheck.py <tree>` shows what is present). `/vendor/bin/usb_dongle` only looks up
        `/vendor/etc/usb_modeswitch.d/%04x_%04x`, so none of the 23 skipped rules are used; the plain
        `<vendor>_<product>` rules are still staged.
+     - `.apk` destinations are rejected outright: `check-product-copy-files` aborts with
+       `Prebuilt apk found in PRODUCT_COPY_FILES: ...use BUILD_PREBUILT instead!`
+       (`build/make/core/Makefile:118`). The partition has exactly one -
+       `overlay/framework-res__auto_generated_rro_vendor.apk`, the auto-generated vendor
+       resource-overlay package. It is not decoration: it overrides
+       `config_autoBrightnessLevels`/`config_autoBrightnessLcdBacklightValues` +
+       `config_automatic_brightness_available` (the HU's auto-brightness curve),
+       `config_tether_usb_regexs`/`config_tether_bluetooth_regexs`/`config_tether_wifi_regexs`
+       (`usb\d`,`rndis\d` / `bt-pan` / `wlan0`,`softap.*` - the tether/hotspot interface names this
+       unit uses), `config_networkSupportedKeepaliveCount`, `config_ephemeralResolverPackage` and the
+       `config_enable*` bools. So it is kept, installed as a `BUILD_PREBUILT` module:
+       `tools/gen_vendor_staging.py` writes `prebuilt_apps/Android.mk` (module class
+       `STATIC_LIBRARIES`, suffix `.apk`, `LOCAL_MODULE_PATH := $(TARGET_COPY_OUT_VENDOR)/overlay`),
+       and `scripts/prebuilt_vendor.sh` mirrors the blob into that folder so `LOCAL_SRC_FILES`
+       resolve. The module keeps the stock name because
+       `build/make/core/artifact_path_requirements.mk:9` allows `%__auto_generated_rro_vendor.apk`
+       for static-lib artifacts, which is the pattern AOSP uses for its own generated RROs; a
+       renamed module would trip the artifact-path check. The generated file also adds it to
+       `PRODUCT_PACKAGES`.
      - ELF blobs through `PRODUCT_COPY_FILES` need `BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES :=
        true` (`definitions.mk:3184` checks with `llvm-readobj`).
      - The stock properties are re-declared from a saved copy of the stock `build.prop`
