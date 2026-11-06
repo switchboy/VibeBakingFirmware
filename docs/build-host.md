@@ -287,6 +287,32 @@ last. All four are now fixed except the vendor one (see below).
        `PRODUCT_PACKAGES`.
      - ELF blobs through `PRODUCT_COPY_FILES` need `BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES :=
        true` (`definitions.mk:3184` checks with `llvm-readobj`).
+     - **162 destinations collide with modules the build installs itself**, and that is a hard parse
+       error, not a dedup: `PRODUCT_COPY_FILES` turns every pair into an install rule for
+       `$(PRODUCT_OUT)/<dest>`, so ckati stops with
+       `build/make/core/Makefile:161: error: overriding commands for target
+       'out/target/product/rk3399/vendor/bin/applypatch', previously defined at
+       out/soong/installs-lineage_rk3399.mk:83800`. Makefile:159 only dedups copy pairs *against
+       copy pairs*, never against module rules. `tools/vendor_conflicts.py` compares the copy list
+       with `out/soong/installs-<product>.mk` (and the previous build's staging dir, which is where
+       legacy Make modules install) and names the module behind each collision; `--write-drop-list`
+       records the ones to drop, and `gen_vendor_staging.py --dest-skip` regenerates without them.
+       The decision is by source: a module built from upstream AOSP code (`external/toybox`,
+       `external/mksh`, `external/libchrome`, `external/libdrm`, `frameworks/av/media/libeffects`,
+       `hardware/interfaces/*/default`, `hardware/libhardware/modules/*`, `build/make/tools/fs_config`
+       for `/vendor/etc/passwd|group`, `bootable/recovery/applypatch`, `prebuilts/misc` protobuf, the
+       generated `/vendor/etc/selinux/*`) is the same component compiled for Android 14, so its file
+       wins and the blob is dropped. Nothing Rockchip is dropped: every HU HAL has its own name and
+       therefore no collision (`hwcomposer.rk30board.so`, `audio.primary.rk30board.so`,
+       `camera.rk30board.so`, `gps.default.so`, `gralloc.default.so`,
+       `android.hardware.graphics.allocator@4.0-impl-midgard.so`,
+       `android.hardware.graphics.mapper@4.0-impl-midgard.so`, `mfi.default.so`,
+       `android.hardware.mtc.mfi@1.0-impl.so`, `hw_output.default.so`,
+       `rockchip.hardware.outputmanager@1.0-impl.so`, `memtrack.rk3399.so`, `sensors.rk30board.so`,
+       `android.hardware.weaver@1.0-impl.so`). If a collision ever comes from `vendor/` or a device
+       tree instead, the opposite fix is needed - keep the blob and remove that module from
+       `PRODUCT_PACKAGES` - and the tool says so. `scripts/deploy_device.sh` re-runs the check so a
+       changed product config cannot sneak a collision back into a 20-minute build.
      - The stock properties are re-declared from a saved copy of the stock `build.prop`
        (`vendor/hct4/prebuilt/vendor_build.prop.a11`), minus keys Android 14 assigns itself or that
        `device.mk` already sets; `vendor_props_skip.txt` records the collisions.

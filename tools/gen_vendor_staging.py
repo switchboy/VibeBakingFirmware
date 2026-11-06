@@ -99,6 +99,10 @@ def main():
                          "generates its own), so scripts/prebuilt_vendor.sh keeps a copy in "
                          "vendor/hct4/prebuilt/. Defaults to <tree>/build.prop if present.")
     ap.add_argument("--skip-file", help="extra property keys to drop, one per line")
+    ap.add_argument("--dest-skip",
+                    help="destination paths (partition-relative) to leave out of the copy list, "
+                         "because the build installs that path itself - written by "
+                         "tools/vendor_conflicts.py --write-drop-list")
     ap.add_argument("--compat-matrix", default=None,
                     help="stock vendor compatibility matrix; scripts/prebuilt_vendor.sh keeps a "
                          "copy in vendor/hct4/prebuilt/ because the staged tree excludes it")
@@ -115,11 +119,24 @@ def main():
                        for line in open(args.skip_file)
                        if line.strip() and not line.strip().startswith("#")}
 
+    # Destinations the build installs itself. PRODUCT_COPY_FILES would create a second rule for
+    # the same target and ckati aborts ("overriding commands for target ... previously defined at
+    # out/soong/installs-<product>.mk"); these paths get Android 14's own build of the component.
+    dest_skip = set()
+    if args.dest_skip and os.path.exists(args.dest_skip):
+        dest_skip = {line.split("#", 1)[0].strip()
+                     for line in open(args.dest_skip)
+                     if line.strip() and not line.strip().startswith("#")}
+
     entries = []
     odd_names = []
     apks = []
+    build_dropped = []
     for rel in walk_files(tree):
         if rel in SKIP_DEST:
+            continue
+        if rel in dest_skip:
+            build_dropped.append(rel)
             continue
         # PRODUCT_COPY_FILES rejects any destination ending in .apk
         # ("Prebuilt apk found in PRODUCT_COPY_FILES: ..., use BUILD_PREBUILT instead!",
@@ -153,6 +170,13 @@ def main():
         print("  skipped %d file(s) Make cannot express (one per line):" % len(odd_names))
         for rel in odd_names[:20]:
             print("    %s" % rel)
+    if build_dropped:
+        print("  dropped %d destination(s) the build installs itself (see vendor_conflicts.py);" %
+              len(build_dropped))
+        for rel in sorted(build_dropped)[:12]:
+            print("    %s" % rel)
+        if len(build_dropped) > 12:
+            print("    ... and %d more" % (len(build_dropped) - 12))
     manifest = None
     if os.path.exists(os.path.join(tree, "etc/vintf/manifest.xml")):
         manifest = "%s/etc/vintf/manifest.xml" % args.src_prefix.rstrip("/")

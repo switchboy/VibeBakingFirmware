@@ -62,4 +62,19 @@ if [ -f "$DEST/prebuilt_apps/Android.mk" ]; then
   done < <(sed -n 's/^LOCAL_SRC_FILES := //p' "$DEST/prebuilt_apps/Android.mk")
 fi
 
+# PRODUCT_COPY_FILES entries must not collide with a module the build installs to the same path:
+# ckati aborts with "overriding commands for target ... previously defined at
+# out/soong/installs-lineage_rk3399.mk", ~20 minutes into the build. scripts/prebuilt_vendor.sh
+# drops those destinations (vendor_build_wins.txt), so a collision here means the product config
+# changed since the staging was generated - regenerate instead of building.
+if ls "$TREE"/out/soong/installs-*.mk >/dev/null 2>&1; then
+  conflicts=$(python3 "$REPO/tools/vendor_conflicts.py" "$TREE" "$DEST" 2>&1 | tail -20)
+  if ! printf '%s\n' "$conflicts" | grep -q "no collisions"; then
+    echo "  ! the copy list collides with modules the build installs:"
+    printf '%s\n' "$conflicts" | grep -E "^COLLISIONS|blob must win|^     " | head -6
+    echo "  re-run scripts/prebuilt_vendor.sh on the build host to regenerate vendor_staging.mk"
+    exit 1
+  fi
+fi
+
 echo "device tree -> $DEST"

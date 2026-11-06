@@ -212,7 +212,19 @@ in the super group has a `BlockDifference`. The owner chose "fix vendor staging 
 - Three `usb_modeswitch.d` rules whose names contain `#` cannot be expressed in a Makefile
   (`#` starts a comment, which is what killed `lunch` with "malformed COPY_FILE"). `/vendor/bin/usb_dongle`
   only looks up the `<vendor>_<product>` form, so dropping them costs nothing.
+- `PRODUCT_COPY_FILES` also collides with files the build installs itself: 162 destinations are
+  install targets of modules (`out/soong/installs-lineage_rk3399.mk`), and Make only dedups copy
+  pairs against copy pairs, so ckati aborts with "overriding commands for target ...".
+  `tools/vendor_conflicts.py` reports them with the module behind each one and drops the ones whose
+  module comes from upstream AOSP source (`vendor_build_wins.txt`, fed back into the generator),
+  because Android 14 compiles that same component. No Rockchip HAL is dropped - every HU HAL keeps
+  its own file name (`hwcomposer.rk30board.so`, `audio.primary.rk30board.so`, `camera.rk30board.so`,
+  `gps.default.so`, allocator/mapper `-impl-midgard`, `mfi.default.so`, `hw_output.default.so`,
+  `rockchip.hardware.outputmanager@1.0-impl.so`), so none of them collide; a collision from
+  `vendor/` or a device tree would need the module removed from `PRODUCT_PACKAGES` instead, and the
+  tool says which. `scripts/deploy_device.sh` re-checks before every build.
 - `BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true` is required: Android 14 rejects ELF files
   passed through `PRODUCT_COPY_FILES` (`definitions.mk:3184` checks with `llvm-readobj`).
 - `tools/vendor_diff.py` now checks the *built* image against the stock reference by classifying the
-  differences into dropped / materialised / replaced / added, and fails on anything outside those.
+  differences into dropped / materialised / replaced / added, plus the build-installed paths (which
+  must still be present in the image). Anything outside those categories fails the check.

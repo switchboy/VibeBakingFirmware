@@ -119,6 +119,27 @@ python3 "$REPO/tools/gen_vendor_staging.py" "$TREEV" "$GEN" \
     --compat-matrix "$OUT/prebuilt/vendor_compat_matrix.a11.xml" \
     --skip-file "$GEN/vendor_props_skip.txt"
 
+# ---- 6. destinations the build installs itself --------------------------------
+# PRODUCT_COPY_FILES creates an install rule per destination. If a module installs the same path,
+# ckati aborts ("overriding commands for target out/.../vendor/bin/applypatch, previously defined
+# at out/soong/installs-lineage_rk3399.mk"). This partition has 162 such paths, all compiled from
+# upstream AOSP source (toybox/sh/awk, libchrome, libdrm, the AOSP default HAL services and their
+# default impls, generated sepolicy) - Android 14's own build is the right file, and every Rockchip
+# HAL keeps its own name, so no blob that matters is dropped. The install list comes from the
+# previous build's out/soong; without it (first sync) this step is skipped and the collisions show
+# up in the build instead.
+INSTALLS=$(ls "$TREE"/out/soong/installs-*.mk 2>/dev/null | head -1)
+if [ -n "$INSTALLS" ]; then
+    python3 "$REPO/tools/vendor_conflicts.py" "$TREE" "$GEN" \
+        --write-drop-list "$GEN/vendor_build_wins.txt" 2>&1 | tail -6
+    python3 "$REPO/tools/gen_vendor_staging.py" "$TREEV" "$GEN" \
+        --src-prefix vendor/hct4/tree/vendor \
+        --build-prop "$OUT/prebuilt/vendor_build.prop.a11" \
+        --compat-matrix "$OUT/prebuilt/vendor_compat_matrix.a11.xml" \
+        --skip-file "$GEN/vendor_props_skip.txt" \
+        --dest-skip "$GEN/vendor_build_wins.txt"
+fi
+
 echo "vendor blobs: $TREEV ($(find "$TREEV" -type f | wc -l) files, $(du -sh "$TREEV" | cut -f1))"
 echo "reference:    $REF"
 echo "kernel:       $KERNEL"

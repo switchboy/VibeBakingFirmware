@@ -57,6 +57,8 @@ VibeBakingFirmware/
 │   ├── gen_vendor_staging.py  turns vendor/hct4/tree/vendor into vendor_staging.mk + vendor_props.mk
 │   │                          + prebuilt_apps/Android.mk (vendor APKs the copy list cannot carry)
 │   ├── namecheck.py     lists vendor file names Make cannot stage (# : = whitespace wildcards)
+│   ├── vendor_conflicts.py  copy list vs out/soong/installs-*.mk: which destinations the build
+│   │                        installs itself (drop the blob) and which need a module removed
 │   ├── extract_vendor.py  debugfs-based extraction of a vendor partition into a tree
 │   └── vendor_diff.py   built vendor.img vs the stock reference, differences classified
 ├── analysis/            generated artefacts (gitignored: images, dumps, listings)

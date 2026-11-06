@@ -20,6 +20,12 @@ images differ on purpose, in exactly these ways:
 
 Anything outside those categories is a bug in the staging, so the script lists it and fails.
 
+There is one more category, and it is expected: ~160 destinations are installed by the build's own
+modules (vendor_build_wins.txt, written by tools/vendor_conflicts.py) - Android 14 compiles the same
+upstream component (toybox, mksh, libchrome, libdrm, the AOSP default HAL services, generated
+sepolicy), so those files legitimately differ in size. The script checks they are *present*, which
+is what proves the module actually installed them.
+
 debugfs reads both images without root or mounting.
 """
 import os
@@ -74,6 +80,15 @@ def main():
     stock, ours, dev = sys.argv[1], sys.argv[2], sys.argv[3]
     a = inventory(stock)
     b = inventory(ours)
+
+    # Destinations the build installs from its own modules (vendor_build_wins.txt, written by
+    # tools/vendor_conflicts.py). Android 14 compiles the same upstream component, so these paths
+    # legitimately differ in size/content - but they must still be present in the image.
+    build_replaced = set()
+    wins = os.path.join(dev, "vendor_build_wins.txt")
+    if os.path.exists(wins):
+        build_replaced = {line.split("#", 1)[0].strip() for line in open(wins)
+                          if line.strip() and not line.strip().startswith("#")}
 
     # Aliases are symlinks in the stock image; walk() lists them as files whose size is the
     # length of the target string (13 bytes for "toybox_vendor", 19 for "./egl/...").
@@ -138,7 +153,14 @@ def main():
     print("   matrix HAL entries: stock=%d ours=%d equal=%s" %
           (hal_count(stock_txt), hal_count(ours_txt), hal_count(stock_txt) == hal_count(ours_txt)))
 
-    unexpected_changed = [p for p in changed if p not in REPLACED and p not in MATERIALISED]
+    unexpected_changed = [p for p in changed if p not in REPLACED and p not in MATERIALISED
+                          and p not in build_replaced]
+    replaced_missing = sorted(p for p in build_replaced if p not in b)
+    print("build-installed paths (%d): present=%d, missing=%d" %
+          (len(build_replaced), len(build_replaced) - len(replaced_missing), len(replaced_missing)))
+    for p in replaced_missing[:15]:
+        print("   MISSING although a module should install it: %s" % p)
+
     print("unexpected differences:")
     for group, items in (("added", unexpected_new), ("missing", unexpected_gone),
                          ("size changed", unexpected_changed)):
@@ -148,7 +170,8 @@ def main():
             print("   %s: none" % group)
 
     verdict = (mat_ok and ov_ok and man_same and not unexpected_new and not unexpected_gone
-               and not unexpected_changed and "<vendor-ndk>" not in ours_txt)
+               and not unexpected_changed and not replaced_missing
+               and "<vendor-ndk>" not in ours_txt)
     print("VERDICT: stock blobs carried over, only the intended changes = %s" % verdict)
     return 0 if verdict else 1
 
