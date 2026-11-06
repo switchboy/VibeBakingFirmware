@@ -230,13 +230,42 @@ last. All four are now fixed except the vendor one (see below).
    `board_config.mk:698`, so `Makefile:6581` never copies `$(TARGET_OUT_VENDOR)` into the staging
    tree). `GetBlockDifferences` therefore skips vendor, and the dynamic-partition installer asserts.
    This is also what the `Failed to read VENDOR/build.prop` warnings mean, and it would make the
-   VINTF compatibility check meaningless. Two ways out:
-   - **Stage vendor from source**: drop `BOARD_PREBUILT_VENDORIMAGE`, declare
-     `BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE := ext4`, and copy the extracted Android 11 vendor tree into
-     `$(TARGET_OUT_VENDOR)` through a generated `PRODUCT_COPY_FILES` list (~1436 entries; symlinks
-     need handling separately, `build.prop` must stay the generated one). `vendor.img` is then built
-     from the blobs, which gives a `VENDOR/` staging dir, `vendor.map`, the vendor VINTF manifest and
-     a vendor `build.prop`. The blobs stay byte-identical (see the vendor integrity check below).
+   VINTF compatibility check meaningless. Two ways out, and the owner picked the first (D13/D15):
+   - **Stage vendor from source** (chosen, implemented by `scripts/prebuilt_vendor.sh` +
+     `tools/gen_vendor_staging.py`): drop `BOARD_PREBUILT_VENDORIMAGE`, keep
+     `BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE := ext4`, and mirror the stock Android 11 partition into
+     `vendor/hct4/tree/vendor` with a read-only loop mount + `rsync -a` so `PRODUCT_COPY_FILES` can
+     stage it. `vendor.img` is then built from those blobs, which gives a `VENDOR/` staging dir,
+     `vendor.map`, the vendor VINTF manifest and a vendor `build.prop`. What the staging had to
+     handle:
+     - `acp`/`cp` **dereference** symlinks, so the 178 `/vendor/bin` aliases would each become a
+       489 KB copy of `toybox_vendor`; they are dropped (those tools resolve through `/system/bin`
+       on Android 14), and `/vendor/bin/sh` is a real file in the stock vendor, so our init service
+       and Rockchip's shell scripts still work.
+     - `libGLES_mali.so` and `libOpenCL.so` are materialised as real copies of
+       `egl/libGLES_mali.so`, because Android 14's EGL loader searches
+       `libGLES_<ro.hardware.egl>.so` in `/vendor/lib(64)/` and `/vendor/lib(64)/egl/`
+       (`frameworks/native/opengl/libs/EGL/Loader.cpp:284-315`). Materialising runs *before* the
+       other links are deleted: `libOpenCL.so -> .1 -> .1.1 -> ./egl/libGLES_mali.so` is a chain
+       that only resolves while all three links exist (~111 MB added, the super group has ~1.2 GB
+       spare).
+     - `vendor/etc/vintf/` cannot go through `PRODUCT_COPY_FILES` (`Makefile:131`): the manifest goes
+       via `DEVICE_MANIFEST_FILE`, and the device compatibility matrix is rewritten with its
+       `<vendor-ndk><version>30</version>` block removed - Android 14 has no VNDK and `checkvintf`
+       reports "Vndk version 30 is not supported". Our own framework matrix
+       (`DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE`) adds the three HALs the Android 14 framework
+       matrices do not know: `android.hardware.mtc.mfi`, `rockchip.hardware.outputmanager`,
+       `rockchip.hardware.rockit.hw`.
+     - Three `usb_modeswitch.d` rules are named with `#` (`12d1_#android`, `12d1_#linux`,
+       `19d2_#linux`). Make treats `#` as the start of a comment, so `lunch` died with
+       `malformed COPY_FILE "vendor/hct4/tree/vendor/etc/usb_modeswitch.d/12d1_"`. They are skipped,
+       and `/vendor/bin/usb_dongle` only looks up `/vendor/etc/usb_modeswitch.d/%04x_%04x`, so
+       nothing is lost.
+     - ELF blobs through `PRODUCT_COPY_FILES` need `BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES :=
+       true` (`definitions.mk:3184` checks with `llvm-readobj`).
+     - The stock properties are re-declared from a saved copy of the stock `build.prop`
+       (`vendor/hct4/prebuilt/vendor_build.prop.a11`), minus keys Android 14 assigns itself or that
+       `device.mk` already sets; `vendor_props_skip.txt` records the collisions.
    - **Ship without an OTA**: flash Android 14 with `dd` through Boot-ADB (M3). That needs none of the
      above, but then upgrades need the first option.
 4. **No installer inside recovery**: `system/bin/recovery` links only the update_engine *client*
@@ -269,14 +298,19 @@ matched. `scripts/package.sh` now runs dist first, then superimage, and warns if
   `super_partition_size` 3,263,168,512 B.
 - Each logical partition carved out of the raw super is byte-identical to its image and
   `dumpe2fs -h` parses it (block count x block size = the filesystem size).
-- `tools/vendor_diff.py` proves the vendor image is the stock Android 11 vendor plus only our four
-  overlays: 1436 stock files, 1439 ours, 0 missing, 1 replaced (`/etc/fstab.rk30board`), 3 added
-  (`/etc/hu_insmod.sh`, `/etc/init/hu.rc`, `/etc/ueventd.rc`), each overlay byte-identical to its
-  source in `device/rk3399-px6-hct4/`. Note the stock vendor has **no** `/etc/ueventd.rc`, and
-  `scripts/prebuilt_vendor.sh`'s `insmod` sed is a no-op: the stock module load is a *service*
-  (`service vendor.insmod_sh /vendor/bin/init.insmod.sh`), not `insmod` lines - which is why we
-  supply our own `hu_insmod.sh`. SELinux is permissive for M3 (`WITH_PERMISSIVE_SELINUX := true`),
-  so a root vendor service is not denied during the boot test.
+- `tools/vendor_diff.py` checks the **built** vendor image against the stock reference and classifies
+  every difference, so the staging cannot silently drop a blob: *dropped* (the 178 `/vendor/bin`
+  aliases, `libOpenCL.so.1/.1.1`, the `/odm` symlink, `default.prop`, `recovery-from-boot.p`, the three
+  `#`-named `usb_modeswitch.d` rules), *materialised* (`lib/lib64` `libGLES_mali.so` and `libOpenCL.so`
+  must equal the `egl/libGLES_mali.so` blob), *replaced* (`build.prop`, `/etc/fstab.rk30board`, the
+  compatibility matrix - same HAL entries, no `<vendor-ndk>`), and *added* (`/etc/init/hu.rc`,
+  `/etc/hu_insmod.sh`, `/etc/ueventd.rc`). Anything outside those four categories fails the check.
+  The earlier prebuilt-image run showed 1436 stock files vs 1439 ours, 0 missing, 1 replaced and 3
+  added, each overlay byte-identical to its source in `device/rk3399-px6-hct4/`. Note the stock vendor
+  has **no** `/etc/ueventd.rc` (it has `/vendor/ueventd.rc`, which Android 14 reads too), and its module
+  load is a *service* (`service vendor.insmod_sh /vendor/bin/init.insmod.sh`), not `insmod` lines -
+  which is why we supply our own `hu_insmod.sh`. SELinux is permissive for M3
+  (`WITH_PERMISSIVE_SELINUX := true`), so a root vendor service is not denied during the boot test.
 - LineageOS **Updater** is in the image: `system_ext/priv-app/Updater/Updater.apk` plus its
   `init.lineage-updater.rc`, privapp whitelist and default-permissions files.
 - The recovery ramdisk carries our fstab as `system/etc/recovery.fstab` (556 entries, gzip cpio),

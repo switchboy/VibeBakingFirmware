@@ -177,3 +177,37 @@ Owner declined the dual-band USB dongle (RTL8821CU/RTL8822BU), so wireless CarPl
 Android Auto stay out of scope: the built-in module is 2.4 GHz only and `wificountrycode=NL` does not
 change that. Wired CarPlay/Android Auto stay on the parity list. If this changes later, the vendor
 image already ships `8821cu.ko`/`8822bu.ko`, so it is a plug-and-buy change, not a driver port.
+
+## D15 - vendor: built from staged blobs, no longer a prebuilt image (decided by D13)
+
+D9's Android 11 vendor tree was first used as `BOARD_PREBUILT_VENDORIMAGE`, which produced a working
+`vendor.img` but left the OTA packer nothing to read: `HasPartition()` (`check_target_files_vintf.py:315`)
+looks for a `VENDOR/` directory entry, and a prebuilt image never creates one - no staging directory,
+no `vendor.map`, no vendor build.prop, and `DynamicPartitionsDifference` asserts that every partition
+in the super group has a `BlockDifference`. The owner chose "fix vendor staging first, then flash", so:
+
+- `scripts/prebuilt_vendor.sh` loop-mounts `vendor/hct4/prebuilt/vendor_a11.img` read-only and mirrors
+  it into `vendor/hct4/tree/vendor` with `rsync -a`, which keeps real symlinks (debugfs dumps them as
+  0-byte sidecars and loses the target).
+- Symlinks are then resolved and dropped, because `PRODUCT_COPY_FILES` copies with `acp`, which
+  dereferences: the 178 `/vendor/bin` aliases would each become a 489 KB copy of `toybox_vendor`, and
+  the tools resolve through `/system/bin` on Android 14 anyway. `/vendor/bin/sh` is a real file in the
+  stock vendor, so our init service and Rockchip's shell scripts still work. `libGLES_mali.so` and
+  `libOpenCL.so` are the exception - Android 14's EGL loader looks for `libGLES_<ro.hardware.egl>.so`
+  (`frameworks/native/opengl/libs/EGL/Loader.cpp:284-315`), so those four aliases become real copies of
+  the blob in `egl/` (~111 MB added; the super group has ~1.2 GB spare).
+- `tools/gen_vendor_staging.py` turns the tree into `vendor_staging.mk` (1228 copy entries) and
+  `vendor_props.mk` (100 stock properties re-declared, since Android 14 generates its own
+  `vendor/build.prop`). VINTF metadata cannot go through `PRODUCT_COPY_FILES`
+  (`build/make/core/Makefile:131`), so the manifest goes via `DEVICE_MANIFEST_FILE`, and the device
+  compatibility matrix is rewritten with its `<vendor-ndk><version>30</version>` block removed -
+  Android 14 has no VNDK and `checkvintf` refuses it. Our own framework matrix adds the three HALs the
+  Android 14 framework matrices do not know (`android.hardware.mtc.mfi`, `rockchip.hardware.outputmanager`,
+  `rockchip.hardware.rockit.hw`).
+- Three `usb_modeswitch.d` rules whose names contain `#` cannot be expressed in a Makefile
+  (`#` starts a comment, which is what killed `lunch` with "malformed COPY_FILE"). `/vendor/bin/usb_dongle`
+  only looks up the `<vendor>_<product>` form, so dropping them costs nothing.
+- `BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true` is required: Android 14 rejects ELF files
+  passed through `PRODUCT_COPY_FILES` (`definitions.mk:3184` checks with `llvm-readobj`).
+- `tools/vendor_diff.py` now checks the *built* image against the stock reference by classifying the
+  differences into dropped / materialised / replaced / added, and fails on anything outside those.
