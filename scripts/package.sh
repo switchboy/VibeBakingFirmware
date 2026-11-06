@@ -91,7 +91,7 @@ done
 # It reads the previous pass's vendor.img and out/soong/module-info-*.json, so on a cold tree it has
 # nothing to say; the pass after a build is the one that converges.
 echo "=== vendor link closure ===" >> "$LOG"
-"$REPO/tools/vendor_link_closure.py" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
+python3 "$REPO/tools/vendor_link_closure.py" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
   || echo "  ! closure left unresolved sonames (see the report above)" >> "$LOG"
 
 ./scripts/deploy_device.sh ../lineage21s >> "$LOG" 2>&1 || { echo "deploy_device failed at $(date)" >> "$LOG"; exit 1; }
@@ -203,7 +203,7 @@ STAGE=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/l
 # amount of partition checking would reveal. Both are reported, not fatal - a gap is a decision, not a
 # build error.
 echo "=== closure after dist ===" >> "$LOG"
-"$REPO/tools/vendor_link_closure.py" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
+python3 "$REPO/tools/vendor_link_closure.py" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
   || echo "  ! closure left unresolved sonames (see the report above)" >> "$LOG"
 echo "=== vendor ABI check (kept blobs vs Android 14's symbols) ===" >> "$LOG"
 python3 "$REPO/tools/vendor_abi_check.py" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \

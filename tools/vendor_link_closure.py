@@ -296,21 +296,32 @@ def main():
 
     if symbol_check and inject:
         print("\n=== undefined symbols of the injected files ===")
-        defined = set()
+        # Keyed by partition-relative path: the 32-bit and 64-bit copies of one library export
+        # different symbol sets (configureRpcThreadpool is unsigned int in lib/, unsigned long in
+        # lib64/), so mixing them would report symbols the loader actually finds.
+        tables = {}
         for root in ("vendor", "system"):
             d = os.path.join(pdir, root)
             for dp, _dirs, fs in os.walk(d):
+                rel = os.path.relpath(dp, d)
                 for f in fs:
                     if f.endswith(".so"):
-                        defined |= exported_symbols(os.path.join(dp, f))
-        print("   symbols defined by files in /vendor and /system: %d" % len(defined))
+                        fp = os.path.join(dp, f)
+                        if is_elf(fp):
+                            path = os.path.join(rel, f) if rel != "." else f
+                            tables[path] = exported_symbols(fp)
+        print("   libraries under /vendor and /system: %d" % len(tables))
         bad = 0
         for rel in sorted(inject):
-            fp = inject[rel][0]
-            miss = sorted(s for s in undefined_symbols(fp) if s not in defined)
+            arch = os.path.dirname(rel)
+            defined = set()
+            for path, syms in tables.items():
+                if os.path.dirname(path) == arch or (arch == "lib" and os.path.basename(path) in public):
+                    defined |= syms
+            miss = sorted(s for s in undefined_symbols(inject[rel][0]) if s not in defined)
             bad += len(miss)
-            print("   %-42s unresolved: %d%s" % (rel, len(miss),
-                                                 "  " + ", ".join(miss[:4]) if miss else ""))
+            print("   %-42s [%s] unresolved: %d%s" % (rel, arch, len(miss),
+                                                      "  " + ", ".join(miss[:4]) if miss else ""))
         if bad:
             print("   -> the injected library would not load; check its ABI against Android 14")
 
