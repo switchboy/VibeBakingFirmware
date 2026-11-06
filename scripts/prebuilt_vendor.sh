@@ -58,8 +58,10 @@ rm -rf "$OUT/tree"
 mkdir -p "$TREEV" "$WORK/mnt"
 mount -o ro,loop "$REF" "$WORK/mnt"
 # The stock build.prop is not staged (Android 14 generates its own), but its properties are what
-# the Rockchip HALs read, so a copy is kept for tools/gen_vendor_staging.py.
+# the Rockchip HALs read, so a copy is kept for tools/gen_vendor_staging.py. Same for the device
+# compatibility matrix: its <vendor-ndk> block must be removed before Android 14 will accept it.
 cp "$WORK/mnt/build.prop" "$OUT/prebuilt/vendor_build.prop.a11"
+cp "$WORK/mnt/etc/vintf/compatibility_matrix.xml" "$OUT/prebuilt/vendor_compat_matrix.a11.xml"
 # Deliberately not staged:
 #   build.prop / default.prop      Android 14 generates its own (props come from vendor_props.mk)
 #   recovery-from-boot.p           the Android 11 recovery payload, we ship our own recovery.img
@@ -102,6 +104,7 @@ echo "  dropped $n remaining symlink(s) (toybox aliases, OpenCL .1/.1.1 aliases)
 python3 "$REPO/tools/gen_vendor_staging.py" "$TREEV" "$GEN" \
     --src-prefix vendor/hct4/tree/vendor \
     --build-prop "$OUT/prebuilt/vendor_build.prop.a11" \
+    --compat-matrix "$OUT/prebuilt/vendor_compat_matrix.a11.xml" \
     --skip-file "$GEN/vendor_props_skip.txt"
 
 echo "vendor blobs: $TREEV ($(find "$TREEV" -type f | wc -l) files, $(du -sh "$TREEV" | cut -f1))"
