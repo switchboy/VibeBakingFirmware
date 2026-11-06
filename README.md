@@ -61,10 +61,16 @@ VibeBakingFirmware/
 ├── scripts/           → build / flash / device-inspection helper scripts
 │   ├── probe.sh          run it on the SD card; writes probe.md next to itself (no adb/root)
 │   ├── deploy_device.sh  copies the device tree into a LineageOS checkout
-│   ├── prebuilt_vendor.sh builds vendor.img from the Daisaita vendor image + our overlays
+│   ├── prebuilt_vendor.sh stages the stock Android 11 vendor partition into the build tree
+│   │                  (read-only loop mount -> vendor/hct4/tree/vendor, GPU aliases materialised,
+│   │                  then runs tools/gen_vendor_staging.py)
 │   ├── repartition_gpt.sh builds the new GPT blobs with sgdisk
 │   ├── apply_tree_patches.sh applies patches/ to the LineageOS checkout (idempotent, git apply)
+│   ├── package.sh      the packaging pass on the NAS: patches -> vendor staging -> deploy ->
+│   │                  bootimage/recoveryimage/dist/superimage/otapackage
 │   ├── stage_flash.sh  stages super/boot/recovery (+ sha256) for the Boot-ADB flash, sparse->raw
+│   ├── build_rollback_super.sh rebuilds a flashable Android 10 super from the stock package
+│   ├── check_super.py  verifies the staged super offline (lpdump layout + dumpe2fs per partition)
 │   └── upload_server.py / upload_client.sh  LAN endpoint the unit reports to
 ```
 
@@ -90,15 +96,19 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
   (2.4 GHz silicon). Its vendor HAL
   surface matches the reference payload except three undeclared HALs; blob hashes land in the next report.
 - M2 (LineageOS 21 tree): **building cleanly** - shallow source sync on the NAS (`docs/build-host.md`),
-  device tree in `device/rk3399-px6-hct4/` deployed as `device/rockchip/rk3399`, and the prebuilt
-  vendor/kernel pipeline works (`scripts/prebuilt_vendor.sh` -> `vendor/hct4/vendor.img` +
-  `prebuilt/kernel_a11`). `m -j4` finished with rc=0 in 45 min (`los-build11`): `super.img` 2.01 GB,
-  `system.img` 922 MB, `product.img` 456 MB, `system_ext.img` 385 MB, `odm.img` 811 KB,
-  `vendor.img` 292 MB. `boot.img` (32,796,672 B in a 33,554,432 B partition: vendor kernel + Android 14
-  ramdisk + vendor DTB + RSCE logo) and `recovery.img` (43,339,776 B in 100,663,296 B) now build too,
-  and `super.img` is staged for the unit's real 3,263,168,512 B partition. Packaging (`los-pack`:
-  boot/recovery/super/dist/otapackage) reruns until the OTA zip lands; what the lunch attempts, the
-  missing boot image and the zip-symlink failure exposed is written up in `docs/build-host.md`.
+  device tree in `device/rk3399-px6-hct4/` deployed as `device/rockchip/rk3399`. Per **D15** the vendor
+  is now *built from staged blobs* instead of being prebuilt: `scripts/prebuilt_vendor.sh` mirrors the
+  stock Android 11 vendor partition into `vendor/hct4/tree/vendor` and `tools/gen_vendor_staging.py`
+  turns it into `vendor_staging.mk` (1228 copy entries + the VINTF manifest/matrix) and
+  `vendor_props.mk` (100 stock properties); the kernel comes from `prebuilt/kernel_a11`. `m -j4`
+  finished with rc=0 in 45 min (`los-build11`): `super.img` 2.01 GB, `system.img` 922 MB,
+  `product.img` 456 MB, `system_ext.img` 385 MB, `odm.img` 811 KB. `boot.img` (32,796,672 B in a
+  33,554,432 B partition: vendor kernel + Android 14 ramdisk + vendor DTB + RSCE logo) and
+  `recovery.img` (44,689,408 B in 100,663,296 B, with `update_engine_sideload` in it) build too, and
+  `super.img` is staged for the unit's real 3,263,168,512 B partition. Packaging (`los-pack`: patches
+  -> vendor staging -> deploy -> bootimage/recoveryimage/dist/superimage/otapackage) reruns until the
+  OTA zip lands; what the lunch attempts, the missing boot image, the zip-symlink failure and the four
+  OTA failures exposed is written up in `docs/build-host.md`.
 - M2b (repartition): deferred by **D11** - the first flash writes `super`/`boot`/`recovery` into the
   current table, no GPT rewrite. The real LBAs are captured (`analysis/hu_partition_offsets.txt`) and
   `scripts/repartition_gpt.sh` validated against them (super 8,589,410,304 / userdata 53,517,204,992).

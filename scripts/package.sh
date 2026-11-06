@@ -62,11 +62,24 @@ run() {
 run bootimage   || { echo "PACKAGING STOPPED on bootimage" >> "$LOG"; exit 1; }
 run recoveryimage || { echo "PACKAGING STOPPED on recoveryimage" >> "$LOG"; exit 1; }
 
-# dist builds the target_files package (including IMAGES/) and tries the OTA package. Its OTA step
-# currently fails because a prebuilt vendor image produces no VENDOR/ staging directory.
+# dist builds the target_files package (including IMAGES/) and tries the OTA package. With vendor
+# staged from blobs (D15) the dist pass should now produce a VENDOR/ directory; if it does not, the
+# OTA step will assert on the missing BlockDifference, so check it here rather than deep in ninja.
 if ! run dist; then
   echo "dist failed - continuing; IMAGES/ is usually complete by the time the OTA step runs" >> "$LOG"
 fi
+STAGE=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/lineage_rk3399-target_files
+{
+  echo "--- vendor staging check ---"
+  grep -n "building_vendor_image\|building_odm_image\|building_system_ext_image" \
+    "$TREE/out/target/product/rk3399/misc_info.txt" 2>/dev/null
+  if [ -d "$STAGE/VENDOR" ]; then
+    echo "  VENDOR/ staged: $(find "$STAGE/VENDOR" -type f | wc -l) files, $(du -sh "$STAGE/VENDOR" | cut -f1)"
+    echo "  vendor.map: $([ -f "$STAGE/IMAGES/vendor.map" ] && stat -c %s "$STAGE/IMAGES/vendor.map" || echo "missing")"
+  else
+    echo "  ! no VENDOR/ directory in the target_files staging tree - otapackage will assert"
+  fi
+} >> "$LOG" 2>&1
 
 # Stage super from the IMAGES that dist just wrote, then check they really are fresh.
 if ! run superimage; then echo "PACKAGING STOPPED on superimage" >> "$LOG"; exit 1; fi
