@@ -32,10 +32,16 @@ For every collision it also names the module that installs the path, which decid
                hw_output.default.so, rockchip.hardware.outputmanager@1.0-impl.so), so none collide
                and none of this happens.
 
-Sources of install targets:
-  out/soong/installs-<product>.mk   every Soong module's install rule (target at line start)
-  out/target/product/<device>/      what a previous build already staged (legacy Make modules
-                                    install there too, and this catches paths Soong lacks)
+Source of install targets:
+  out/soong/installs-<product>.mk   the install rules Soong defines for this product's modules
+
+The previous build's staging directory is deliberately *not* an oracle: it holds the blobs that an
+earlier pass copied, so every staged path would look "installed by the build" and attribution is
+impossible. Legacy Make modules install paths too, but nothing enumerates them statically; ckati
+reports them one at a time and scripts/package.sh records each in vendor_dest_skip_extra.txt.
+
+Note that Soong's file lists rules for modules this product never pulls in - a rule is not proof the
+file lands in the image. tools/vendor_dropped_check.py is the post-build check for that.
 
 Exit status is 1 when there are collisions; the caller decides what to do with them.
 """
@@ -45,6 +51,8 @@ import re
 import sys
 
 DEST_PREFIX = "$(TARGET_COPY_OUT_VENDOR)/"
+# Soong variant names: android_arm64_armv8-a, android_vendor_arm_armv8-a_shared_cfi, ...
+VARIANT = re.compile(r"^android(_|-)[a-z0-9_-]*$")
 # Where to look for "who puts this module in PRODUCT_PACKAGES".
 PRODUCT_MK_DIRS = ("device/rockchip/rk3399", "vendor/lineage/config", "vendor/lineage/build",
                    "build/make/core", "vendor/lineage/overlay")
@@ -93,25 +101,22 @@ def install_targets(tree):
                         mod, src = "?", "?"
                         first = deps.split()[0] if deps else ""
                         if first.startswith("out/soong/.intermediates/"):
-                            # <module dir>/<module name>/<variant>/<file> - the variant and the
-                            # installed file are last, so the module name is three from the end.
+                            # <module dir>/<module name>/<variant>/<hash?>/<file>. The variant is the
+                            # segment matching `android_*`, so the module name is the segment before
+                            # it and the module dir is everything before that. Counting from the end
+                            # is wrong: shared libraries carry an extra hash directory, and binaries
+                            # name their output file like the module.
                             parts = first[len("out/soong/.intermediates/"):].split("/")
-                            if len(parts) >= 3:
-                                src, mod = "/".join(parts[:-3]), parts[-3]
+                            for i, seg in enumerate(parts):
+                                if VARIANT.match(seg) and i >= 1:
+                                    src, mod = "/".join(parts[:i - 1]), parts[i - 1]
+                                    break
+                            else:
+                                if len(parts) >= 3:
+                                    src, mod = "/".join(parts[:-3]), parts[-3]
                         targets[dest] = (mod, src, os.path.relpath(path, tree))
             except OSError:
                 continue
-    # A previous build's staging directory: legacy Make modules install files there too.
-    prod = os.path.join(out, "target", "product")
-    if os.path.isdir(prod):
-        for device in os.listdir(prod):
-            vdir = os.path.join(prod, device, "vendor")
-            if not os.path.isdir(vdir):
-                continue
-            for dirpath, _dirnames, filenames in os.walk(vdir):
-                for name in filenames:
-                    rel = os.path.relpath(os.path.join(dirpath, name), prod)
-                    targets.setdefault("out/target/product/" + rel, ("?", "?", "previous build staging"))
     return targets
 
 
