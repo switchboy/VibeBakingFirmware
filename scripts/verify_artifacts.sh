@@ -48,6 +48,15 @@ say "=== built vendor.img vs the stock Android 11 partition ==="
 python3 "$REPO/tools/vendor_diff.py" "$TREE/vendor/hct4/prebuilt/vendor_a11.img" "$PROD/vendor.img" \
   "$REPO/device/rk3399-px6-hct4" 2>&1 | tail -14
 
+say "=== every dropped vendor destination really replaced (tools/vendor_dropped_check.py) ==="
+python3 "$REPO/tools/vendor_dropped_check.py" "$TREE" "$TREE/device/rockchip/rk3399" "$PROD/vendor.img" 2>&1 | tail -18
+[ "${PIPESTATUS[0]}" = 0 ] || bad "dropped vendor destinations are missing from vendor.img (see PRODUCT_PACKAGES in device.mk)"
+
+say "=== kept vendor blobs resolve their DT_NEEDED in the built image ==="
+python3 "$REPO/tools/blob_deps.py" "$TREE/vendor/hct4/tree/vendor" \
+  "$TREE/device/rockchip/rk3399/vendor_build_wins.txt" "$PROD/installed-files-vendor.txt" 2>&1 | tail -14
+[ "${PIPESTATUS[0]}" = 0 ] || bad "a staged vendor blob needs a library that /vendor does not provide"
+
 say "=== super layout ==="
 TREE="$TREE" WORK="$WORK" python3 "$REPO/scripts/check_super.py" 2>&1 | tail -14
 

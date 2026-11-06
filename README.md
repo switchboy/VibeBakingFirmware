@@ -59,6 +59,10 @@ VibeBakingFirmware/
 │   ├── namecheck.py     lists vendor file names Make cannot stage (# : = whitespace wildcards)
 │   ├── vendor_conflicts.py  copy list vs out/soong/installs-*.mk: which destinations the build
 │   │                        installs itself (drop the blob) and which need a module removed
+│   ├── vendor_dropped_check.py  post-build: every dropped destination must be present, same-kind
+│   │                        substituted, or declared in vendor_dest_deviations.txt
+│   ├── vendor_module_names.py   names the module behind each missing destination, for PRODUCT_PACKAGES
+│   ├── blob_deps.py       kept blobs' DT_NEEDED resolved against the built image inventory
 │   ├── extract_vendor.py  debugfs-based extraction of a vendor partition into a tree
 │   └── vendor_diff.py   built vendor.img vs the stock reference, differences classified
 ├── analysis/            generated artefacts (gitignored: images, dumps, listings)

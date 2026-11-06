@@ -75,6 +75,8 @@ legacy blobs are preferred over reimplementing them.
 | D6 | Head-unit apps | **decided** | keep HCT4 apps for v1 | feature parity first, replace incrementally |
 | D7 | Update/flash delivery | **decided** | keep Update.zip on USB/SD | unchanged owner workflow, payload signed by us |
 | D8 | Partition layout change | **decided** | B: shrink userdata, grow super (8 GiB super / 49.84 GiB userdata) | owner wants the OS breathing room; p1-p13 byte offsets unchanged so bootloader/recovery stay valid |
+| D16 | Dropped vendor destinations | **decided** | restore Android 14's own HAL modules via PRODUCT_PACKAGES; declare rild + vendor_flash_recovery.rc as the only gaps | Soong defines rules for HIDL services the product never pulls in, so dropping the blob deleted real features; blobs cannot be re-added without a Make collision |
+
 
 Detailed milestone breakdown: `docs/plan.md`.
 

@@ -234,3 +234,37 @@ in the super group has a `BlockDifference`. The owner chose "fix vendor staging 
 - `tools/vendor_diff.py` now checks the *built* image against the stock reference by classifying the
   differences into dropped / materialised / replaced / added, plus the build-installed paths (which
   must still be present in the image). Anything outside those categories fails the check.
+
+## D16 - the dropped HAL services come back as Android 14 modules, not as blobs
+
+pack20 built a vendor partition that carried every stock blob **except** the 107 destinations the
+drop list removed without anything installing them: no audio/bluetooth/camera-provider/GNSS/sensors/
+composer/health/memtrack/CAS/OMX service, no `vndservicemanager`, no `vndservice`, no `libhwbinder`.
+The reason is a subtlety in how `PRODUCT_COPY_FILES` conflicts are discovered:
+
+- `out/soong/installs-<product>.mk` contains install **rules** for modules Soong *defines*, not for
+  modules this product *pulls in*. Android 14 defines the HIDL default HAL services (audio@6.0,
+  bluetooth@1.0, camera.provider@2.4, gnss@1.0, sensors@1.0, composer@2.1, health@2.1, memtrack@1.0,
+  cas@1.2, media.omx@1.0) but LineageOS's product config asks for the AIDL ones, so the rule exists
+  and nothing installs. `tools/vendor_conflicts.py` saw the rule and dropped the staged blob, which
+  deleted a head-unit feature that Android 14 never restores by itself.
+- The fix is not to copy the stock binaries back (Make would collide again). It is to ask for
+  Android 14's own modules: `device/rk3399-px6-hct4/device.mk` lists the 62 modules
+  `tools/vendor_module_names.py` attributes the missing paths to, read straight out of
+  `out/soong/installs-lineage_rk3399.mk` so every name really exists. The service modules install
+  their own `/vendor/etc/init/<service>.rc`, so the `.rc` paths need no entries.
+- Two gaps stay open and are **declared**, not silently dropped, in
+  `device/rk3399-px6-hct4/vendor_dest_deviations.txt`: the RIL daemon and its libraries (this unit has
+  no cellular modem; calls come over Bluetooth), and `etc/init/vendor_flash_recovery.rc` (it re-flashes
+  recovery from `/vendor/recovery-from-boot.p`, which is not staged). The OMX service *is* restored:
+  the stock manifest declares `android.hardware.media.omx@1.0`, the staged blob carries the Rockchip
+  VPU plugin, and Android 14 still builds the service plus its soft-OMX/helper libraries.
+- `tools/vendor_dropped_check.py` is the post-build proof: a dropped destination must be in the image,
+  be replaced by a **same-kind** peer (`bin/hw` only by `bin/hw`, `lib64` only by `lib64`), or be a
+  declared deviation. The first version matched loosely and accepted `etc/permissions/*.xml` as a
+  replacement for a HAL service, and `lib/libwifi-hal.so` as a replacement for `lib64/libwifi-hal.so`.
+- `tools/vendor_conflicts.py` also used the *previous build's staging directory* as an install oracle.
+  That directory holds the blobs an earlier pass copied, so every staged path looked module-installed
+  and attribution said `module=?`; `scripts/deploy_device.sh` then refused a deploy for paths nothing
+  installs (`bin/rz`, `bin/sz`, `bin/rkhelper`, ...). Removed - ckati remains the authority for legacy
+  Make installs, and `vendor_dest_skip_extra.txt` carries its answers forward.
