@@ -66,6 +66,8 @@ VibeBakingFirmware/
 │   │                  <name>.vendor module (=> vendor_modules_extra.mk), inject, or unresolved
 │   ├── vendor_abi_check.py  the symbols half: every undefined symbol of a kept blob must be
 │   │                  defined by something the vendor namespace can load
+│   ├── extract_reference_libs.py  pulls the libraries Android 14 does not build at all out of a
+│   │                  reference firmware image into prebuilt_vendor_libs/<arch>/
 │   ├── blob_deps.py       kept blobs' DT_NEEDED resolved against the built image inventory
 │   ├── extract_vendor.py  debugfs-based extraction of a vendor partition into a tree
 │   └── vendor_diff.py   built vendor.img vs the stock reference, differences classified

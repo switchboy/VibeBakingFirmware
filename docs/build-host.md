@@ -446,6 +446,14 @@ matched. `scripts/package.sh` now runs dist first, then superimage, and warns if
   would catch Android 14 rewriting a library's ABI under an Android 11 blob - the failure is a boot-time
   `dlopen failed: cannot locate symbol ...`, invisible to every partition check. Both are gated in
   `scripts/verify_artifacts.sh`.
+- `tools/extract_reference_libs.py <device-dir> <image>... <libs>` is for the one answer the closure
+  cannot serve from Android 14's tree: a soname no module builds (`librilutils.so`, `librkisp.so`,
+  `libteec.so` - Rockchip's own libraries). It dumps them out of a reference firmware partition into
+  `<device-dir>/prebuilt_vendor_libs/<lib|lib64>/`, which the closure lists in `vendor_dest_keep.txt`.
+  A file is kept only if it is an ELF whose SONAME is empty or equal to the file name; Rockchip's
+  vendor libraries mostly have no `DT_SONAME`, and then the loader uses the file name - which is the
+  path being copied to. Sparse images are converted with the build tree's `simg2img` first, because
+  debugfs cannot read Android sparse at all.
 - LineageOS **Updater** is in the image: `system_ext/priv-app/Updater/Updater.apk` plus its
   `init.lineage-updater.rc`, privapp whitelist and default-permissions files.
 - The recovery ramdisk carries our fstab as `system/etc/recovery.fstab` (556 entries, gzip cpio),
