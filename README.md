@@ -82,14 +82,10 @@ VibeBakingFirmware/
 │   │                  install collisions, prune unused dist packages
 │   ├── verify_artifacts.sh checks a finished pass offline (VENDOR/ + vendor.map, vendor_diff,
 │   │                  super layout, VINTF compat, boot header, recovery installer, OTA zip)
-│   ├── stage_flash.sh  stages super/boot/recovery (+ sha256) for the first flash, sparse->raw,
-│   │                  refuses images from different packaging passes
 │   ├── build_hu_package.sh  builds the update.zip the unit's stock recovery installs: stock
 │   │                  update-binary reused, op list from misc_info.txt, no bootloader writes
 │   ├── gen_hu_payload.py    (used by it) transfer lists + brotli payload + op list
 │   ├── inject_vendor_blobs.sh  puts the libs Android 14 builds for /system into /vendor
-│   ├── fastboot_flash.sh  last resort only (D18): guarded fastboot flash + rollback scripts
-│   ├── build_rollback_super.sh rebuilds a flashable Android 10 super from the stock package
 │   ├── check_super.py  verifies the staged super offline (lpdump layout + dumpe2fs per partition)
 │   └── upload_server.py / upload_client.sh  LAN endpoint the unit reports to
 ```

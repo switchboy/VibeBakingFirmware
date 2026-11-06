@@ -297,6 +297,11 @@ That settles two things:
   `recovery.img` is built and verified but stays unflashed until Android 14 boots and the board's
   recovery handling is proven.
 
-D17 (fastboot as the first-flash transport) is **superseded**: fastboot stays in the repo as a last
-resort only, because it bypasses the stock recovery's loader step and cannot reach that firmware path.
-Rollback is the stock Android 10 `update.zip` installed the same way - not a fastboot write.
+D17 (fastboot as the first-flash transport) is **superseded** and its scripts were removed: fastboot
+writes `recovery`/`boot` while bypassing the stock recovery's loader step, which may be the sole route
+to the mainboard MCU firmware, so it is a fresh decision rather than a fallback.
+
+Owner also dropped the rollback tooling on Nov 6 (*"Forget about rollback i'll just flash an official
+update.zip if rollback is needed dont waste time on it"*): no Android 10 super rebuild, no partition
+dumps, no restore scripts. Keeping the stock `update.zip` is the rollback - it recreates the stock
+layout and runs its own loader step.

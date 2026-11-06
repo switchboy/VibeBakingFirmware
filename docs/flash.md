@@ -48,15 +48,11 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
 2. Build the package and check it: `scripts/build_hu_package.sh ../lineage21s "extracted update.zip"
    ../tmp/hu-package/update.zip`, then `unzip -l` and the sha256 it prints. Record the sha256.
 3. Format the stick FAT32 and put `update.zip` in its **root**.
-4. Take the backups anyway (they cost minutes and are the belt-and-braces path, the stock zip is the
-   real rollback):
-   ```
-   adb root
-   adb shell 'for p in 7 8 14; do dd if=/dev/block/mmcblk2p$p of=/tmp/p$p.bin bs=1M; done'
-   adb pull /tmp/
-   adb shell 'sha256sum /tmp/p*.bin'    # compare with the workstation copy
-   ```
-   Keep the stock Android 10 `update.zip` file itself. It is the rollback.
+4. Keep the stock Android 10 `update.zip` file (the one in `incoming/`, or whatever the vendor ships).
+   That is the whole rollback story: owner's decision on Nov 6 - if Android 14 turns out wrong, flash
+   the official update.zip the same way. No partition dumps, no rebuilt Android 10 super, no rollback
+   scripts - keeping the zip is enough because the stock package recreates the stock layout and runs its
+   own loader step.
 
 ## Installing
 
@@ -89,24 +85,17 @@ brick.
 
 ## Rollback
 
-Install the **stock Android 10 `update.zip`** the same way (root of the stick, stock recovery). It
-recreates the stock logical partitions (`rockchip_dynamic_partitions`, no `system_ext`), writes the
-stock boot/trust/uboot/dtbo and re-runs its loader step - the unit goes back to Android 10, at factory
-settings.
+Owner's decision (Nov 6): no rollback tooling. Flash the **stock Android 10 `update.zip`** the same
+way - root of the stick, stock recovery - and it recreates the stock logical partitions
+(`rockchip_dynamic_partitions`, no `system_ext`), writes the stock boot/trust/uboot/dtbo and re-runs its
+own loader step. The unit returns to Android 10 at factory settings. Nothing in this repo rebuilds an
+Android 10 super or dumps partitions; `tools/reassemble.py` stays only because it is how the stock
+payload was decoded in `docs/firmware-analysis.md`.
 
-If only `boot` or `super` is wrong, restore those two from the dumps taken above, from a root shell in
-the running OS:
-```
-dd if=/tmp/p7.bin  of=/dev/block/mmcblk2p7  bs=1M conv=notrunc   # boot
-dd if=/tmp/p14.bin of=/dev/block/mmcblk2p14 bs=1M conv=notrunc   # super
-```
-`scripts/build_rollback_super.sh "extracted update.zip" <outdir>` rebuilds `super_stock.img` from the
-stock payload if the unit's own dump is not usable.
+## Fastboot is not used
 
-## Fastboot is a fallback we do not plan to use
-
-`scripts/fastboot_flash.sh` / `scripts/fastboot_rollback.sh` exist (owner confirmed there is no
-Rockchip loader/Boot-ADB entry, only fastboot and the stock recovery), but they are the last resort:
-fastboot writes `recovery` and `boot` without the stock recovery's loader step, and it cannot show the
-mainboard MCU's firmware path. They are only worth using if the update.zip route is proven impossible
-*and* the unit's boot chain has been backed up byte-for-byte.
+Owner confirmed there is no Rockchip loader/Boot-ADB entry, so fastboot in the ABL was the only other
+transport. It is not used (**D18**): it writes `recovery` and `boot` while bypassing the stock
+recovery's loader step, which may be the sole route to the mainboard MCU firmware. Its scripts were
+removed on Nov 6 - if the update.zip route ever proves impossible that is a fresh decision, not a
+fallback to reach for.

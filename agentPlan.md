@@ -107,12 +107,11 @@ Detailed milestone breakdown: `docs/plan.md`.
 2. Verify the fresh artifacts offline: `tools/vendor_diff.py` (stock Android 11 vendor vs built
    vendor, with `vendor_build_wins.txt`), `scripts/check_super.py`, `checkvintf --check-compat`,
    and `update_engine_sideload` inside the recovery ramdisk.
-3. Re-stage the flash set with `scripts/stage_flash.sh` (it converts `super.img` to raw, checks
    partition limits and refuses images from different builds) and re-check the sha256s.
-4. Owner answered **D14** (Nov 6): this board has **no loader/Boot-ADB**, only fastboot and the stock
-   recovery. `docs/flash.md` is now the fastboot procedure; before flashing, run `adb reboot
-   bootloader` + `fastboot getvar all` and check that `partition-size:super` is listed - without it
-   super cannot be written and the logical-partition fallback applies.
+4. Owner answered **D14**/**D17**/**D18** (Nov 6): the board has no loader/Boot-ADB, fastboot is not
+   used, and rollback is the stock Android 10 update.zip - flash it the same way if Android 14 turns
+   out wrong. Nothing in this repo restores partitions. Confirm the recovery entry route (the "reboot
+   recovery" app, a key combo, or the stick-prompt behaviour) against XDA before the first attempt.
 5. M2b repartition (super 8 GiB / userdata 49.84 GiB) stays deferred - the first flash writes
    `super`/`boot`/`recovery` only and leaves the GPT alone (**D11**).
 6. Closeout when the ROM ships: remove the extra packages installed on the build host

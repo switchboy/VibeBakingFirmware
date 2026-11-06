@@ -51,7 +51,7 @@ Nothing in an ordinary upgrade touches the GPT: later updates are logical partit
 
 `super` as it exists today (3,263,168,512 B, group 3,258,974,208) already holds our Android 14
 images: `system` 922.4 MB + `vendor` 292.3 MB + `product` 456.1 MB + `system_ext` 384.7 MB +
-`odm` 0.8 MB = **2,056.4 MB**, ~1.2 GB of headroom. The stock Android 10 rollback zip uses exactly
+`odm` 0.8 MB = **2,056.4 MB**, ~1.2 GB of headroom. The stock Android 10 zip (our rollback) uses exactly
 that group size, so it is the layout the unit is known to boot from.
 
 That means M2b can be done in two steps instead of one:

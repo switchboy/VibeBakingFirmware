@@ -146,7 +146,7 @@ feature parity.
 - reuse the shipped custom `update-binary` (it knows `write_raw_loader_image()` / `do_rk_firmware_upgrade()`)
   and a new `updater-script` asserting `ro.product.device == "rk3399"`;
 - sign with our own key (`signapk`), keep `RKLoader.bin`/`uboot`/`trust`/`dtbo` byte-identical unless we change them.
-- Deliverable: flashable `Update.zip` + `docs/release.md` with rollback steps.
+- Deliverable: flashable `Update.zip` + `docs/release.md`. Rollback is the stock Android 10 update.zip (owner decision Nov 6), so no restore tooling.
 
 ### M6 — kernel rebuild (security upgrade, after a working Android 14)
 - Find GPL-published kernel source for this platform (Rockchip BSP 4.19 + the out-of-tree `mtc-*`

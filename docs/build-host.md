@@ -437,15 +437,13 @@ matched. `scripts/package.sh` now runs dist first, then superimage, and warns if
 - Boot/recovery image sizes are within their partitions: boot 32,796,672 <= 33,554,432 and
   recovery 43,339,776 <= 100,663,296 (CheckSize passes).
 
-## Rollback artifact
+## The stock Android 10 layout, decoded
 
-`scripts/build_rollback_super.sh` rebuilds a flashable raw super from the stock package's logical
-images, reading `dynamic_partitions_op_list` (group `rockchip_dynamic_partitions` 3,258,974,208 B,
-partitions product/vendor/system/odm, 3,125,321,728 B of content) so the Android 10 restore is one
-`dd` rather than an improvised re-assembly. It prints the layout with `lpdump` and writes
-`sha256sums-rollback.txt`. The authoritative rollback for `boot`/`recovery` is the partition dump
-taken off the unit *before* flashing (docs/flash.md), since the installed firmware is not guaranteed
-to be byte-identical to the package we have offline.
+`tools/reassemble.py` rebuilds the stock package's logical images so their sizes are known exactly
+(group `rockchip_dynamic_partitions` 3,258,974,208 B; product/vendor/system/odm = 3,125,321,728 B of
+content; `super.img` in that package is metadata-only, 274,432 B). That is analysis only: rollback is
+the stock update.zip itself (owner's decision Nov 6), so nothing rebuilds a flashable Android 10 super
+and no partition dumps are taken.
 
 ## Real partition offsets are in the repo
 

@@ -83,8 +83,8 @@ by a custom 3 MB `update-binary` that implements Rockchip-specific edify functio
 (`write_raw_loader_image()`, `do_rk_firmware_upgrade()`) and writes `uboot/trust/dtbo/boot` plus the
 dynamic partitions. Alternatives considered and rejected for v1 (**D18**): fastboot in the ABL (this
 board has no USB loader/Boot-ADB, and it bypasses the recovery's loader step), or a custom
-recovery/TWRP - nobody can prove it boots or reads touch input on this board. Whatever we choose, a **rollback path** (keep the current zip + a
-full partition dump) is mandatory.
+recovery/TWRP - nobody can prove it boots or reads touch input on this board. The rollback path is keeping the current zip and flashing it again
+(owner decision Nov 6 - no partition dumps, no restore tooling).
 
 ## Candidate strategies (cost/risk)
 
