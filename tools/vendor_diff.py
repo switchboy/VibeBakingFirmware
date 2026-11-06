@@ -168,16 +168,36 @@ def main():
     dump_file(stock, "/etc/vintf/manifest.xml", os.path.join(tmp, "stock.xml"))
     ours_txt = open(os.path.join(tmp, "ours.xml")).read()
     stock_txt = open(os.path.join(tmp, "stock.xml")).read()
+    # The declared set is manifest.xml *plus* the fragments in /vendor/etc/vintf/manifest/, which
+    # assemble_vintf merges into the manifest at build time and vintf on device merges too. A HAL
+    # can legitimately live in a fragment (Android 14's service modules do that: health@2.1,
+    # cas@1.2), but manifest.xml and a fragment must not declare the same FqInstance - that is the
+    # conflict that fails `m dist`.
+    frag_txt = ""
+    frag_paths = [p for p in b if p.startswith("etc/vintf/manifest/") and p.endswith(".xml")]
+    for p in frag_paths:
+        try:
+            dump_file(ours, "/" + p, os.path.join(tmp, "frag_" + os.path.basename(p)))
+            frag_txt += open(os.path.join(tmp, "frag_" + os.path.basename(p))).read()
+        except RuntimeError:
+            pass
+    frag_hal = hal_entries(frag_txt)
     stock_hal, ours_hal = hal_entries(stock_txt), hal_entries(ours_txt)
-    lost = sorted(stock_hal - ours_hal)
-    print("   manifest HAL entries: stock=%d ours=%d (extra in ours=%d)" %
-          (len(stock_hal), len(ours_hal), len(ours_hal - stock_hal)))
+    declared = ours_hal | frag_hal
+    lost = sorted(stock_hal - declared)
+    conflict = sorted(ours_hal & frag_hal)
+    print("   manifest HAL entries: stock=%d manifest=%d fragments=%d (%d files) declared=%d" %
+          (len(stock_hal), len(ours_hal), len(frag_hal), len(frag_paths), len(declared)))
     for h in lost[:12]:
-        print("      MISSING from our manifest: %s" % ("@".join(h)))
+        print("      MISSING from our manifest+fragments: %s" % ("@".join(h)))
+    for h in conflict[:12]:
+        print("      DECLARED TWICE (manifest.xml and a fragment): %s" % ("@".join(h)))
     sep = re.search(r"<sepolicy>\s*<version>([^<]+)</version>", ours_txt)
-    manifest_ok = not lost and "<vendor-ndk>" not in ours_txt and sep and sep.group(1).strip() != "30.0"
+    manifest_ok = (not lost and not conflict and "<vendor-ndk>" not in ours_txt
+                   and sep and sep.group(1).strip() != "30.0")
     print("   manifest sepolicy version: %s (stock would say 30.0)" % (sep.group(1).strip() if sep else "none"))
-    print("   manifest keeps every stock HAL=%s, no vendor-ndk=%s" % (not lost, "<vendor-ndk>" not in ours_txt))
+    print("   manifest+fragments keep every stock HAL=%s, no duplicate FqInstance=%s, no vendor-ndk=%s" %
+          (not lost, not conflict, "<vendor-ndk>" not in ours_txt))
 
     dump_file(ours, "/etc/vintf/compatibility_matrix.xml", os.path.join(tmp, "ours-matrix.xml"))
     dump_file(stock, "/etc/vintf/compatibility_matrix.xml", os.path.join(tmp, "stock-matrix.xml"))

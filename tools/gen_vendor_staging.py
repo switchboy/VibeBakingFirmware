@@ -12,9 +12,12 @@ instead of being used as BOARD_PREBUILT_VENDORIMAGE. This script turns the extra
                                    into vendor/etc/vintf/ is a hard build error -
                                    build/make/core/Makefile:131). The manifest is a rewritten
                                    copy in vintf/vendor_manifest.xml: its Android 11 <sepolicy>
-                                   version is dropped, because assemble_vintf refuses to override
-                                   a value the file already declares with Android 14's
-                                   BOARD_SEPOLICY_VERS=202404
+                                   version is dropped (assemble_vintf refuses to override a value
+                                   the file already declares with Android 14's
+                                   BOARD_SEPOLICY_VERS=202404), and so are HAL blocks that a
+                                   build-installed manifest fragment already declares
+                                   (vintf/manifest_fragments.txt), because the fragment is merged
+                                   into the same manifest and a duplicate FqInstance is fatal
   <device-dir>/vendor_props.mk     the stock vendor build.prop properties, re-declared as
                                    PRODUCT_PROPERTY_OVERRIDES so the HALs keep reading the same
                                    ro.* values (generated build.prop only carries our own props)
@@ -90,6 +93,38 @@ def walk_files(root):
                 continue
             out.append(os.path.relpath(path, root))
     return sorted(out)
+
+
+def fragment_declarations(path):
+    """`<hal-name>@<version>::<fqname>` lines that Android 14's modules install as manifest
+    fragments; see vintf/manifest_fragments.txt. assemble_vintf merges that directory into
+    /vendor/etc/vintf/manifest.xml and fails on a duplicate FqInstance."""
+    if not os.path.isfile(path):
+        return set()
+    return {line.split("#", 1)[0].strip() for line in open(path, errors="replace")
+            if line.strip() and not line.strip().startswith("#")}
+
+
+def strip_fragment_hals(text, decls):
+    """Remove <hal> blocks whose declaration a manifest fragment already carries."""
+    removed = []
+
+    def repl(m):
+        block = m.group(0)
+        name = re.search(r"<name>(.*?)</name>", block, flags=re.S)
+        ver = re.search(r"<version>(.*?)</version>", block, flags=re.S)
+        fq = re.search(r"<fqname>(.*?)</fqname>", block, flags=re.S)
+        if not (name and fq):
+            return block
+        decl = "%s@%s::%s" % (name.group(1).strip(),
+                              ver.group(1).strip() if ver else "",
+                              fq.group(1).strip())
+        if decl in decls:
+            removed.append(decl)
+            return ""
+        return block
+
+    return re.sub(r"\s*<hal\b[^>]*>.*?</hal>", repl, text, flags=re.S), removed
 
 
 def main():
@@ -199,6 +234,15 @@ def main():
     if os.path.exists(manifest_src):
         text = open(manifest_src, encoding="utf-8", errors="replace").read()
         text = re.sub(r"\n?\s*<sepolicy>.*?</sepolicy>\n?", "\n", text, flags=re.S)
+        # Duplicate HAL declarations are fatal: Android 14's service modules install their own
+        # fragment in /vendor/etc/vintf/manifest/, and assemble_vintf merges that directory into the
+        # manifest, so a stock entry for the same interface aborts `m dist` with "Conflicting
+        # FqInstance". The fragment carries the declaration instead - same merged result on device.
+        frag_file = os.path.join(args.device_dir, "vintf", "manifest_fragments.txt")
+        text, removed = strip_fragment_hals(text, fragment_declarations(frag_file))
+        if removed:
+            print("dropped %d HAL block(s) already declared by a build-installed fragment: %s"
+                  % (len(removed), ", ".join(sorted(removed))))
         os.makedirs(os.path.join(args.device_dir, "vintf"), exist_ok=True)
         vpath = os.path.join(args.device_dir, "vintf", "vendor_manifest.xml")
         with open(vpath, "w") as f:

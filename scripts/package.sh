@@ -107,12 +107,15 @@ m_retry() {
 # them - they are regenerated on demand. Called right after the dist attempt as well as at the end:
 # a failing dist still writes those zips, and the disk has ~20 GB free while super/OTA need room.
 prune_dist() {
-  [ -d "$TREE/out/dist" ] || return 0
-  echo "--- pruning unused dist packages ---" >> "$LOG"
-  for z in "*-symbols.zip" "*-symbols-root.zip" "*-img.zip" "*-img-root.zip" \
-           "*-proguard-dict*.zip" "*-proguard-usage*.zip" \
-           art_release.zip dexpreopt_tools.zip dexpreopt_config.zip system_server.zip appcompat.zip; do
-    find "$TREE/out/dist" -maxdepth 1 -name "$z" -print -delete >> "$LOG" 2>&1
+  # LineageOS's dist flow writes these both into out/dist/ and into the product dir.
+  for d in "$TREE/out/dist" "$TREE/out/target/product/rk3399"; do
+    [ -d "$d" ] || continue
+    echo "--- pruning unused dist packages from $d ---" >> "$LOG"
+    for z in "*-symbols.zip" "*-symbols-root.zip" "*-img.zip" "*-img-root.zip" \
+             "*-proguard-dict*.zip" "*-proguard-usage*.zip" \
+             art_release.zip dexpreopt_tools.zip dexpreopt_config.zip system_server.zip appcompat.zip; do
+      find "$d" -maxdepth 1 -name "$z" -print -delete >> "$LOG" 2>&1
+    done
   done
   df -h "$A" | tail -1 >> "$LOG"
 }

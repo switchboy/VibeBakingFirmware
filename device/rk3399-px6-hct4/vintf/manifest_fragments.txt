@@ -1,0 +1,13 @@
+# HAL declarations that Android 14's own vendor modules install as manifest *fragments* under
+# /vendor/etc/vintf/manifest/<module>.xml. assemble_vintf merges that directory into
+# /vendor/etc/vintf/manifest.xml and refuses a duplicate: "Conflicting FqInstance:
+# @2.1::IHealth/default (from /vendor/etc/vintf/manifest.xml) vs. ... (from
+# /vendor/etc/vintf/manifest/android.hardware.health@2.1.xml)", which fails `m dist`
+# (check_vintf_compatible.log) and then `m otapackage`.
+# So tools/gen_vendor_staging.py drops these blocks from the derived vendor manifest; the fragment
+# carries the same declaration, and the merged manifest on the device is unchanged.
+# Format: <hal-name>@<version>::<fqname>, one per line. '#' is a comment.
+# Verified against the fragments a real build installs:
+#   out/target/product/rk3399/vendor/etc/vintf/manifest/  (pack21)
+android.hardware.health@2.1::IHealth/default
+android.hardware.cas@1.2::IMediaCasService/default
