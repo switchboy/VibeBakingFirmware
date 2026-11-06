@@ -66,13 +66,14 @@ run() {
 # append the revealed destination to vendor_build_wins.txt, regenerate the copy list, deploy, retry.
 DEVMK=$REPO/device/rk3399-px6-hct4
 regen_staging() {
+  # cwd is $TREE here (m runs from the build tree), so use absolute paths for the repo scripts.
   python3 "$REPO/tools/gen_vendor_staging.py" "$TREE/vendor/hct4/tree/vendor" "$DEVMK" \
     --src-prefix vendor/hct4/tree/vendor \
     --build-prop "$TREE/vendor/hct4/prebuilt/vendor_build.prop.a11" \
     --compat-matrix "$TREE/vendor/hct4/prebuilt/vendor_compat_matrix.a11.xml" \
     --skip-file "$DEVMK/vendor_props_skip.txt" \
     --dest-skip "$DEVMK/vendor_build_wins.txt" >> "$LOG" 2>&1 || return 1
-  ./scripts/deploy_device.sh ../lineage21s >> "$LOG" 2>&1 || return 1
+  "$REPO/scripts/deploy_device.sh" "$TREE" >> "$LOG" 2>&1 || return 1
 }
 
 m_retry() {

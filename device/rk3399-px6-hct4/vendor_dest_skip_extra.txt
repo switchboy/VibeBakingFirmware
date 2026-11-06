@@ -9,3 +9,8 @@
 # A legacy Make module installs this (ckati: "previously defined at build/make/core/base_rules.mk:
 # 497"). Android 14 builds its own rild; the HU's RIL HAL implementation stays the vendor blob.
 bin/hw/rild
+
+# Same: the fs_config metadata. The stock vendor ships two empty files here; Android 14 generates
+# real ones from the vendor file-contexts table, so the blobs must not be copied.
+etc/fs_config_dirs
+etc/fs_config_files
