@@ -151,7 +151,7 @@ Owner wants SD-card installs ("cleanest route"). Consequences:
   route needs no extra app and no TWRP.
 - Recovery itself has to exist first: we flash our own `boot`+`recovery` images (built with
   `BOARD_USES_RECOVERY_AS_BOOT := false`, the HU keeps its recovery partition p8). That first flash
-  needs Rockchip's flash path (`rkflash` from the NAS in Loader/Boot-ADB mode) - not the SD card.
+  needs fastboot in the ABL (`adb reboot bootloader`) - this board has no loader/Boot-ADB mode - not the SD card.
 - After that, every upgrade is: copy zip to the stick -> updater app -> reboot to recovery ->
   update_engine applies the logical partitions. The GPT itself is never touched by an upgrade.
 

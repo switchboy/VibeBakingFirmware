@@ -47,7 +47,7 @@ VibeBakingFirmware/
 │   ├── head-unit-findings.md  live-unit data + Daisaita A10/A11 comparison
 │   ├── build-host.md          the NAS build box, space plan, sync/build units
 │   ├── repartition.md         new GPT (super 8 GiB / userdata 49.84 GiB) + dd sequence
-│   ├── flash.md               Rockchip Loader/Boot-ADB first flash + backup path
+│   ├── flash.md               fastboot first flash (no loader on this board) + backup path
 │   ├── ota.md                 packaging the install zip and how it reaches recovery
 │   └── termux.md              how the probe runs on the unit and uploads over LAN
 ├── tools/               analysis + packaging tooling (Python, no root needed)

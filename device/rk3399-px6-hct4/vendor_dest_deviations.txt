@@ -1,5 +1,5 @@
 # Vendor destinations deliberately NOT restored - neither the staged blob nor an Android 14 module.
-# Every entry is a gap in feature parity that the owner must accept; tools/vendor_dropped_check.py
+# Accepted by the owner on Nov 6 (v1). tools/vendor_dropped_check.py
 # reports them but never fails on them, so the verification gate stays meaningful for everything else.
 # Paths are partition-relative (`bin/hw/rild` for /vendor/bin/hw/rild). Comments give the reason.
 

@@ -106,7 +106,7 @@ Order of operations (each step has a rollback):
 Delivery of the install package (D10): the zip goes on the SD/USB stick and an updater app hands it
 to recovery via `RecoverySystem.installPackage()`; AOSP/LOS recovery has no SD-card menu, so this is
 the SD-card route that actually works. ADB sideload from the NAS is the fallback. The very first
-`boot`/`recovery`/`super` flash uses Rockchip's Loader/Boot-ADB path.
+`boot`/`recovery`/`super` flash uses fastboot (`adb reboot bootloader`); this board has no loader/Boot-ADB entry.
 
 Rollback target is "bootable again", not "data preserved": restore the saved GPT bytes + p1-p13 +
 the old logical images (system/product/vendor/odm) and the old super metadata, or flash the Daisaita
@@ -211,7 +211,7 @@ Two caveats before baking GApps in:
 1. M1 facts: **done** - the probe ran on the unit (`incoming/probe-20261105-1914.md`), and its
    partition offsets are in `analysis/hu_partition_offsets.txt`.
 2. M2 build: **done on the NAS** - images, boot/recovery images and (in progress) the OTA zip.
-3. M3 first flash through Rockchip Loader/Boot-ADB (`docs/flash.md`): backup head/tail + p1-p13, then
+3. M3 first flash through fastboot in the Android 10 ABL (`docs/flash.md`): backup head/tail + p1-p15 over adb root, then
    `super`/`boot`/`recovery` only - the GPT stays as it is (D11 option A).
 4. M2b repartition **after** Android 14 boots and the Android 10 rollback is proven (`analysis/gpt/`
    is already built and validated against the real LBAs).

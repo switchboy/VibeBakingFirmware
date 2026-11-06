@@ -116,9 +116,16 @@ def strip_fragment_hals(text, decls):
         fq = re.search(r"<fqname>(.*?)</fqname>", block, flags=re.S)
         if not (name and fq):
             return block
-        decl = "%s@%s::%s" % (name.group(1).strip(),
-                              ver.group(1).strip() if ver else "",
-                              fq.group(1).strip())
+        # A manifest's <fqname> is already version-prefixed: "@2.1::IHealth/default". The canonical
+        # declaration is `<name>@<version>::<interface>`, so the version comes out of the fqname and
+        # only the interface part is kept - otherwise the key says health@2.1::@2.1::IHealth/default
+        # and never matches vintf/manifest_fragments.txt.
+        fq_txt = fq.group(1).strip()
+        iface, vfromfq = fq_txt, ""
+        if fq_txt.startswith("@") and "::" in fq_txt:
+            vfromfq, iface = fq_txt[1:].split("::", 1)
+        version = (ver.group(1).strip() if ver else "") or vfromfq
+        decl = "%s@%s::%s" % (name.group(1).strip(), version, iface)
         if decl in decls:
             removed.append(decl)
             return ""

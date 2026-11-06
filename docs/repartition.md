@@ -34,7 +34,7 @@ entry CRCs are computed by a real GPT implementation; it then extracts:
 Both blobs live entirely in the GPT areas, so writing them cannot touch any partition payload.
 The script prints the new table and refuses if super/userdata would overlap.
 
-## Applying it (needs a root shell: Rockchip Boot-ADB, or rkflash)
+## Applying it (needs a root shell or fastboot: adb root in the stock OS, or fastboot in the ABL)
 
 1. Backup first: save the current head/tail bytes and p1-p13 (`dd` of the first 8 MiB, the last
    16,896 B, and each of p1-p13). This is the restore path; losing accounts/apps is fine (D10).

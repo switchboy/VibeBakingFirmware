@@ -76,6 +76,8 @@ legacy blobs are preferred over reimplementing them.
 | D7 | Update/flash delivery | **decided** | keep Update.zip on USB/SD | unchanged owner workflow, payload signed by us |
 | D8 | Partition layout change | **decided** | B: shrink userdata, grow super (8 GiB super / 49.84 GiB userdata) | owner wants the OS breathing room; p1-p13 byte offsets unchanged so bootloader/recovery stay valid |
 | D16 | Dropped vendor destinations | **decided** | restore Android 14's own HAL modules via PRODUCT_PACKAGES; declare rild + vendor_flash_recovery.rc as the only gaps | Soong defines rules for HIDL services the product never pulls in, so dropping the blob deleted real features; blobs cannot be re-added without a Make collision |
+| D17 | First-flash transport | **decided** | fastboot in the Android 10 ABL (`adb reboot bootloader`) | owner: this board has no Rockchip loader/Boot-ADB entry; fastboot is the only first-write path, so the adb-root backup in docs/flash.md is mandatory |
+
 
 
 Detailed milestone breakdown: `docs/plan.md`.
@@ -106,8 +108,10 @@ Detailed milestone breakdown: `docs/plan.md`.
    and `update_engine_sideload` inside the recovery ramdisk.
 3. Re-stage the flash set with `scripts/stage_flash.sh` (it converts `super.img` to raw, checks
    partition limits and refuses images from different builds) and re-check the sha256s.
-4. Owner input before any flash (**D14**: hold): is there a Boot-ADB/loader entry on this unit,
-   which button is `RESET`, and is there a maskrom pad? See `docs/flash.md`.
+4. Owner answered **D14** (Nov 6): this board has **no loader/Boot-ADB**, only fastboot and the stock
+   recovery. `docs/flash.md` is now the fastboot procedure; before flashing, run `adb reboot
+   bootloader` + `fastboot getvar all` and check that `partition-size:super` is listed - without it
+   super cannot be written and the logical-partition fallback applies.
 5. M2b repartition (super 8 GiB / userdata 49.84 GiB) stays deferred - the first flash writes
    `super`/`boot`/`recovery` only and leaves the GPT alone (**D11**).
 6. Closeout when the ROM ships: remove the extra packages installed on the build host
