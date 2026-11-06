@@ -56,7 +56,8 @@ for f in "$DEST/prebuilt/boot_second_logo.bin" \
          "$TREE/vendor/hct4/prebuilt/kernel_a11" \
          "$TREE/vendor/hct4/prebuilt/vendor_a11.img" \
          "$TREE/vendor/hct4/tree/vendor/etc/vintf/manifest.xml" \
-         "$DEST/vendor_staging.mk" "$DEST/vendor_props.mk"; do
+         "$DEST/vendor_staging.mk" "$DEST/vendor_props.mk" \
+         "$DEST/vintf/vendor_manifest.xml" "$DEST/vintf/device_matrix.xml"; do
   [ -s "$f" ] || { echo "  ! missing or empty: $f (run scripts/prebuilt_vendor.sh first)"; exit 1; }
 done
 

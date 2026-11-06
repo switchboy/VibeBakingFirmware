@@ -5,6 +5,7 @@
 vendor_staging.mk
 vendor_props.mk
 vintf/device_matrix.xml
+vintf/vendor_manifest.xml
 vendor_build_wins.txt
 # The vendor APK blob mirrored out of the stock partition for those modules.
 prebuilt_apps/
