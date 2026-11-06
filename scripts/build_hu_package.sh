@@ -81,7 +81,12 @@ mv "$WORK/META-INF_dummy" "$WORK/META-INF/com/google/android/updater-script"
 
 cp -a "$STOCK/META-INF/com/google/android/update-binary" "$WORK/META-INF/com/google/android/update-binary"
 chmod 0755 "$WORK/META-INF/com/google/android/update-binary"
-cp -a "$STOCK/META-INF/com/google/android/updater-script" "$WORK/updater-script.stock.reference" 2>/dev/null || true
+
+# The stock script stays *next to* the payload, not inside it: the zip is what the unit reads, and a
+# stray file in it is only noise. Keeping the stock script beside the output is how a diff of the two
+# packages is read later (what we removed: uboot/trust/dtbo writes, write_raw_loader_image(), the
+# `security` wipe).
+cp -a "$STOCK/META-INF/com/google/android/updater-script" "$OUT.stock-updater-script" 2>/dev/null || true
 
 echo "=== zipping ==="
 rm -f "$OUT"
