@@ -363,13 +363,26 @@ matched. `scripts/package.sh` now runs dist first, then superimage, and warns if
   `#`-named `usb_modeswitch.d` rules), *materialised* (`lib/lib64` `libGLES_mali.so` and `libOpenCL.so`
   must equal the `egl/libGLES_mali.so` blob), *replaced* (`build.prop`, `/etc/fstab.rk30board`, the
   compatibility matrix - same HAL entries, no `<vendor-ndk>`), and *added* (`/etc/init/hu.rc`,
-  `/etc/hu_insmod.sh`, `/etc/ueventd.rc`). Anything outside those four categories fails the check.
+  `/etc/hu_insmod.sh`, `/etc/ueventd.rc`), and the ~160 destinations the build installs
+  from its own modules (`vendor_build_wins.txt`) - those may differ in size but **must
+  be present**, which is what proves the module actually installed them. Anything
+  outside those categories fails the check.
   The earlier prebuilt-image run showed 1436 stock files vs 1439 ours, 0 missing, 1 replaced and 3
   added, each overlay byte-identical to its source in `device/rk3399-px6-hct4/`. Note the stock vendor
   has **no** `/etc/ueventd.rc` (it has `/vendor/ueventd.rc`, which Android 14 reads too), and its module
   load is a *service* (`service vendor.insmod_sh /vendor/bin/init.insmod.sh`), not `insmod` lines -
   which is why we supply our own `hu_insmod.sh`. SELinux is permissive for M3
   (`WITH_PERMISSIVE_SELINUX := true`), so a root vendor service is not denied during the boot test.
+- `tools/blob_deps.py <vendor-tree> <drop-list> <installed-vendor-list>` proves the kept blobs can
+  still load. Of the 217 staged ELF files, 184 stay as blobs and 33 go to the build's own modules.
+  None of the kept ones links any library we dropped (libchrome, libdrm, libusb, libvpx, libopus and
+  libvorbisidec are dropped with no kept user), and every `DT_NEEDED` resolves:
+  `libEGL.so`, `libGLESv2.so`, `libbinder_ndk.so`, `libnativewindow.so`, `libsync.so`, `liblog.so`,
+  `libdl.so`, `libm.so` and `libselinux.so` are all in `/system/etc/llndk.libraries.txt`, so the
+  vendor namespace may load them, and `libutils.so` + `libbase.so` are installed into
+  `/vendor/lib(64)/` by the build's own modules. So `hwcomposer.rk30board.so` (needs libEGL and
+  libGLESv2), the midgard allocator/mapper and `camera.rk30board.so` (need libnativewindow and
+  libsync) all find their dependencies.
 - LineageOS **Updater** is in the image: `system_ext/priv-app/Updater/Updater.apk` plus its
   `init.lineage-updater.rc`, privapp whitelist and default-permissions files.
 - The recovery ramdisk carries our fstab as `system/etc/recovery.fstab` (556 entries, gzip cpio),
