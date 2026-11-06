@@ -45,9 +45,16 @@ def transfer_list(image, blocksize):
     return "\n".join(lines) + "\n", padded
 
 
-def op_list(info):
+def op_list(info, sizes):
     """The lp commands, in the order AOSP's own releasetools emits them: clear everything, recreate
-    the group, add the partitions, then resize them to the built image sizes."""
+    the group, add the partitions, then resize them.
+
+    misc_info.txt has no per-partition size (only `use_dynamic_partition_size=true`), so the resize
+    values are the built images' sizes rounded up to the block size - which is exactly what
+    add_img_to_target_files puts in its own dynamic_partitions_op_list, and what `resize` needs:
+    update_engine requires a multiple of the block size. Sizes are the raw images in the product dir,
+    not dist's sparse copies, whose headers declare a different total.
+    """
     group = info["super_partition_groups"].split()[0]
     group_size = int(info["super_%s_group_size" % group])
     parts = info["super_%s_partition_list" % group].split()
@@ -60,24 +67,31 @@ def op_list(info):
         out.append("# Add partition %s to group %s" % (p, group))
         out.append("add %s %s" % (p, group))
     for p in parts:
-        img = os.path.join(os.path.dirname(info.get("_prod", "")), "%s.img" % p)
-        size = int(info.get("%s_size" % p, 0))
-        out.append("# Grow partition %s from 0 to %d" % (p, size))
-        out.append("resize %s %d" % (p, size))
+        out.append("# Grow partition %s from 0 to %d" % (p, sizes[p]))
+        out.append("resize %s %d" % (p, sizes[p]))
     return out, parts
 
 
 def main():
     prod, stock, out = sys.argv[1], sys.argv[2], sys.argv[3]
     info = misc_info(prod)
-    info["_prod"] = prod
     blocksize = int(info["blocksize"])
     os.makedirs(out, exist_ok=True)
 
     parts = info["super_%s_partition_list" % info["super_partition_groups"].split()[0]].split()
     print("blocksize=%d ; partitions: %s" % (blocksize, ", ".join(parts)))
 
-    lines, _ = op_list(info)
+    # Block-aligned sizes of the raw images, before anything is compressed.
+    sizes = {}
+    for p in parts:
+        img = os.path.join(prod, "%s.img" % p)
+        if not os.path.exists(img):
+            raise SystemExit("missing image: %s (run `m dist`/`m superimage`)" % img)
+        n = os.path.getsize(img)
+        sizes[p] = (n + blocksize - 1) // blocksize * blocksize
+        print("  %-10s raw %d B -> resize %d B (%d blocks)" % (p, n, sizes[p], sizes[p] // blocksize))
+
+    lines, _ = op_list(info, sizes)
     with open(os.path.join(out, "dynamic_partitions_op_list"), "w") as f:
         f.write("\n".join(lines) + "\n")
     print("wrote dynamic_partitions_op_list (%d lines)" % len(lines))
@@ -110,7 +124,11 @@ def main():
         subprocess.run(["cp", "-a", src, os.path.join(out, f)], check=True)
         print("  copied %-12s %d B" % (f, os.path.getsize(os.path.join(out, f))))
 
-    sizes = {p: os.path.getsize(os.path.join(out, "%s.new.dat" % p)) for p in parts}
+    # new.dat is padded to the same aligned size the op list resizes to, so they must agree.
+    for p in parts:
+        n = os.path.getsize(os.path.join(out, "%s.new.dat" % p))
+        if n != sizes[p]:
+            raise SystemExit("%s.new.dat is %d B but the op list resizes %s to %d B" % (p, n, p, sizes[p]))
     group = info["super_partition_groups"].split()[0]
     total = sum(sizes.values())
     print("logical content %d B of group %s=%d B ; spare %d B" %
