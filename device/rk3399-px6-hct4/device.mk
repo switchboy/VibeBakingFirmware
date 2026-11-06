@@ -84,3 +84,92 @@ PRODUCT_PROPERTY_OVERRIDES += \
 # recovery has nothing to run the payload with.
 PRODUCT_PACKAGES += \
     update_engine_sideload
+
+# ---- vendor HAL services this product must pull in ------------------------------
+# The stock Android 11 vendor partition ships the HIDL HAL services (audio, bluetooth, camera
+# provider, GNSS, sensors, composer, health, memtrack, CAS, OMX) and the HIDL machinery they need
+# (vndservicemanager, vndservice, libhwbinder). Those paths are *not* in PRODUCT_COPY_FILES any
+# more (tools/vendor_conflicts.py drops every destination whose module defines an install rule, or
+# ckati aborts with "overriding commands for target"), but Android 14 only *defines* the rule - it
+# does not install the module unless the product asks for it. Without these, /vendor would have no
+# HAL service at all: no audio, no bluetooth, no camera, no GPS, no sensors, no display composer,
+# no battery health, and no HIDL service manager to start any of them. pack20 proved that: 173
+# destinations were dropped, 66 landed in the image, 107 did not.
+#
+# The names below are exactly the modules `tools/vendor_module_names.py` attributes the 107 missing
+# paths to (read out of out/soong/installs-lineage_rk3399.mk, so every name really exists). The
+# service modules install their own /vendor/etc/init/<service>.rc, which is why the .rc paths are not
+# listed separately. tools/vendor_dropped_check.py re-checks the image after every build.
+PRODUCT_PACKAGES += \
+    vndservicemanager \
+    vndservice \
+    libhwbinder \
+    applypatch \
+    android.hardware.audio.service \
+    android.hardware.audio@6.0-impl \
+    android.hardware.audio.effect@6.0-impl \
+    android.hardware.audio.common-util \
+    android.hardware.audio.common@6.0-util \
+    libalsautils \
+    libnbaio_mono \
+    libavservices_minijail \
+    libavservices_minijail_vendor \
+    audio.r_submix.default \
+    audio.usb.default \
+    android.hardware.bluetooth@1.0-service \
+    android.hardware.bluetooth@1.0-impl \
+    android.hardware.camera.provider@2.4-service \
+    android.hardware.camera.provider@2.4-external-service \
+    android.hardware.camera.provider@2.4-impl \
+    android.hardware.camera.provider@2.4-external \
+    android.hardware.camera.provider@2.4-legacy \
+    camera.device@1.0-impl \
+    camera.device@3.2-impl \
+    camera.device@3.3-impl \
+    camera.device@3.4-impl \
+    camera.device@3.4-external-impl \
+    camera.device@3.5-impl \
+    camera.device@3.5-external-impl \
+    camera.device@3.6-external-impl \
+    android.hardware.gnss@1.0-service \
+    android.hardware.gnss@1.0-impl \
+    android.hardware.sensors@1.0-service \
+    android.hardware.sensors@1.0-impl \
+    android.hardware.graphics.composer@2.1-service \
+    android.hardware.graphics.composer@2.1-resources \
+    libhwc2on1adapter \
+    libhwc2onfbadapter \
+    android.hardware.health@2.1-service \
+    android.hardware.health@2.1-impl \
+    android.hardware.memtrack@1.0-service \
+    android.hardware.memtrack@1.0-impl \
+    android.hardware.cas@1.2-service \
+    android.hardware.media.omx@1.0-service \
+    libstagefright_softomx \
+    libstagefright_softomx_plugin \
+    libstagefright_amrnb_common \
+    libstagefright_enc_common \
+    libstagefright_flacdec \
+    libopus \
+    libvpx \
+    libvorbisidec \
+    libchrome \
+    libdrm \
+    libusb \
+    libwifi-hal \
+    libkeymaster4support \
+    libkeystore-engine-wifi-hidl \
+    libkeystore-wifi-hidl \
+    libprotobuf-cpp-full-3.9.1-vendorcompat \
+    libprotobuf-cpp-lite-3.9.1-vendorcompat \
+    usb_modeswitch \
+    vulkan.pastel
+
+# The OMX service is restored on purpose: the stock manifest declares android.hardware.media.omx@1.0
+# (IOmx + IOmxStore), the staged blob carries the Rockchip VPU plugin (libomxvpu_enc/dec.so), and
+# Android 14 still builds the OMX service and its soft-OMX/helper libraries. Whether the VPU plugin
+# is actually reached is a device-test question, not a build one; leaving the HAL declared with no
+# service would at least break software decode paths that go through OMX.
+#
+# One deviation is declared, not restored: the RIL daemon and its libraries, because this unit has no
+# cellular modem. See device/rk3399-px6-hct4/vendor_dest_deviations.txt.

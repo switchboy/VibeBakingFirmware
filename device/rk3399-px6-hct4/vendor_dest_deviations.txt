@@ -1,0 +1,23 @@
+# Vendor destinations deliberately NOT restored - neither the staged blob nor an Android 14 module.
+# Every entry is a gap in feature parity that the owner must accept; tools/vendor_dropped_check.py
+# reports them but never fails on them, so the verification gate stays meaningful for everything else.
+# Paths are partition-relative (`bin/hw/rild` for /vendor/bin/hw/rild). Comments give the reason.
+
+# ---- no cellular modem --------------------------------------------------------------
+# This unit has no radio: phone calls arrive over Bluetooth (the vendor's MTC/CarPlay stack), there
+# is no SIM slot and no modem device in /dev. Android 14's RIL daemon would start, find nothing to
+# talk to and loop. hardware/ril's Make rules install these paths, so the stock blobs are dropped
+# (vendor_dest_skip_extra.txt) and the daemon is not requested in PRODUCT_PACKAGES.
+bin/hw/rild
+etc/init/rild.rc
+lib/libril.so
+lib/libreference-ril.so
+lib64/libril.so
+lib64/libreference-ril.so
+
+# ---- no boot->recovery flash-recovery trigger --------------------------------------
+# `vendor_flash_recovery.rc` runs `vendor_flash_recovery` early in boot, which re-flashes the
+# recovery partition from /vendor/recovery-from-boot.p. That file is not staged (it is an Android 11
+# payload for the old GPT layout), so the trigger would act on a file that does not exist. Recovery
+# is written explicitly during the first flash (docs/flash.md) and by the Updater.
+etc/init/vendor_flash_recovery.rc

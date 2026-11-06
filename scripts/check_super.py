@@ -30,6 +30,8 @@ IMAGES_DIR = os.path.join(
     TREE,
     "out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/"
     "lineage_rk3399-target_files/IMAGES")
+# The images `m superimage`/`m bootimage` build; super embeds these byte-for-byte.
+PROD_DIR = os.path.join(TREE, "out/target/product/rk3399")
 LPDUMP = os.path.join(TREE, "out/host/linux-x86/bin/lpdump")
 SIMG2IMG = os.path.join(TREE, "out/host/linux-x86/bin/simg2img")
 # Android sparse format magic, stored little-endian (0xED26FF3A) -> reads 3a ff 26 ed.
@@ -68,17 +70,27 @@ zf = zipfile.ZipFile(ZIP)
 all_ok = True
 used = 0
 for name_, (sectors, off) in sorted(parts.items(), key=lambda kv: kv[1][1]):
-    entry = "IMAGES/" + name_ + ".img"
+    # Compare against the image `m superimage` actually embedded. That is the raw filesystem in
+    # out/target/product/rk3399/<name>.img. dist's IMAGES/<name>.img is a *sparse* copy whose header
+    # declares a different total size (vendor: 378535936 vs the embedded 334864384; system:
+    # 922411008 vs 922415104), so byte-comparing it against super always said False - it is only a
+    # fallback, and only after simg2img.
+    prod_path = os.path.join(PROD_DIR, name_ + ".img")
     src_path = os.path.join(IMAGES_DIR, name_ + ".img")
+    entry = "IMAGES/" + name_ + ".img"
     staged = os.path.join(WORK, "staged_%s.img" % name_)
-    if os.path.exists(src_path):
-        # The staging directory is what `m superimage` actually stages into super.img.
+    if os.path.exists(prod_path):
+        label = "product dir (raw)"
+        shutil.copyfile(prod_path, staged)
+    elif os.path.exists(src_path):
+        label = "staging IMAGES"
         shutil.copyfile(src_path, staged)
     elif entry in zf.namelist():
+        label = "target_files zip"
         with zf.open(entry) as fh, open(staged, "wb") as out:
             shutil.copyfileobj(fh, out)
     else:
-        print("  %-10s MISSING from staging dir and from target_files zip" % name_)
+        print("  %-10s MISSING from product dir, staging dir and target_files zip" % name_)
         all_ok = False
         continue
 
@@ -103,8 +115,9 @@ for name_, (sectors, off) in sorted(parts.items(), key=lambda kv: kv[1][1]):
                 match = False
             out.write(data[pos:pos + len(chunk)])
             pos += len(chunk)
-        if pos - off > sectors * 512:
-            match = False          # the image is larger than its extent inside super
+        # lpmake reserves exactly the image's bytes, so the extent must equal the image size.
+        if pos - off != sectors * 512:
+            match = False
     magic_off = data[off:off + 4096].find(b"\x53\xef")
     # dumpe2fs validates the ext4 magic (0xEF53) and reports the geometry, so it is the real proof
     # that the filesystem inside super is intact.
@@ -113,11 +126,11 @@ for name_, (sectors, off) in sorted(parts.items(), key=lambda kv: kv[1][1]):
     blocks = re.search(r"Block count:\s*(\d+)", dmp.stdout)
     bs = re.search(r"Block size:\s*(\d+)", dmp.stdout)
     fs_bytes = int(blocks.group(1)) * int(bs.group(1)) if blocks and bs else 0
-    print("  %-10s off=%10d extent=%d img=%d%s embedded_matches=%s ext4_magic_offset=%d "
-          "debugfs_parses=%s fs=%d" %
+    print("  %-10s off=%10d extent=%d img=%d%s embedded_matches=%s size_matches_extent=%s "
+          "ext4_magic_offset=%d debugfs_parses=%s fs=%d [%s]" %
           (name_, off, sectors * 512, n, " (sparse->raw)" if sparse else "",
-           match, magic_off, fs_ok, fs_bytes))
-    all_ok = all_ok and match and fs_ok and magic_off > 0 and sectors * 512 >= n
+           match, n == sectors * 512, magic_off, fs_ok, fs_bytes, label))
+    all_ok = all_ok and match and n == sectors * 512 and fs_ok and magic_off > 0 and sectors * 512 >= n
     used = max(used, off + sectors * 512)
     os.remove(carved)
     os.remove(staged)
