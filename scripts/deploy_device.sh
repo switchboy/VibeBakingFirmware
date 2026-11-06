@@ -33,11 +33,17 @@ fi
 # config .mk (included from AndroidProducts.mk) kati leaves them at whatever it last set, which is
 # `build/make/target/product/` here - so a copy entry written as $(LOCAL_DIR)/fstab.rk30board asks
 # ninja for that file and aborts with "missing and no known rule to make it". Spell device paths
-# literally instead.
-bad=$(grep -rn '\$(LOCAL_DIR)\|\$(LOCAL_PATH)' "$DEST"/*.mk 2>/dev/null || true)
+# literally instead. AndroidProducts.mk is the exception: there $(LOCAL_DIR) is set correctly, and
+# that is how the product makefile is registered. Comments are ignored (they explain the trap).
+bad=""
+for f in "$DEST"/*.mk; do
+  if [ "$(basename "$f")" = AndroidProducts.mk ]; then continue; fi   # there $(LOCAL_DIR) is set correctly
+  hits=$(sed 's|#.*||' "$f" | grep -nE '\$\((LOCAL_DIR|LOCAL_PATH)\)/' || true)
+  if [ -n "$hits" ]; then bad+="  $f: $hits"$'\n'; fi
+done
 if [ -n "$bad" ]; then
   echo "  ! \$(LOCAL_DIR)/\$(LOCAL_PATH) is unset in product-config .mk files; spell the path out:"
-  printf '%s\n' "$bad"
+  printf '%s' "$bad"
   exit 1
 fi
 

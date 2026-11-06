@@ -196,7 +196,7 @@ in the super group has a `BlockDifference`. The owner chose "fix vendor staging 
   `libOpenCL.so` are the exception - Android 14's EGL loader looks for `libGLES_<ro.hardware.egl>.so`
   (`frameworks/native/opengl/libs/EGL/Loader.cpp:284-315`), so those four aliases become real copies of
   the blob in `egl/` (~111 MB added; the super group has ~1.2 GB spare).
-- `tools/gen_vendor_staging.py` turns the tree into `vendor_staging.mk` (1207 copy entries),
+- `tools/gen_vendor_staging.py` turns the tree into `vendor_staging.mk` (1034 copy entries),
   `vendor_props.mk` (100 stock properties re-declared, since Android 14 generates its own
   `vendor/build.prop`) and `prebuilt_apps/Android.mk` for the one file the copy list cannot carry -
   `overlay/framework-res__auto_generated_rro_vendor.apk`, the stock vendor resource-overlay package
@@ -212,17 +212,23 @@ in the super group has a `BlockDifference`. The owner chose "fix vendor staging 
 - Three `usb_modeswitch.d` rules whose names contain `#` cannot be expressed in a Makefile
   (`#` starts a comment, which is what killed `lunch` with "malformed COPY_FILE"). `/vendor/bin/usb_dongle`
   only looks up the `<vendor>_<product>` form, so dropping them costs nothing.
-- `PRODUCT_COPY_FILES` also collides with files the build installs itself: 162 destinations are
-  install targets of modules (`out/soong/installs-lineage_rk3399.mk`), and Make only dedups copy
-  pairs against copy pairs, so ckati aborts with "overriding commands for target ...".
+- `PRODUCT_COPY_FILES` also collides with files the build installs itself: 173 destinations are
+  install targets of modules - 162 visible in `out/soong/installs-lineage_rk3399.mk`, plus 11 only
+  ckati reveals (legacy Make modules: rild and its libraries, the legacy `gralloc.default.so` stub,
+  the empty `fs_config_dirs`/`fs_config_files`, `NOTICE.xml.gz`). Make dedups copy pairs against
+  copy pairs only, so ckati aborts with "overriding commands for target ...".
   `tools/vendor_conflicts.py` reports them with the module behind each one and drops the ones whose
   module comes from upstream AOSP source (`vendor_build_wins.txt`, fed back into the generator),
-  because Android 14 compiles that same component. No Rockchip HAL is dropped - every HU HAL keeps
-  its own file name (`hwcomposer.rk30board.so`, `audio.primary.rk30board.so`, `camera.rk30board.so`,
-  `gps.default.so`, allocator/mapper `-impl-midgard`, `mfi.default.so`, `hw_output.default.so`,
-  `rockchip.hardware.outputmanager@1.0-impl.so`), so none of them collide; a collision from
-  `vendor/` or a device tree would need the module removed from `PRODUCT_PACKAGES` instead, and the
-  tool says which. `scripts/deploy_device.sh` re-checks before every build.
+  because Android 14 compiles that same component; the ckati-discovered ones are committed in
+  `vendor_dest_skip_extra.txt` so a fresh host converges in one pass. No Rockchip HAL is dropped -
+  every HU HAL keeps its own file name (`hwcomposer.rk30board.so`, `audio.primary.rk30board.so`,
+  `camera.rk30board.so`, `gps.default.so`, allocator/mapper `-impl-midgard`, `mfi.default.so`,
+  `hw_output.default.so`, `rockchip.hardware.outputmanager@1.0-impl.so`), so none of them collide;
+  a collision from `vendor/` or a device tree would need the module removed from `PRODUCT_PACKAGES`
+  instead, and the tool says which. `scripts/deploy_device.sh` re-checks before every build.
+- Device paths in a product-config `.mk` are spelled literally: `$(LOCAL_DIR)` there resolves to
+  `build/make/target/product/`, which made ninja ask for
+  `build/make/target/product/fstab.rk30board` and fail ("missing and no known rule to make it").
 - `BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES := true` is required: Android 14 rejects ELF files
   passed through `PRODUCT_COPY_FILES` (`definitions.mk:3184` checks with `llvm-readobj`).
 - `tools/vendor_diff.py` now checks the *built* image against the stock reference by classifying the

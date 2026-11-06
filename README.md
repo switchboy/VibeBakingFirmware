@@ -106,7 +106,8 @@ firmware** — never edit it; everything derived goes into `analysis/`. Both are
   device tree in `device/rk3399-px6-hct4/` deployed as `device/rockchip/rk3399`. Per **D15** the vendor
   is now *built from staged blobs* instead of being prebuilt: `scripts/prebuilt_vendor.sh` mirrors the
   stock Android 11 vendor partition into `vendor/hct4/tree/vendor` and `tools/gen_vendor_staging.py`
-  turns it into `vendor_staging.mk` (1207 copy entries + the VINTF manifest/matrix),
+  turns it into `vendor_staging.mk` (1034 copy entries — 1233 staged files minus the 173 the build
+  installs itself — + the VINTF manifest/matrix),
   `vendor_props.mk` (100 stock properties) and `prebuilt_apps/Android.mk` (the stock vendor RRO,
   which `PRODUCT_COPY_FILES` refuses as an `.apk` destination); the kernel comes from
   `prebuilt/kernel_a11`. `m -j4`

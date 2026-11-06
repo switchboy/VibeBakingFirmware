@@ -287,7 +287,7 @@ last. All four are now fixed except the vendor one (see below).
        `PRODUCT_PACKAGES`.
      - ELF blobs through `PRODUCT_COPY_FILES` need `BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES :=
        true` (`definitions.mk:3184` checks with `llvm-readobj`).
-     - **162 destinations collide with modules the build installs itself**, and that is a hard parse
+     - **Destinations that collide with modules the build installs itself** are a hard parse
        error, not a dedup: `PRODUCT_COPY_FILES` turns every pair into an install rule for
        `$(PRODUCT_OUT)/<dest>`, so ckati stops with
        `build/make/core/Makefile:161: error: overriding commands for target
@@ -377,7 +377,7 @@ matched. `scripts/package.sh` now runs dist first, then superimage, and warns if
   `#`-named `usb_modeswitch.d` rules), *materialised* (`lib/lib64` `libGLES_mali.so` and `libOpenCL.so`
   must equal the `egl/libGLES_mali.so` blob), *replaced* (`build.prop`, `/etc/fstab.rk30board`, the
   compatibility matrix - same HAL entries, no `<vendor-ndk>`), and *added* (`/etc/init/hu.rc`,
-  `/etc/hu_insmod.sh`, `/etc/ueventd.rc`), and the ~160 destinations the build installs
+  `/etc/hu_insmod.sh`, `/etc/ueventd.rc`), and the 173 destinations the build installs
   from its own modules (`vendor_build_wins.txt`) - those may differ in size but **must
   be present**, which is what proves the module actually installed them. Anything
   outside those categories fails the check.
