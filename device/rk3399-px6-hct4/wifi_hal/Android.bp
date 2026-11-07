@@ -1,0 +1,68 @@
+// Realtek's WiFi HAL glue, rebuilt for Android 14 (docs/decisions.md D21).
+//
+// Android 14's libwifi-hal selects an implementation through the `wifi` Soong config namespace:
+// `BOARD_WLAN_DEVICE := realtek` makes frameworks/opt/net/wifi/libwifi_hal/Android.bp pull this module
+// as `whole_static_libs: ["libwifi-hal-rtk"]`. Without it the build installs the stub
+// (`libwifi-hal-fallback`, wifi_hal_fallback.cpp), whose wifi_initialize reports "unsupported" - that
+// is why the unit had no wifi service at all.
+//
+// This mirrors hardware/broadcom/wlan/bcmdhd/wifi_hal/Android.bp, which is AOSP's own copy of the
+// same era of HAL code. The sources are the published Realtek/Rockchip glue (Apache-2.0 headers,
+// from github.com/kimocoder/android_wifi_hal, hardware/realtek/wlan/wifi_hal); Rockchip's own
+// rk_wifi_ctrl.cpp maps this unit's chip (usb:v0BDAp0179 = RTL8188ETV) to this HAL.
+//
+// libwifi-hal itself supplies libbase/libcutils/liblog/libnl/libutils as shared libraries, so the
+// declarations below are what the code includes, not new dependencies to install.
+cc_library_static {
+    name: "libwifi-hal-rtk",
+
+    proprietary: true,
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wno-format",
+        "-Wno-reorder",
+        "-Wno-unused-function",
+        "-Wno-unused-parameter",
+        "-Wno-unused-private-field",
+        "-Wno-unused-variable",
+        // The driver module path/name come from BOARD_WLAN_DEVICE's companions in
+        // build/make/core/board_config_wifi.mk; the code uses them only in load_wifi_module().
+        "-Wno-unused-but-set-variable",
+    ],
+
+    header_libs: [
+        "libnetlink_iface_headers",
+        "libhardware_legacy_headers",
+        "libutils_headers",
+        "liblog_headers",
+    ],
+
+    // These sources say `#include "wifi_hal.h"`, while Android 14 keeps the header in the
+    // hardware_legacy subdirectory (Broadcom's copy includes it as <hardware_legacy/wifi_hal.h>).
+    include_dirs: [
+        "hardware/libhardware_legacy/include/hardware_legacy",
+        "frameworks/opt/net/wifi/libwifi_hal/include",
+        "external/wpa_supplicant_8/src/drivers",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "liblog",
+        "libnl",
+        "libutils",
+    ],
+
+    srcs: [
+        "rtw_wifi_hal.cpp",
+        "rtw_wifi_rtt.cpp",
+        "common.cpp",
+        "cpp_bindings.cpp",
+        "rtw_wifi_gscan.cpp",
+        "rtw_wifi_llstats.cpp",
+        "rtw_wifi_logger.cpp",
+        "rtw_wifi_offload.cpp",
+    ],
+}

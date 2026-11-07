@@ -69,6 +69,32 @@ BOARD_KERNEL_CMDLINE := console=ttyFIQ0 androidboot.baseband=N/A androidboot.wif
 # wificountrycode=NL, not the vendor default CN: CN marks channels 12/13 "no IR" and 14
 # disabled, which is exactly the 2.4 GHz-only behaviour we measured on the unit.
 
+# ---- WiFi HAL glue (**D21**) --------------------------------------------------
+# Android 14 chooses the WiFi driver glue through the `wifi` Soong config namespace
+# (build/make/core/board_config_wifi.mk -> frameworks/opt/net/wifi/libwifi_hal/Android.bp). Left
+# unset, Soong takes `conditions_default` and installs libwifi-hal-fallback (wifi_hal_fallback.cpp),
+# whose wifi_initialize reports "unsupported" - the unit then has no WiFi at all, not degraded WiFi.
+# `realtek` pulls in libwifi-hal-rtk, built from the published Realtek/Rockchip glue in
+# device/rockchip/rk3399/wifi_hal; it compiles for arm64 and arm against Android 14's libnl unchanged.
+# This unit's chip is a USB RTL8188ETV (modalias usb:v0BDAp0179), which Rockchip's own chip table maps
+# to exactly this HAL. The driver module values below feed -DWIFI_DRIVER_MODULE_* and
+# load_wifi_module(); hu_insmod.sh insmods the .ko earlier in boot, so they only say where it lives.
+# WIFI_DRIVER_MODULE_ARG is left undeclared on purpose: the driver takes no module parameters.
+BOARD_WLAN_DEVICE := realtek
+WIFI_DRIVER_MODULE_NAME := 8188eu
+WIFI_DRIVER_MODULE_PATH := /vendor/lib/modules/8188eu.ko
+
+# The supplicant and hostapd binaries are Make-built (`external/wpa_supplicant_8/Android.mk` line 3
+# only includes the two Android.mks when WPA_SUPPLICANT_VERSION is VER_0_8_X or VER_2_1_DEVEL), which
+# is why `m` complained "includes non-existent modules in PRODUCT_PACKAGES: hostapd wpa_supplicant".
+# hostapd's AIDL variant needs no flag (hostapd/Android.mk sets HOSTAPD_USE_AIDL=y itself at line
+# 1152), but the supplicant's service .rc is behind WIFI_HIDL_UNIFIED_SUPPLICANT_SERVICE_RC_ENTRY
+# (wpa_supplicant/Android.mk:1980) - without it the service installs without an init entry.
+WPA_SUPPLICANT_VERSION := VER_0_8_X
+BOARD_WPA_SUPPLICANT_DRIVER := NL80211
+BOARD_HOSTAPD_DRIVER := NL80211
+WIFI_HIDL_UNIFIED_SUPPLICANT_SERVICE_RC_ENTRY := true
+
 # ---- boot / recovery ----------------------------------------------------------
 # Partition sizes taken from the live unit's /proc/partitions: boot = 32768 KiB (mmcblk2p7),
 # recovery = 98304 KiB (mmcblk2p8). Without these the build emits no boot.img/recovery.img at all

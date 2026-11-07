@@ -167,6 +167,9 @@ PRODUCT_PACKAGES += \
     libdrm \
     libusb \
     libwifi-hal \
+    android.hardware.wifi-service \
+    wpa_supplicant \
+    hostapd \
     libkeymaster4support \
     libkeystore-engine-wifi-hidl \
     libkeystore-wifi-hidl \
@@ -180,6 +183,16 @@ PRODUCT_PACKAGES += \
 # Android 14 still builds the OMX service and its soft-OMX/helper libraries. Whether the VPU plugin
 # is actually reached is a device-test question, not a build one; leaving the HAL declared with no
 # service would at least break software decode paths that go through OMX.
+#
+# WiFi is rebuilt, not carried over (**D21**): Android 14's wifi service has no HIDL support left
+# (`grep -rl 'android.hardware.wifi@' frameworks/opt/net/wifi/service/java/ -> 0 files`), so the staged
+# `android.hardware.wifi@1.0-service` blob has no consumer and cannot provide WiFi on this ROM. The
+# three modules above are Android 14's own: `android.hardware.wifi-service` is the AIDL chip HAL
+# (`hardware/interfaces/wifi/aidl/impl`), and `wpa_supplicant`/`hostapd` are the AIDL supplicant and
+# hostapd services (`external/wpa_supplicant_8`, whose Make rules carry the
+# `android.hardware.wifi.supplicant.xml` / `.hostapd.xml` manifest fragments and the service .rc files).
+# `libwifi-hal` then selects `libwifi-hal-rtk` through BOARD_WLAN_DEVICE (see BoardConfig.mk). The
+# kernel driver needs nothing: `8188eu.ko` is a cfg80211/nl80211 driver, loaded by hu_insmod.sh.
 #
 # One deviation is declared, not restored: the RIL daemon and its libraries, because this unit has no
 # cellular modem. See device/rk3399-px6-hct4/vendor_dest_deviations.txt.

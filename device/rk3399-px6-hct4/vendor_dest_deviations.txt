@@ -21,3 +21,17 @@ lib64/libreference-ril.so
 # payload for the old GPT layout), so the trigger would act on a file that does not exist. Recovery
 # is written explicitly during the first flash (docs/flash.md) and by the Updater.
 etc/init/vendor_flash_recovery.rc
+
+# ---- no HIDL wifi service (**D21**) ----------------------------------------------
+# Android 14's WiFi framework dropped HIDL entirely (`grep -rl 'android.hardware.wifi@'
+# frameworks/opt/net/wifi/service/java/ -> 0 files`), so `android.hardware.wifi@1.0-service` would
+# start, register, and never be spoken to. WiFi comes from Android 14's own AIDL service instead
+# (`android.hardware.wifi-service` + `libwifi-hal` -> `libwifi-hal-rtk`, device.mk and BoardConfig.mk).
+# `lib/libwifi-hal.so` is the blob's 32-bit glue: nothing left links it once the service is gone, and
+# Android 14's libwifi-hal is multilib `first` (arm64 only) and wins the lib64 path anyway.
+# `librkwifi-ctrl.so` only served that service (`check_wifi_chip_type_string`, `get_wifi_device_id`);
+# the module loading it used to do is hu_insmod.sh's job.
+bin/hw/android.hardware.wifi@1.0-service
+lib/libwifi-hal.so
+lib64/librkwifi-ctrl.so
+lib/librkwifi-ctrl.so
