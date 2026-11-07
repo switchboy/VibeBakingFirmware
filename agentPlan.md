@@ -81,6 +81,7 @@ legacy blobs are preferred over reimplementing them.
 | D18 | Install transport + untouchable partitions | **decided** | stock `update.zip` flow (stock recovery + stock `update-binary`); never write recovery/uboot/trust/dtbo/RKLoader/`security`; no partition resize | owner: keep it as simple as flashing another Android 10 build; an unverified custom recovery could brick the unit; rollback = the stock Android 10 update.zip |
 | D19 | Partition-size change for the test | **decided** | none - recreate logical partitions inside the existing super | owner: don't complicate it; Android 14's 2.18 GB fits in the 3.26 GB group, so no GPT write and no resize (**D18** forbids writing partition-table bytes) |
 | D20 | Libraries Android 14 does not install into /vendor | **decided** | request Android 14's own `<name>.vendor`/`<name>.vendor_32` modules through PRODUCT_PACKAGES (generated `vendor_modules_extra.mk`); public libraries load from /system through the linker config; inject only the leftovers | Android 14 dropped the VNDK, so the Android 10 route (/system/lib/vndk-29) is gone; a requested module is an install dep of vendor.img, which is what build_image.py's file filter is built from - an injected file is not (docs/decisions.md D20) |
+| D22 | The composer blob's `drmModeAddFB2_ext` | **decided (Nov 7)** | patch Android 14's own `external/libdrm` in `patches/` so it exports the Rockchip symbol; keep `libdrm.vendor`/`libdrm.vendor_32` as the build product | the Rockchip symbol is published open source (MIT, libdrm's own licence), so adding it costs one symbol and 224 B in the 32-bit copy; overwriting the module with Android 10's libdrm would swap a build product for an older ABI file and put Android 14's own libdrm consumers on that file (docs/decisions.md D22) |
 
 
 
@@ -111,11 +112,12 @@ brlinktd/hctcanbusservice` + `/init.hct.rc`. The unit's own app set is the **HCT
 (HCT4, Mar 2021) nor what the Daisaita images carry (HCT7) - so the app layer must come from the live
 unit (or an official zip the owner has), not out of `analysis/`.
 
-Three vendor fixes are decided by the ABI run (`tools/vendor_abi_check.py`, arch-aware version):
+Three vendor gaps come out of the ABI run (`tools/vendor_abi_check.py`, arch-aware version); two are
+fixed in the tree, one is declared:
 
 | gap | fix |
 |---|---|
-| `drmModeAddFB2_ext` - the composer blob `hwcomposer.rk30board.so` (both arches) | overwrite Android 14's `/vendor/lib(64)/libdrm.so` with the staged Rockchip blob. Android 14's own consumers lose nothing (`tools/abi_swap_plan.py`: cost 0). Injection today *skips* a path a module already installed, so `scripts/inject_vendor_blobs.sh` needs an overwrite mode. |
+| `drmModeAddFB2_ext` - the composer blob `hwcomposer.rk30board.so` (both arches) | **D22 (landed Nov 7)**: patch Android 14's own libdrm instead of overwriting it - `patches/external-libdrm-rockchip-addfb2-ext.patch` adds Rockchip's published `drmModeAddFB2_ext()` (`github.com/TinkerBoard/rockchip-linux-external-libdrm`, branch `linux4.4-rk3288-tinker_board`, libdrm's MIT licence) to `external/libdrm/xf86drmMode.c` + `.h`. `libdrm.vendor`/`libdrm.vendor_32` install the patched file, so there is no blob overwrite and no injection: `scripts/inject_vendor_blobs.sh` gains no overwrite mode. Verified: both arches export the symbol, the composer blobs resolve (0 unresolved), Android 14's 12 libdrm consumers still resolve (0 unresolved, `tools/consumer_abi_check.py`) |
 | WiFi: blob `wpa_supplicant` needs `sk_dup` (OpenSSL 3 dropped it) + `nl_send_auto_complete`, and Android 14's wifi framework has **zero** HIDL wifi references | **D21**: rebuild Android 14's own Realtek glue instead of salvaging blobs - add `libwifi-hal-rtk` (`cc_library_static`, vendor, from `github.com/kimocoder/android_wifi_hal`, Apache-2.0; wiring exists in `gugugaga-rockchip/android_hardware_rockchip_wifi` branch `lineage-21.0`), set `BOARD_WLAN_DEVICE := realtek` (Soong picks it via `build/make/core/board_config_wifi.mk`), request `android.hardware.wifi-service` + the AIDL supplicant/hostapd services + `wpa_supplicant`/`hostapd` from `external/wpa_supplicant_8`. Drop the blob supplicant/hostapd and the orphan `android.hardware.wifi@1.0-service`. No driver rebuild: `8188eu.ko` is kernel-side and nl80211-standard. No `sk_dup` compat library needed either |
 | HW video codecs: `libomxvpu_dec/enc.so` need `GraphicBufferMapper::lock/unlock`, which Android 14's `libui` no longer exports | **declared gap for v1** (`vendor_dest_deviations.txt`). Swapping Android 10's `libui.so` in would cost Android 14 7 symbols, so it is not an option; a real fix needs a mapper shim, which is M4 work. |
 
@@ -131,9 +133,11 @@ Steps, in order:
 3. WiFi is landed (**D21**): `libwifi-hal-rtk` compiles unchanged for arm64 and arm, and Android 14's own
    `android.hardware.wifi-service` / `wpa_supplicant` / `hostapd` install with their `.rc` files and VINTF
    fragments, all resolving with 0 unresolved symbols (`docs/decisions.md` D21 for the four config gotchas).
-   Still to do here: the **libdrm overwrite** (`scripts/inject_vendor_blobs.sh` gains an overwrite mode,
-   `package.sh:sync_vendor_image()` compares content instead of presence), then `scripts/package.sh` and
-   `scripts/verify_artifacts.sh`. Watch `check_vintf_compatible.log` in that pass: the derived vendor
+   libdrm is landed too (**D22**): after `scripts/apply_tree_patches.sh` Android 14's own libdrm
+   exports `drmModeAddFB2_ext` in both arches and the composer blob resolves, so nothing is injected
+   and `scripts/inject_vendor_blobs.sh` gains no overwrite mode. Still to do here: `scripts/package.sh`
+   (re-dist so `vendor.img` carries the patched libdrm) and `scripts/verify_artifacts.sh`. Watch
+   `check_vintf_compatible.log` in that pass: the derived vendor
    manifest still carries the stock HIDL `wifi@1.3`/`hostapd@1.1`/`supplicant@1.2` blocks, which now
    describe services that do not exist - if VINTF objects, drop those blocks from `vintf/vendor_manifest.xml`.
 4. Build the payload with `scripts/build_hu_package.sh` (never run yet), check `unzip -l` + sha256, stick

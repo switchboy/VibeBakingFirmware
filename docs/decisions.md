@@ -350,7 +350,13 @@ soname into one of four answers:
 | public library | nothing to do, it loads out of /system | `liblog.so`, `libc.so`, `libsync.so` |
 | staged blob kept | `PRODUCT_COPY_FILES` copies the Android 11 copy | `libstagefright_foundation.so` |
 | Android 14 has a `<name>.vendor` / `<name>.vendor_32` module | **requested through `PRODUCT_PACKAGES`** (`device.mk` includes the generated `vendor_modules_extra.mk`) | `android.hardware.wifi@1.4.vendor`, `libchrome.vendor_32`, `libaudioroute.vendor`, `android.hardware.light-V1-ndk_platform.vendor` |
+| the module exists, but Android 14's copy lost a vendor-only symbol | **patch the open-source library in the tree** (`patches/`), keep the module as the build product | `libdrm` -> `drmModeAddFB2_ext` (**D22**) |
 | nothing builds it | injected into the staging dir (`vendor_dest_keep.txt`) | normally none |
+
+Overwriting a module's installed path with a staged blob is not a route: the blob is Android 10/11's
+ABI, and the module's install rule still claims that path, so the copy only wins by racing the build.
+Where Android 14's own library is the right file but does not export something the vendor needs, the
+fix belongs in `patches/` (**D22**), not in the staging directory.
 
 Requesting the vendor variant is preferred over copying a file into the staging directory for two
 reasons: the file is Android 14's own build, so its ABI matches Android 14's `libhidlbase.so` /
@@ -457,3 +463,79 @@ Four things the config had to get right, each of them a real failure on the firs
 The `sk_dup` compat library from the earlier plan is confirmed unnecessary: Android 14's own
 `wpa_supplicant` asks for `OPENSSL_sk_dup`, which Android 14's `vendor/lib64/libcrypto.so` exports, and
 for `nl_send_auto_complete`, which Android 14's `vendor/lib64/libnl.so` still exports.
+
+## D22 - libdrm: export Rockchip's `drmModeAddFB2_ext` from Android 14's own libdrm (Nov 7, DECIDED)
+
+`lib(64)/hw/hwcomposer.rk30board.so` links `libdrm.so` and asks for one symbol Android 14's libdrm
+does not have: `drmModeAddFB2_ext`. It is Rockchip's own addition to libdrm - the same
+`DRM_IOCTL_MODE_ADDFB2` ioctl as `drmModeAddFB2WithModifiers()`, but always copying the four plane
+modifiers instead of only when a modifier array is handed in. The stock Android 10 vendor carries
+Rockchip's libdrm (`vendor/hct4/tree/vendor/lib(64)/libdrm.so`, 54,584 / 83,104 B, exports
+`T drmModeAddFB2_ext`), which is where the blob got it.
+
+The earlier plan was to overwrite Android 14's `/vendor/lib(64)/libdrm.so` with that staged copy
+(`agentPlan.md` step 3). Dropped: it swaps a build product for an Android 10 ABI file, it does not win
+the install rule cleanly, and Android 14's own consumers of libdrm would then run against the older
+file. Patching the published source keeps libdrm as a real build product (**D20**).
+
+### What the blob actually asks for
+
+| | value |
+|---|---|
+| symbol | `nm -D --undefined-only lib64/hw/hwcomposer.rk30board.so` -> `U drmModeAddFB2_ext` (symidx 225, no version suffix), and the same in `lib/hw/hwcomposer.rk30board.so` |
+| prototype | `int drmModeAddFB2_ext(int fd, uint32_t width, uint32_t height, uint32_t pixel_format, uint32_t bo_handles[4], uint32_t pitches[4], uint32_t offsets[4], __u64 modifier[4], uint32_t *buf_id, uint32_t flags)` |
+| published source | `github.com/TinkerBoard/rockchip-linux-external-libdrm`, branch `linux4.4-rk3288-tinker_board`, `xf86drmMode.c` + `xf86drmMode.h` - a mirror of Rockchip's `external/libdrm` BSP fork. Rockchip's own `github.com/rockchip-linux/libdrm-rockchip` 404s today, so the mirror is the citable copy. Licence: libdrm's MIT/X11-style licence, which `external/libdrm/Android.bp` already declares as `external_libdrm_license` (SPDX MIT + BSD + legacy_unencumbered) |
+| call site | one call, in `DrmGenericImporter::ImportBuffer` at `0x5b504`. `prebuilts/clang/host/linux-x86/clang-r510928/bin/llvm-objdump -d` shows ten arguments in `x0..x9`: `x0` fd, `w1/w2` width/height (`ldp w1, w2, [x20]`), `w3` pixel format, `x4` handles, `x5` pitches, `x6` offsets, `x7 = sp + 0x30` the modifier array, `x8 = x20 + 0x3c` the `buf_id` out-param, `w9 = 2` flags |
+| cross-check | Rockchip's compiled `drmModeAddFB2_ext` in the staged libdrm reads the same registers (`ldr q1, [x4]`, `[x5]`, `[x6]`, `ldp ..., [x7]`) and encodes the same ioctl (`mov w1, #0x64b8`); ours does the same. So the ABI is proven three ways: the blob's call site, Rockchip's own binary, and the published source |
+
+### The patch
+
+`patches/external-libdrm-rockchip-addfb2-ext.patch` (tree-root paths `a/external/libdrm/xf86drmMode.h`
+and `.c`, applied by `scripts/apply_tree_patches.sh`): the declaration and the definition, kept exactly
+as Rockchip published them - non-const arrays, `__u64 modifier[4]`, unconditional modifier copy, marked
+`drm_public` like every other export in that file. One deviation, documented inside the patch:
+`memclear(f)`, because this tree's `drm_mode_fb_cmd2` is newer than the struct Rockchip compiled
+against and the published version leaves it uninitialised. Nothing else in libdrm is touched.
+
+Cost to Android 14: one added exported symbol, and 224 B in the 32-bit copy. Nothing is removed or
+renamed, so no existing consumer can lose a symbol.
+
+### On the build host (Nov 7, verified)
+
+`scripts/apply_tree_patches.sh ../lineage21s` applied it, `scripts/deploy_device.sh ../lineage21s`
+redeployed the device tree, and `m -j4 libdrm libdrm_32 libdrm.vendor libdrm.vendor_32` built clean
+(`systemd-run --unit=hu-libdrm`, exit 0, 1m16s). The module names are the ones Soong defines: `libdrm`
+and `libdrm_32` for /system, `libdrm.vendor` -> `vendor/lib64/libdrm.so`, `libdrm.vendor_32` ->
+`vendor/lib/libdrm.so`. No new `PRODUCT_PACKAGES` entry was needed: `device.mk` already lists `libdrm`,
+and that is what installs the vendor variants - `out/soong/installs-lineage_rk3399.mk:192595` installs
+`vendor/lib64/libdrm.so` from the module's android_vendor variant, and 42 install rules name it as a
+dependency. That is the **D20** criterion: the file is an install dependency of `vendor.img`, not a file
+someone wrote into the staging dir.
+
+| file | before | after | exported symbol after the patch (`nm -D --defined-only`) |
+|---|---|---|---|
+| `vendor/lib/libdrm.so` | 58,920 B | 59,144 B | 0 hits -> `0000bf99 T` |
+| `vendor/lib64/libdrm.so` | 135,840 B | 135,840 B (same size, new content) | 0 hits -> `00018e80 T` |
+
+(The 86,104 B for lib64 in the older notes is not this build - the vendor variant installed today is
+135,840 B.)
+
+`tools/vendor_abi_check.py lineage21s device/rk3399-px6-hct4`, same tree before and after:
+
+| pass | blobs that would not load | detail |
+|---|---|---|
+| before | 8 | `lib/hw` + `lib64/hw/hwcomposer.rk30board.so` (1 symbol each), `bin/rockchip.drmservice` (1), `bin/usb_dongle` (5), `lib(64)/libomxvpu_dec.so` + `lib(64)/libomxvpu_enc.so` (2 each) |
+| after | 6 | the two composer blobs are gone - **0 unresolved in both arches**. Left: `bin/rockchip.drmservice` (`wifi_load_driver`), `bin/usb_dongle` (5 libbase/libcutils listener symbols), and the four `libomxvpu_*` (the declared `GraphicBufferMapper::lock/unlock` gap) |
+
+`tools/consumer_abi_check.py` (new; imports `vendor_abi_check.py`'s pool logic rather than
+reimplementing it) checks the other side of the same edge: every installed `/vendor` ELF whose DT_NEEDED
+names `libdrm.so`. Twelve of them, all kept Rockchip blobs - the composer itself, `librkisp.so`,
+`libbaseparameter.so`, `hw_output.default.so` and the `allocator@4.0-impl-midgard.so` /
+`mapper@4.0-impl-midgard.so` gralloc impls, in both arches - all resolve with **0 unresolved symbols**.
+Android 14 builds no `/vendor` module that links `libdrm.so` on this product (the minigbm allocator
+services exist in the Soong graph but are not requested, and no `/vendor/bin/hw` daemon links the
+library), and nothing in /system, /system_ext or /product does - surfaceflinger talks DRM through the
+Composer HAL. So there is no consumer this patch could break: it only adds a symbol.
+
+`out/target/product/rk3399/vendor.img` still holds the pre-patch libdrm until the next packaging pass
+(`scripts/package.sh` dists and re-syncs it), so the payload must be rebuilt before any flash.
