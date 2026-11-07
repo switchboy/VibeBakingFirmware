@@ -376,3 +376,45 @@ can load (files installed in /vendor, the other kept blobs, public /system libra
 that catches Android 14 having rewritten a library's ABI underneath an Android 11 blob - the failure
 mode is a boot-time `dlopen failed: cannot locate symbol`, which no partition check would show. Symbol
 versions (`memcpy@@LIBC`) are stripped, because the linker matches the base name.
+
+## D21 - WiFi: rebuild the HAL glue in Android 14's own tree, not the blob (Nov 7, DECIDED)
+
+The owner asked whether a 64-bit rebuild of the *driver* for this chip would let the 32-bit WiFi blobs
+stay. Three probes answered it:
+
+| layer | what it actually is | what it needs |
+|---|---|---|
+| kernel driver | `/vendor/lib/modules/8188eu.ko`, Realtek `v5.7.6_33076.20190419` (Rockchip's `drivers/net/wireless/rockchip_wlan/rtl8188eu`), GPL, alias `usb:v0BDAp0179` = RTL8188ETV. Registers a cfg80211 wiphy with `scan`/`connect`/`start_ap`/`add_virtual_intf`/`mgmt_tx`/`remain_on_channel`; strings show **no** vendor HAL hooks and no private-ioctl scan | nothing. A `.ko` is kernel-side code - the 32/64-bit userspace question does not apply to it - and it is nl80211-standard, which is what Android 14 talks to. `hu_insmod.sh` loads it |
+| HAL glue | the stock `lib/libwifi-hal.so` (123,576 B, ARM soft-float) + `lib/librkwifi-ctrl.so` (chip detection: `0bda:0179 -> RTL8188EU`) | Android 14 does not use these. `libwifi-hal.so` is an Android 8-`wifi_hal_fn` table, loaded by whoever links it |
+| wifi service | staged blob `android.hardware.wifi@1.0-service` (ELF64, 442,968 B, 0 unresolved symbols) | **nothing can use it**: Android 14's wifi service Java has 0 references to `android.hardware.wifi@` (HIDL wifi support is gone), and our vendor manifest declares no wifi entry at all |
+| supplicant | blob `wpa_supplicant` (2,831,168 B) needs `sk_dup` + `nl_send_auto_complete` | cannot load on Android 14's OpenSSL 3 / libnl 3.8 - and Android 14 builds its own from `external/wpa_supplicant_8` anyway |
+| what ships today | `/vendor/lib64/libwifi-hal.so` (136,888 B) built from `libwifi-hal-fallback` (`wifi_hal_fallback.cpp`) because `BOARD_WLAN_DEVICE` is unset, so Soong takes `conditions_default` | that stub's `wifi_initialize` reports unsupported, so Android 14's wifi framework finds no usable chip |
+
+Android 14's own `frameworks/opt/net/wifi/libwifi_hal/Android.bp` already has a Realtek branch:
+`board_wlan_device: realtek -> whole_static_libs: ["libwifi-hal-rtk"]`, and
+`build/make/core/board_config_wifi.mk` feeds `BOARD_WLAN_DEVICE` into that Soong config namespace. AOSP
+ships no Realtek HAL source, so we add one:
+
+- `libwifi-hal-rtk` as a `cc_library_static { vendor: true }` built from published Apache-2.0 source:
+  `github.com/kimocoder/android_wifi_hal` (`hardware/realtek/wlan/wifi_hal`: `rtw_wifi_hal.cpp`,
+  `rtw_wifi_rtt.cpp`, `common.cpp`, `cpp_bindings.cpp`, `rtw_wifi_gscan.cpp`, `rtw_wifi_llstats.cpp`,
+  `rtw_wifi_logger.cpp`, `rtw_wifi_offload.cpp`) plus `wpa_supplicant_8_lib/driver_cmd_nl80211.c`.
+  `github.com/gugugaga-rockchip/android_hardware_rockchip_wifi` has a `lineage-21.0` branch that wires
+  exactly this for Android 14, and Rockchip's own `libwifi_hal/rk_wifi_ctrl.cpp` maps `0bda:0179` to
+  `RTL8188EU` + `libwifi-hal-rtk.so`.
+- `BOARD_WLAN_DEVICE := realtek` (+ `WIFI_DRIVER_MODULE_NAME/PATH/ARG`) in `BoardConfig.mk`.
+- Request the services Android 14 builds: `android.hardware.wifi-service` (the AIDL impl,
+  `hardware/interfaces/wifi/aidl/impl`), its supplicant and hostapd services, and `wpa_supplicant`/
+  `hostapd` from `external/wpa_supplicant_8`. Their manifest fragments land in
+  `vendor/etc/vintf/manifest/`, which the packer merges - that is what makes the wifi entry exist.
+- Drop the blob `wpa_supplicant`/`hostapd` copies and the orphan `android.hardware.wifi@1.0-service`;
+  keep `librkwifi-ctrl.so` only while the rtk glue needs `check_wifi_chip_type_string`.
+
+Cost: one static library from public source, a BoardConfig line and a few `PRODUCT_PACKAGES` entries.
+It also retires the `sk_dup` compat library the earlier plan needed - Android 14's own supplicant
+replaces the blob.
+
+Accepted caveat (KISS): Realtek's gscan / RTT / offload / llstat paths talk private driver commands, and
+this driver has no HAL hooks while `CONFIG_CFG80211_WEXT` is off in the shipped kernel. Those extras will
+not work; scan, connect and softap run over nl80211. Wireless CarPlay/AA still needs a dual-band dongle
+(**D12** - the chip itself is 2.4 GHz only, which no software change fixes).

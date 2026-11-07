@@ -171,8 +171,12 @@ change can create 5 GHz on that chip.
   `/vendor/lib/modules`, so no kernel rebuild is needed - only module loading in
   `init.connectivity.rc` and a correct regulatory country code (`iw reg set`, kernel regdb is
   mandatory on this build: `CONFIG_CFG80211_REQUIRE_SIGNED_REGDB=y`).
-- **HAL/framework level**: `wifi@1.0` HAL, `wpa_supplicant`/`hostapd` configs must report the band
-  (`iw list`, `WifiCapabilities`) or Android hides the AP list.
+- **HAL/framework level** (**D21**, Nov 7): Android 14 has no HIDL wifi support, so the stock
+  `wifi@1.0-service` blob cannot serve it. The control plane is rebuilt in our tree: `libwifi-hal-rtk`
+  from published Apache-2.0 source + `BOARD_WLAN_DEVICE := realtek` + the AIDL
+  `android.hardware.wifi-service`/supplicant/hostapd services, which declare the wifi entry in the
+  vendor manifest. The driver itself needs no rebuild (`8188eu.ko` is nl80211-standard). Band reporting
+  still has to come from the driver (`iw list`, `WifiCapabilities`) or Android hides the AP list.
 - `CONFIG_MAC80211_RC_MINSTREL_VHT` is off in the shipped config: 5 GHz works but VHT rate control
   is not tuned, so throughput is lower; that is a kernel-config item if we rebuild.
 Fallback if no hardware swap: wired CarPlay/AA only (works today). **D12: the owner declined the

@@ -116,7 +116,7 @@ Three vendor fixes are decided by the ABI run (`tools/vendor_abi_check.py`, arch
 | gap | fix |
 |---|---|
 | `drmModeAddFB2_ext` - the composer blob `hwcomposer.rk30board.so` (both arches) | overwrite Android 14's `/vendor/lib(64)/libdrm.so` with the staged Rockchip blob. Android 14's own consumers lose nothing (`tools/abi_swap_plan.py`: cost 0). Injection today *skips* a path a module already installed, so `scripts/inject_vendor_blobs.sh` needs an overwrite mode. |
-| WiFi supplicant: blob `wpa_supplicant` needs `sk_dup` (OpenSSL 3 dropped it) and `nl_send_auto_complete` (libnl 3.8 renamed it) | overwrite `/vendor/lib64/libnl.so` with the Android 11-era copy (cost 0), and add a ~15-line compat library that implements `sk_dup` over the exported `sk_new_null`/`sk_push`/`sk_value`/`sk_num`, pulled in with `patchelf --add-needed`. |
+| WiFi: blob `wpa_supplicant` needs `sk_dup` (OpenSSL 3 dropped it) + `nl_send_auto_complete`, and Android 14's wifi framework has **zero** HIDL wifi references | **D21**: rebuild Android 14's own Realtek glue instead of salvaging blobs - add `libwifi-hal-rtk` (`cc_library_static`, vendor, from `github.com/kimocoder/android_wifi_hal`, Apache-2.0; wiring exists in `gugugaga-rockchip/android_hardware_rockchip_wifi` branch `lineage-21.0`), set `BOARD_WLAN_DEVICE := realtek` (Soong picks it via `build/make/core/board_config_wifi.mk`), request `android.hardware.wifi-service` + the AIDL supplicant/hostapd services + `wpa_supplicant`/`hostapd` from `external/wpa_supplicant_8`. Drop the blob supplicant/hostapd and the orphan `android.hardware.wifi@1.0-service`. No driver rebuild: `8188eu.ko` is kernel-side and nl80211-standard. No `sk_dup` compat library needed either |
 | HW video codecs: `libomxvpu_dec/enc.so` need `GraphicBufferMapper::lock/unlock`, which Android 14's `libui` no longer exports | **declared gap for v1** (`vendor_dest_deviations.txt`). Swapping Android 10's `libui.so` in would cost Android 14 7 symbols, so it is not an option; a real fix needs a mapper shim, which is M4 work. |
 
 Steps, in order:
@@ -128,7 +128,12 @@ Steps, in order:
    dexopts at boot), `/system/bin` control binaries + OEM `system/lib` libs via `PRODUCT_COPY_FILES`, and
    `/init.hct.rc` as `/system/etc/init/hct.rc`. The framework-coupled forks (`HCTSystemUI10`, `HCTSettings10`,
    `HCT8Launcher3`, `HCTProvision10`, `HCTPackageInstaller10`) stay out - Lineage 21 ships its own.
-3. Apply the two vendor fixes above, re-run `scripts/package.sh`, then `scripts/verify_artifacts.sh`.
+3. Apply the libdrm overwrite (`scripts/inject_vendor_blobs.sh` gains an overwrite mode,
+   `package.sh:sync_vendor_image()` compares content instead of presence), then land the WiFi route
+   (**D21**): stage `libwifi-hal-rtk` from the published Realtek HAL source, set
+   `BOARD_WLAN_DEVICE := realtek`, request `android.hardware.wifi-service` + the AIDL supplicant/hostapd
+   services, and drop the blob `wpa_supplicant`/`hostapd` and the orphan `android.hardware.wifi@1.0-service`.
+   Re-run `scripts/package.sh`, then `scripts/verify_artifacts.sh`.
 4. Build the payload with `scripts/build_hu_package.sh` (never run yet), check `unzip -l` + sha256, stick
    at the root of a FAT32 stick (**D18**), read the recovery menu's version line, flash.
 5. First boot: SD-card probe, then judge display/audio/tuner/CAN/AV-in/GPS/BT before anything else.
