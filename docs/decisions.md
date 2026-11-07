@@ -418,3 +418,42 @@ Accepted caveat (KISS): Realtek's gscan / RTT / offload / llstat paths talk priv
 this driver has no HAL hooks while `CONFIG_CFG80211_WEXT` is off in the shipped kernel. Those extras will
 not work; scan, connect and softap run over nl80211. Wireless CarPlay/AA still needs a dual-band dongle
 (**D12** - the chip itself is 2.4 GHz only, which no software change fixes).
+
+### What it took on the build host (Nov 7, verified)
+
+`m libwifi-hal-rtk libwifi-hal android.hardware.wifi-service wpa_supplicant hostapd` builds clean, and
+the installed binaries resolve:
+
+| file | size | unresolved symbols |
+|---|---|---|
+| `vendor/bin/hw/android.hardware.wifi-service` | 567,008 B | 0 |
+| `vendor/bin/hw/wpa_supplicant` | 3,347,280 B | 0 |
+| `vendor/bin/hw/hostapd` | 1,762,008 B | 0 |
+| `vendor/lib64/libwifi-hal.so` (fallback 136,888 B -> now 211,592 B with the Realtek impl) | 211,592 B | 0 |
+
+Manifest fragments installed beside them: `android.hardware.wifi-service.xml`,
+`android.hardware.wifi.supplicant.xml`, `android.hardware.wifi.hostapd.xml`, plus
+`android.hardware.wifi-service.rc` and `android.hardware.wifi.supplicant-service.rc`.
+
+Four things the config had to get right, each of them a real failure on the first pass:
+
+1. `WPA_SUPPLICANT_VERSION := VER_0_8_X` - `external/wpa_supplicant_8/Android.mk:3` only includes the
+   supplicant and hostapd Android.mks for those versions, otherwise `m` says
+   "PRODUCT_PACKAGES includes non-existent modules: hostapd wpa_supplicant".
+2. `WIFI_HIDL_UNIFIED_SUPPLICANT_SERVICE_RC_ENTRY := true` - otherwise the supplicant installs without
+   its init entry (`wpa_supplicant/Android.mk:1980`). hostapd's AIDL variant needs nothing
+   (its Android.mk sets `HOSTAPD_USE_AIDL=y` itself).
+3. `WIFI_DRIVER_MODULE_NAME := "8188eu"` and `WIFI_DRIVER_MODULE_PATH := "/vendor/lib/modules/8188eu.ko"`
+   - with **quotes, no backslashes**. `build/make/core/board_config_wifi.mk` hands the value to Soong's
+   config JSON verbatim, and `wifi_hal_common.cpp` uses the macros as string literals
+   (`WIFI_DRIVER_MODULE_NAME " "`, `sizeof(...)`): unquoted gives "sizeof on incomplete type",
+   `\"`-escaped gives "soong.variables did not parse correctly".
+4. The Make-built wifi paths collide with the blob copies, so `vendor_dest_skip_extra.txt` gained
+   `bin/hw/wpa_supplicant`, `bin/hw/hostapd`, `etc/init/hostapd.android.rc`, `bin/wpa_cli`,
+   `lib(64)/libwpa_client.so` (ckati: "overriding commands for target .../vendor/bin/wpa_cli"), and
+   `vendor_dest_deviations.txt` gained the HIDL service, its `.rc`, `lib/libwifi-hal.so` and
+   `librkwifi-ctrl.so` in both arches.
+
+The `sk_dup` compat library from the earlier plan is confirmed unnecessary: Android 14's own
+`wpa_supplicant` asks for `OPENSSL_sk_dup`, which Android 14's `vendor/lib64/libcrypto.so` exports, and
+for `nl_send_auto_complete`, which Android 14's `vendor/lib64/libnl.so` still exports.

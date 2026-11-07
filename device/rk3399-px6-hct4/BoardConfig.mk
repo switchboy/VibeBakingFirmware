@@ -81,8 +81,13 @@ BOARD_KERNEL_CMDLINE := console=ttyFIQ0 androidboot.baseband=N/A androidboot.wif
 # load_wifi_module(); hu_insmod.sh insmods the .ko earlier in boot, so they only say where it lives.
 # WIFI_DRIVER_MODULE_ARG is left undeclared on purpose: the driver takes no module parameters.
 BOARD_WLAN_DEVICE := realtek
-WIFI_DRIVER_MODULE_NAME := 8188eu
-WIFI_DRIVER_MODULE_PATH := /vendor/lib/modules/8188eu.ko
+# These become -DWIFI_DRIVER_MODULE_* macros (frameworks/opt/net/wifi/libwifi_hal/wifi_hal_common.cpp
+# uses them as string literals and sizeof()s them), and build/make/core/board_config_wifi.mk passes the
+# value into Soong's config JSON verbatim - so the quotes must be part of the Make value, without
+# backslashes. Unquoted gives `-DWIFI_DRIVER_MODULE_NAME=8188eu` ("sizeof on incomplete type"), and
+# \"-escaped gives invalid JSON ("soong.variables did not parse correctly").
+WIFI_DRIVER_MODULE_NAME := "8188eu"
+WIFI_DRIVER_MODULE_PATH := "/vendor/lib/modules/8188eu.ko"
 
 # The supplicant and hostapd binaries are Make-built (`external/wpa_supplicant_8/Android.mk` line 3
 # only includes the two Android.mks when WPA_SUPPLICANT_VERSION is VER_0_8_X or VER_2_1_DEVEL), which

@@ -44,3 +44,11 @@ etc/NOTICE.xml.gz
 bin/hw/wpa_supplicant
 bin/hw/hostapd
 etc/init/hostapd.android.rc
+
+# Same Make-built pair for the client tools: wpa_cli and libwpa_client are built from
+# external/wpa_supplicant_8 (wpa_supplicant/Android.mk:1912 and :2043), so the stock copies collide
+# with them (ckati: "overriding commands for target .../vendor/bin/wpa_cli, previously defined at
+# build/make/core/base_rules.mk:497"). Android 14's copy is the ABI its own supplicant talks to.
+bin/wpa_cli
+lib/libwpa_client.so
+lib64/libwpa_client.so

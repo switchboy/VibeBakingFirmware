@@ -32,6 +32,7 @@ etc/init/vendor_flash_recovery.rc
 # `librkwifi-ctrl.so` only served that service (`check_wifi_chip_type_string`, `get_wifi_device_id`);
 # the module loading it used to do is hu_insmod.sh's job.
 bin/hw/android.hardware.wifi@1.0-service
+etc/init/android.hardware.wifi@1.0-service.rc
 lib/libwifi-hal.so
 lib64/librkwifi-ctrl.so
 lib/librkwifi-ctrl.so

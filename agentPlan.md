@@ -128,12 +128,14 @@ Steps, in order:
    dexopts at boot), `/system/bin` control binaries + OEM `system/lib` libs via `PRODUCT_COPY_FILES`, and
    `/init.hct.rc` as `/system/etc/init/hct.rc`. The framework-coupled forks (`HCTSystemUI10`, `HCTSettings10`,
    `HCT8Launcher3`, `HCTProvision10`, `HCTPackageInstaller10`) stay out - Lineage 21 ships its own.
-3. Apply the libdrm overwrite (`scripts/inject_vendor_blobs.sh` gains an overwrite mode,
-   `package.sh:sync_vendor_image()` compares content instead of presence), then land the WiFi route
-   (**D21**): stage `libwifi-hal-rtk` from the published Realtek HAL source, set
-   `BOARD_WLAN_DEVICE := realtek`, request `android.hardware.wifi-service` + the AIDL supplicant/hostapd
-   services, and drop the blob `wpa_supplicant`/`hostapd` and the orphan `android.hardware.wifi@1.0-service`.
-   Re-run `scripts/package.sh`, then `scripts/verify_artifacts.sh`.
+3. WiFi is landed (**D21**): `libwifi-hal-rtk` compiles unchanged for arm64 and arm, and Android 14's own
+   `android.hardware.wifi-service` / `wpa_supplicant` / `hostapd` install with their `.rc` files and VINTF
+   fragments, all resolving with 0 unresolved symbols (`docs/decisions.md` D21 for the four config gotchas).
+   Still to do here: the **libdrm overwrite** (`scripts/inject_vendor_blobs.sh` gains an overwrite mode,
+   `package.sh:sync_vendor_image()` compares content instead of presence), then `scripts/package.sh` and
+   `scripts/verify_artifacts.sh`. Watch `check_vintf_compatible.log` in that pass: the derived vendor
+   manifest still carries the stock HIDL `wifi@1.3`/`hostapd@1.1`/`supplicant@1.2` blocks, which now
+   describe services that do not exist - if VINTF objects, drop those blocks from `vintf/vendor_manifest.xml`.
 4. Build the payload with `scripts/build_hu_package.sh` (never run yet), check `unzip -l` + sha256, stick
    at the root of a FAT32 stick (**D18**), read the recovery menu's version line, flash.
 5. First boot: SD-card probe, then judge display/audio/tuner/CAN/AV-in/GPS/BT before anything else.
