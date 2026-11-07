@@ -68,6 +68,31 @@ If space is still tight after the sync, drop `.repo/git` and `.repo/projects` (t
 keeping `.repo/manifest.xml` and `.repo/manifests/`, because `m dist` reads the manifest. Re-check
 `df -h` before starting `make`.
 
+## Space policy on the SSD (Nov 7)
+
+`SSData` is 372 GB and 96 % full: docker ~87 GB, the tree + `out/` ~246 GB, the reference firmware
+2.4 GB, scratch in `aospbuild/tmp` 3.2 GB. Free was 14 GB, which is too little for a packaging pass
+(`m dist` + `m superimage` + the OTA zip + the hu payload's ~2 GB of uncompressed `.new.dat`).
+
+Two moves, in this order (**prune first, move second**):
+
+1. **Prune old attempts** - every artefact the scripts regenerate: `aospbuild/tmp/*` scratch
+   (`super_raw.img`, `carved_system.img`, ramdisk-check dirs, `ref-a10-src`), `out/target/product/
+   rk3399/boot.zip`/`boot_zip`/`boot-debug.img`/`boot-test-harness.img`/`*-apps.zip`/`gcov-*`, and the
+   dist packages `package.sh:prune_dist()` already drops. Never `out/soong` - it is the incremental
+   cache that makes a packaging pass 45 min instead of 6 hours.
+2. **Move what a build never reads to the HDD pool** (`/srv/50911774-19fb-46b6-bc9e-8cf81623d044`,
+   mergerfs over the three 7200 RPM data disks, 960 GB free; `/srv/dev-disk-by-label-parity` stays
+   untouched) and symlink it back in place, so nothing in the scripts changes:
+   `daisaita_a11.zip`, `VibeBakingFirmware/update.zip`, `VibeBakingFirmware/extracted update.zip`,
+   `tmp/ref-a10/*.img`. Reads only happen in `prebuilt_vendor.sh` (first pass) and
+   `build_hu_package.sh`/`gen_hu_payload.py`, so HDD latency costs seconds, not minutes.
+   `mv` then `ln -s`, and check the symlink resolves before the next pass.
+
+Only if that is still short: drop `.repo/git` + `.repo/projects` (~35 GB) while keeping
+`.repo/manifest.xml` and `.repo/manifests/` (`m dist` reads the manifest via `repo manifest -r`). That
+costs the ability to `repo sync` later, so it is the last resort, not the first.
+
 ## Shallow sync
 
 GitHub refused the fetches on the big repos (`LineageOS/android`, `android_art`, `android_bionic`,

@@ -94,6 +94,16 @@ def tree_paths(root):
     return out
 
 
+def walk_files(root):
+    """Every file under root, as paths relative to root. tree_paths() only gives the basenames, so
+    iterating it loses the directory - which is how the built-library lookup stopped matching the
+    public libraries in /system/lib64."""
+    for dirpath, _dirs, files in os.walk(root):
+        rel = os.path.relpath(dirpath, root)
+        for name in files:
+            yield os.path.join(rel, name) if rel != "." else name
+
+
 def image_paths(img):
     """{partition-relative path: basename} of a built ext4 image; sparse images are converted first."""
     if not os.path.isfile(img):
@@ -136,6 +146,20 @@ def arch_of(rel):
     if d in ("bin/hw", "bin"):
         return "lib64" if d == "bin/hw" else "lib"
     return None
+
+
+def elf_arch(path):
+    """ELF class of a file: 0x02 at offset 4 is 64-bit, 0x01 is 32-bit. This beats the directory,
+    because /vendor/bin and /vendor/bin/hw carry 64-bit *and* 32-bit executables on this vendor tree,
+    and a 32-bit binary resolves its sonames in /vendor/lib, not /vendor/lib64."""
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(5)
+    except OSError:
+        return None
+    if magic[:4] != b"\x7fELF":
+        return None
+    return "lib64" if magic[4] == 2 else "lib"
 
 
 def exported_symbols(fp):
@@ -182,12 +206,23 @@ def main():
     graph = module_graph(tree)
     if not graph:
         raise SystemExit("no module-info json in out/soong - run a build first")
-    built = {}
+    built = {}          # soname -> [(label, absolute path)] Android 14's own copies
     for part in SYSTEM_PARTS:
         d = os.path.join(pdir, part)
         if os.path.isdir(d):
-            for rel in tree_paths(d):
-                built.setdefault(os.path.basename(rel), []).append((part, rel))
+            for rel in walk_files(d):
+                built.setdefault(os.path.basename(rel), []).append(("/" + part, os.path.join(d, rel)))
+    # Android 14 keeps bionic and TLS in APEXes (com.android.runtime's lib{,64}/bionic, conscrypt's
+    # libssl/libcrypto). Nothing named libc.so exists in /system any more, so the unpacked apex
+    # payload under the product dir is where these files actually are; the arch is the lib/lib64
+    # component of the path inside the APEX.
+    apex = os.path.join(pdir, "apex")
+    if os.path.isdir(apex):
+        for rel in walk_files(apex):
+            arch = next((p for p in rel.split("/") if p in ("lib", "lib64")), None)
+            if arch:
+                built.setdefault(os.path.basename(rel), []).append(
+                    ("APEX " + rel.split("/")[0] + "/" + arch, os.path.join(apex, rel)))
     prebuilt = os.path.join(device_dir, "prebuilt_vendor_libs")
 
     kept = [rel for rel in sorted(p for ps in staged.values() for p in ps)
@@ -204,7 +239,8 @@ def main():
         from_rel, lib = todo.pop()
         if lib in BIONIC:
             continue
-        arch = arch_of(from_rel) or "lib64"
+        from_path = os.path.join(staged_root, from_rel)
+        arch = elf_arch(from_path) or arch_of(from_rel) or "lib64"
         if (lib, arch) in seen:
             continue
         seen.add((lib, arch))
@@ -213,8 +249,11 @@ def main():
         blob = [p for p in staged.get(lib, []) if p not in dropped and os.path.dirname(p) == arch]
         if blob:
             continue                                       # B: PRODUCT_COPY_FILES copies the staged blob
-        if lib in public and os.path.isfile(os.path.join(pdir, "system", arch, lib)):
-            continue                                       # C: public library, loaded straight from /system
+        if lib in public and any(os.path.dirname(p) == arch or arch in p.split("/")
+                                 for _l, p in built.get(lib, [])):
+            continue                                       # C: public library, loaded straight out of
+                                                       # /system (or from an APEX, where Android 14
+                                                       # keeps bionic and TLS)
         stem = lib[:-3]
         mod = "%s.vendor" % stem if arch == "lib64" else "%s.vendor_32" % stem
         if mod in graph:
@@ -229,10 +268,10 @@ def main():
         if dest in in_vendor or lib in in_vendor.values():
             continue                                       # A: already in /vendor
         if lib in built:
-            part, rel = built[lib][0]
-            inject[dest] = (os.path.join(pdir, part, rel),
-                            "Android 14 builds this for /%s only, it is not a public library and no "
-                            "vendor variant module exists; injecting its own compiled copy" % part)
+            label, src = next(((l, p) for l, p in built[lib] if os.path.dirname(p) == arch),
+                              built[lib][0])
+            inject[dest] = (src, "Android 14 builds this for %s only, it is not a public library and "
+                                 "no vendor variant module exists; injecting its own compiled copy" % label)
             todo.extend((dest, l) for l in elf_needed(inject[dest][0]))
             continue                                       # E
         pb_src = os.path.join(prebuilt, arch, lib)

@@ -101,9 +101,39 @@ Detailed milestone breakdown: `docs/plan.md`.
 | Wireless CarPlay/AA needs 5 GHz, unit's WiFi is a USB **Realtek RTL8188E** dongle (2.4 GHz hardware) | feature cannot be used wirelessly | hardware fix: swap that USB module for a dual-band RTL8821CU/8822BU - the shipped vendor already carries `8821cu.ko`/`8822bu.ko`, so no kernel rebuild; needs module loading in `init.connectivity.rc` and a correct `iw reg` country code. Wired CarPlay/AA unaffected |
 | Payload signing / upgrade app rejects our zip | cannot install | keep the same custom update-binary mechanism; verify signature handling before release |
 
-## Next action
+## Next action (Nov 7 — first boot, with the HCT apps in the same flash)
 
-1. Run pack26 with the vendor variants requested (**D20**). `scripts/package.sh` now runs
+**Owner change of plan (Nov 7):** the first flash ships the head-unit app layer too, so the unit is
+usable after one flash instead of two (**D6** moves from "later" into M3). Apps live in `system`, not
+`vendor`: `system/app/HCT8Radio` … `system/priv-app/HCTCanBus` + `/system/bin/gocsdk*/sdsdk*/blueletd/
+brlinktd/hctcanbusservice` + `/init.hct.rc`. The unit's own app set is the **HCT8/HCT8_1** generation
+(`pm list packages -f` in probe 20261105-1914), which is *not* what the reference payload carries
+(HCT4, Mar 2021) nor what the Daisaita images carry (HCT7) - so the app layer must come from the live
+unit (or an official zip the owner has), not out of `analysis/`.
+
+Three vendor fixes are decided by the ABI run (`tools/vendor_abi_check.py`, arch-aware version):
+
+| gap | fix |
+|---|---|
+| `drmModeAddFB2_ext` - the composer blob `hwcomposer.rk30board.so` (both arches) | overwrite Android 14's `/vendor/lib(64)/libdrm.so` with the staged Rockchip blob. Android 14's own consumers lose nothing (`tools/abi_swap_plan.py`: cost 0). Injection today *skips* a path a module already installed, so `scripts/inject_vendor_blobs.sh` needs an overwrite mode. |
+| WiFi supplicant: blob `wpa_supplicant` needs `sk_dup` (OpenSSL 3 dropped it) and `nl_send_auto_complete` (libnl 3.8 renamed it) | overwrite `/vendor/lib64/libnl.so` with the Android 11-era copy (cost 0), and add a ~15-line compat library that implements `sk_dup` over the exported `sk_new_null`/`sk_push`/`sk_value`/`sk_num`, pulled in with `patchelf --add-needed`. |
+| HW video codecs: `libomxvpu_dec/enc.so` need `GraphicBufferMapper::lock/unlock`, which Android 14's `libui` no longer exports | **declared gap for v1** (`vendor_dest_deviations.txt`). Swapping Android 10's `libui.so` in would cost Android 14 7 symbols, so it is not an option; a real fix needs a mapper shim, which is M4 work. |
+
+Steps, in order:
+
+1. **Disk first** (the SSD had 14 GB free): prune old attempts, then move the read-only reference
+   firmware to the HDD pool and symlink it back. See `docs/build-host.md` "Space plan".
+2. Pull the app layer off the live unit with the SD/Termux probe (tar + LAN upload, cap raised), or from
+   the owner's official zip; then stage it: APKs as `BUILD_PREBUILT` `APPS` modules (no `oat/`, Android 14
+   dexopts at boot), `/system/bin` control binaries + OEM `system/lib` libs via `PRODUCT_COPY_FILES`, and
+   `/init.hct.rc` as `/system/etc/init/hct.rc`. The framework-coupled forks (`HCTSystemUI10`, `HCTSettings10`,
+   `HCT8Launcher3`, `HCTProvision10`, `HCTPackageInstaller10`) stay out - Lineage 21 ships its own.
+3. Apply the two vendor fixes above, re-run `scripts/package.sh`, then `scripts/verify_artifacts.sh`.
+4. Build the payload with `scripts/build_hu_package.sh` (never run yet), check `unzip -l` + sha256, stick
+   at the root of a FAT32 stick (**D18**), read the recovery menu's version line, flash.
+5. First boot: SD-card probe, then judge display/audio/tuner/CAN/AV-in/GPS/BT before anything else.
+
+Older numbered action (still true, now folded into step 3): `scripts/package.sh` runs
    `tools/vendor_link_closure.py` before the deploy (it writes `vendor_modules_extra.mk`, which
    `device.mk` `-include`s), injects whatever has no vendor variant module, runs dist, re-runs the
    closure and `tools/vendor_abi_check.py` after dist, syncs `vendor.img` if anything was injected,

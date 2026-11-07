@@ -11,14 +11,19 @@ the blob itself is:
     vendor_modules_extra.mk asks for), plus /odm/<lib|lib64>
   * the other kept staged blobs in the same architecture directory (Rockchip's libraries link each
     other)
-  * /system libraries listed as public in system/etc/linker.config.pb, in the matching arch directory
+  * /system libraries listed as public in system/etc/linker.config.pb, in the matching arch directory,
+    and the public libraries that Android 14 keeps in APEXes: bionic (com.android.runtime's
+    lib{,64}/bionic) and TLS (conscrypt). /system/lib64/libc.so does not exist on Android 14, which
+    is why memcpy/abort/__cxa_finalize looked missing.
 
-The architecture matters and is the reason an earlier version of this tool lied: `lib/libhidlbase.so`
-(32-bit) exports `configureRpcThreadpool(unsigned int, bool)` - `_ZN...Ejb` - while
-`lib64/libhidlbase.so` exports the `unsigned long` variant `_ZN...Emb`. Collecting the symbol sets by
-file *name* took whichever copy the walk found last, so a 32-bit Rockchip HAL was matched against the
-64-bit library and reported dozens of symbols it would actually find. Symbols are therefore keyed by
-partition-relative path, and a blob is checked against its own architecture only.
+The architecture comes from the blob's own ELF class, not its directory: /vendor/bin and
+/vendor/bin/hw hold 32-bit *and* 64-bit executables on this vendor tree, and a 32-bit binary resolves
+its sonames against /vendor/lib. The reason an earlier version of this tool lied is that symbol sets
+were collected by file *name*: `lib/libhidlbase.so` (32-bit) exports
+`configureRpcThreadpool(unsigned int, bool)` - `_ZN...Ejb` - while `lib64/libhidlbase.so` exports the
+`unsigned long` variant (`_ZN...Emb`), so a 32-bit Rockchip HAL was matched against the 64-bit library
+and reported dozens of symbols it would actually find. Symbols are therefore keyed by partition-
+relative path, and a blob is checked against its own architecture only.
 
 Anything left over is a real ABI break: the HAL would fail to dlopen at boot, and the log line is
 `dlopen failed: cannot locate symbol ...`. Symbol versions (`memcpy@@LIBC`) are stripped, since the
@@ -91,8 +96,9 @@ def tree_symbols(root):
 
 
 def arch_of(rel):
-    """The directory the loader searches for this blob's sonames (a module in lib64/hw resolves its
-    NEEDED entries against /vendor/lib64, not against lib64/hw)."""
+    """The directory the loader searches for this blob's sonames. Used as a fallback: /vendor/bin and
+    /vendor/bin/hw hold both 32-bit and 64-bit executables on this vendor tree, so the ELF class
+    decides (see elf_class below)."""
     d = os.path.dirname(rel)
     if d.startswith("lib64"):
         return "lib64"
@@ -105,14 +111,31 @@ def arch_of(rel):
     return None
 
 
-def symbols_for(arch, sources):
-    """Union of the symbol sets of every library that sits in <arch>/ of the given sources.
+def elf_class(path):
+    """ELF class: offset 4 is 0x02 for 64-bit, 0x01 for 32-bit."""
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(5)
+    except OSError:
+        return None
+    if magic[:4] != b"\x7fELF":
+        return None
+    return "lib64" if magic[4] == 2 else "lib"
 
-    sources: [(label, {path: symbols}), ...]; a path's first component is the arch directory."""
+
+def path_arch(path):
+    """The architecture directory a library belongs to. For an APEX payload the component is inside
+    the APEX's own layout (com.android.runtime/lib64/bionic/libc.so)."""
+    parts = path.split("/")
+    return next((p for p in parts if p in ("lib", "lib64")), os.path.dirname(path))
+
+
+def symbols_for(arch, sources):
+    """Union of the symbol sets of every library that sits in the <arch> directory of a source."""
     out = set()
-    for label, table in sources:
+    for _label, table in sources:
         for path, syms in table.items():
-            if os.path.dirname(path) == arch:
+            if path_arch(path) == arch:
                 out |= syms
     return out
 
@@ -136,14 +159,19 @@ def main():
     public = public_libs(pdir)
     system = {p: s for p, s in tree_symbols(os.path.join(pdir, "system")).items()
               if os.path.basename(p) in public}
+    # Android 14 keeps bionic and TLS in APEXes, so there is no /system/lib64/libc.so: the unpacked
+    # apex payload under the product dir (com.android.runtime/lib64/bionic/libc.so, conscrypt's
+    # libssl/libcrypto) is where those public libraries actually live.
+    apex = {p: s for p, s in tree_symbols(os.path.join(pdir, "apex")).items()
+            if os.path.basename(p) in public}
     staged_kept = {p: s for p, s in tree_symbols(staged_root).items() if p not in dropped}
     # The dropped staged copies: kept for one reason - to say where a missing symbol would have come
     # from, so the report can name the drop that took it away.
     staged_dropped = {p: s for p, s in tree_symbols(staged_root).items() if p in dropped}
 
     print("libraries in /vendor: %d ; in /odm: %d ; kept staged: %d ; dropped staged: %d ; "
-          "public /system libraries: %d" % (len(installed), len(odm), len(staged_kept),
-                                            len(staged_dropped), len(system)))
+          "public /system libraries: %d ; public APEX libraries: %d"
+          % (len(installed), len(odm), len(staged_kept), len(staged_dropped), len(system), len(apex)))
 
     kept = []
     for dp, _dirs, fs in os.walk(staged_root):
@@ -152,15 +180,15 @@ def main():
             rp = os.path.join(rel, f) if rel != "." else f
             if rp in dropped:
                 continue
-            if is_elf(os.path.join(dp, f)):
-                kept.append(rp)
+            fp = os.path.join(dp, f)
+            if is_elf(fp):
+                kept.append((rp, elf_class(fp) or arch_of(rp)))
 
     bad = {}
-    for rel in sorted(kept):
-        arch = arch_of(rel)
-        if arch is None:          # e.g. an executable in bin/hw/<name> with no lib dir class
+    for rel, arch in sorted(kept):
+        if arch is None:
             continue
-        defined = symbols_for(arch, [("vendor", installed), ("odm", odm),
+        defined = symbols_for(arch, [("vendor", installed), ("odm", odm), ("APEX", apex),
                                      ("staged", staged_kept), ("system-public", system)])
         want = undefined_symbols(os.path.join(staged_root, rel)) - defined - BIONIC
         if want:
@@ -177,13 +205,16 @@ def main():
         for s in want:
             src = []
             for p, syms in installed.items():
-                if s in syms and os.path.dirname(p) == arch:
+                if s in syms and path_arch(p) == arch:
                     src.append("/vendor/" + p)
+            for p, syms in apex.items():
+                if s in syms and path_arch(p) == arch:
+                    src.append("APEX/" + p)
             for p, syms in system.items():
-                if s in syms and os.path.dirname(p) == arch:
+                if s in syms and path_arch(p) == arch:
                     src.append("/system/" + p)
             for p, syms in staged_dropped.items():
-                if s in syms and os.path.dirname(p) == arch:
+                if s in syms and path_arch(p) == arch:
                     src.append("dropped staged copy: " + p)
             providers.setdefault((s, tuple(src)), []).append(rel)
 
