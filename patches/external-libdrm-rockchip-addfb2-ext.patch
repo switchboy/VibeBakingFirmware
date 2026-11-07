@@ -1,0 +1,71 @@
+diff --git a/external/libdrm/xf86drmMode.c b/external/libdrm/xf86drmMode.c
+index 87e9660..026e4a7 100644
+--- a/external/libdrm/xf86drmMode.c
++++ b/external/libdrm/xf86drmMode.c
+@@ -315,6 +315,43 @@ drm_public int drmModeAddFB2(int fd, uint32_t width, uint32_t height,
+ 					  buf_id, flags);
+ }
+ 
++/*
++ * Rockchip's BSP extension, added to this tree so Android 14's own libdrm exports the symbol the
++ * vendor's composer blob links against. Published source:
++ * github.com/TinkerBoard/rockchip-linux-external-libdrm (mirror of Rockchip's external/libdrm BSP
++ * fork), branch linux4.4-rk3288-tinker_board, xf86drmMode.c/xf86drmMode.h. Same MIT/X11-style
++ * licence as the rest of libdrm.
++ *
++ * Kept as published: unconditional modifier copy, no NULL guard - the only caller on this unit
++ * (DrmGenericImporter::ImportBuffer in hwcomposer.rk30board.so) always passes a real modifier
++ * array. One deviation: memclear(f). The published version leaves the struct uninitialised, and
++ * this tree's drm_mode_fb_cmd2 is newer than the one Rockchip compiled against.
++ */
++drm_public int drmModeAddFB2_ext(int fd, uint32_t width, uint32_t height,
++		uint32_t pixel_format, uint32_t bo_handles[4],
++		uint32_t pitches[4], uint32_t offsets[4], __u64 modifier[4],
++		uint32_t *buf_id, uint32_t flags)
++{
++	struct drm_mode_fb_cmd2 f;
++	int ret;
++
++	memclear(f);
++	f.width  = width;
++	f.height = height;
++	f.pixel_format = pixel_format;
++	f.flags = flags;
++	memcpy(f.handles, bo_handles, 4 * sizeof(bo_handles[0]));
++	memcpy(f.pitches, pitches, 4 * sizeof(pitches[0]));
++	memcpy(f.offsets, offsets, 4 * sizeof(offsets[0]));
++	memcpy(f.modifier, modifier, 4 * sizeof(modifier[0]));
++
++	if ((ret = DRM_IOCTL(fd, DRM_IOCTL_MODE_ADDFB2, &f)))
++		return ret;
++
++	*buf_id = f.fb_id;
++	return 0;
++}
++
+ drm_public int drmModeRmFB(int fd, uint32_t bufferId)
+ {
+ 	return DRM_IOCTL(fd, DRM_IOCTL_MODE_RMFB, &bufferId);
+diff --git a/external/libdrm/xf86drmMode.h b/external/libdrm/xf86drmMode.h
+index 19bf91d..ca3d7c6 100644
+--- a/external/libdrm/xf86drmMode.h
++++ b/external/libdrm/xf86drmMode.h
+@@ -309,6 +309,18 @@ int drmModeAddFB2WithModifiers(int fd, uint32_t width, uint32_t height,
+ 			       const uint64_t modifier[4], uint32_t *buf_id,
+ 				   uint32_t flags);
+ 
++/*
++ * Rockchip's BSP extension: the same ADDFB2 ioctl as drmModeAddFB2WithModifiers(), with the plane
++ * modifiers always copied in. Rockchip's libdrm fork exports this name and the vendor's composer
++ * blob (hwcomposer.rk30board.so, both arches) calls it, so Android 14's libdrm has to export it too.
++ * Declaration kept exactly as Rockchip published it - non-const arrays and __u64, not the const
++ * uint64_t style of the upstream neighbours above.
++ */
++extern int drmModeAddFB2_ext(int fd, uint32_t width, uint32_t height,
++			 uint32_t pixel_format, uint32_t bo_handles[4],
++			 uint32_t pitches[4], uint32_t offsets[4], __u64 modifier[4],
++			 uint32_t *buf_id, uint32_t flags);
++
+ /**
+  * Destroies the given framebuffer.
+  */
