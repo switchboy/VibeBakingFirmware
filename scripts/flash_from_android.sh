@@ -10,8 +10,13 @@
 # payload cannot pass recovery verification, and AOSP testkey (a40da80a...) would be rejected too.
 # This script is the alternative transport: raw images read from the USB stick and written with dd.
 #
-# Run it inside a Termux root shell on the unit:  /system/xbin/su 0 sh /mnt/udisk/hu14/flash.sh
-# (PATH there carries dd, sha256sum, blockdev). POSIX sh only - Android's /system/bin/sh is mksh.
+# Run it inside a root shell on the unit. Two ways to get that root (**the ROM's own su is blocked**:
+# `/system/xbin/su` exists but returns "Permission denied", and there is no Magisk - Nov 5 probe):
+#   * from a workstation over adb - this ROM is userdebug with ro.debuggable=1, so `adb root` gives a
+#     uid-0 shell: `adb root && adb shell sh /mnt/udisk/hu14/flash.sh` (the HU must be the USB *device*,
+#     i.e. the CarPlay/OTG port; ro.adb.secure=1 means an authorization prompt on the unit's screen);
+#   * in Termux if root ever comes back: `/system/xbin/su 0 sh /mnt/udisk/hu14/flash.sh`.
+# POSIX sh only - Android's /system/bin/sh is mksh - and no toybox dependency beyond dd/sha256sum/stat.
 #
 # It writes exactly two partitions: super (Android 14's system/vendor/product/system_ext/odm plus its
 # dynamic-partition metadata, which is inside super) and boot (Android 14 kernel+ramdisk+vendor DTB).
@@ -35,10 +40,26 @@ BOOT=/dev/block/by-name/boot
 
 say() { printf '%s\n' "$1" | tee -a "$LOG"; }
 
+# Partition size without depending on toybox's blockdev (not present in every Android 11 build): ask
+# blockdev first, else read the block device's KiB column out of /proc/partitions via the by-name link.
+part_size() {
+  name=$(basename "$(readlink "$1" 2>/dev/null || printf '%s' "$1")")
+  size=$(blockdev --getsize64 "$1" 2>/dev/null)
+  [ -n "${size:-}" ] || size=$(awk -v d="$name" '$4 == d { print $3 * 1024 }' /proc/partitions 2>/dev/null)
+  printf '%s' "${size:-0}"
+}
+
 [ -d "$SRC" ] || { echo "no $SRC on the stick (copy the hu14 dir to /mnt/udisk)"; exit 1; }
 : > "$LOG" 2>/dev/null || { echo "stick not writable ($LOG)"; exit 1; }
 say "hu14 flash - $(date 2>/dev/null)"
 say "running rom: $(getprop ro.build.version.release) $(getprop ro.build.display.id)"
+
+# Must be a root shell: dd of an eMMC partition is not permitted any other way.
+if [ "$(id -u)" != 0 ]; then
+  say "ABORT: needs a root shell (uid 0). This ROM's own su is blocked, so use adb root (userdebug,"
+  say "       ro.debuggable=1): adb root && adb shell sh /mnt/udisk/hu14/flash.sh"
+  exit 1
+fi
 
 # Guard: this must run from Android 10/11. Running it from Android 14 would overwrite the ROM it is
 # booted from, which is a self-destruct, not an install.
@@ -68,7 +89,7 @@ while read -r want name _rest; do
 done < "$SRC/sha256.txt"
 [ "$ok" = 1 ] || { say "ABORT: stick images do not match sha256.txt - copy them again"; exit 1; }
 
-super_size=$(blockdev --getsize64 "$SUPER" 2>/dev/null)
+super_size=$(part_size "$SUPER")
 super_img=$(stat -c %s "$SRC/super.img" 2>/dev/null || echo 0)
 boot_img=$(stat -c %s "$SRC/boot.img" 2>/dev/null || echo 0)
 say "super partition $super_size B ; super.img $super_img B ; boot.img $boot_img B"

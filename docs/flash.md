@@ -98,7 +98,12 @@ cleanly afterwards (**D10**).
 
 1. Put `hu14/super.img`, `hu14/boot.img`, `hu14/flash.sh` (a copy of `scripts/flash_from_android.sh`) and
    `hu14/sha256.txt` (plain file names) on the stick; re-verify the manifest on the stick.
-2. In Termux on the unit: `/system/xbin/su 0 sh /mnt/udisk/hu14/flash.sh`. It verifies the images against
+2. Get a root shell. The ROM's own su is blocked (`/system/xbin/su` exists but returns "Permission
+   denied", no Magisk), so use adb: this Android 11 is `userdebug` with `ro.debuggable=1` and
+   `persist.sys.usb.config=adb`, so `adb root` gives uid 0. Cable the workstation to the port where the
+   HU is the USB *device* (the CarPlay/OTG port - the stick ports are host-mode), accept the adb
+   authorization prompt on the unit's screen once, then `adb root; adb shell sh /mnt/udisk/hu14/flash.sh`.
+   It verifies the images against
    `sha256.txt`, backs up the head and tail of `super` plus the current `boot` partition to
    `hu14-backup/` on the stick, then `dd`s `super.img` to `/dev/block/by-name/super` (Android 14's
    system/vendor/product/system_ext/odm plus its dynamic-partition metadata, all inside super) and
