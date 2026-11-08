@@ -1086,3 +1086,31 @@ the stick), which gives both a restore copy and the recovery's trusted cert bund
 On the stick they belong in `backup/a10-update.zip` and `backup/a11-update.zip`; rename one to
 `update.zip` at the stick root only when a rollback is actually wanted, because some HCT firmware
 offers an automatic firmware update the moment it sees `update.zip` at the root.
+
+## SD-card flashing (the Malaysk "SD_firmware_tool" idea) - what this uboot actually supports (Nov 8, measured)
+
+The owner asked whether we can ship a bootable SD card that flashes the ROM, the way Malaysk's tool does.
+Checked against the uboot image we hold (`uboot.img` from the payload, 4,194,304 B), not assumed:
+
+* u-boot's boot targets are `mmc1 mmc0 usb0 pxe dhcp`, with `bootcmd_mmc0=setenv devnum 0; run mmc_boot`.
+  So mmc boot exists in general - but the eMMC comes first, so a card is only reached when the board is
+  put into SD-boot mode (a hardware/boot-mode trigger), and this HU has no wired SD slot for `/sdcard`.
+  The SD route the Dasaita threads describe is the *recovery* reading a FAT32 card, not u-boot SD boot.
+* No sdcard-burn code is in the image: zero `sdcard`/`sd_update`/`update.img` strings. Rockchip's
+  `update.img` + `parameter` flow is not what this uboot carries; a `parameter`-driven flash also
+  recreates partitions from that file, which is exactly what **D19** forbids.
+* **AVB and a bootloader lock state are present**: strings `avb-locked`, `bootloader-locked`,
+  `at-lock-vboot`/`at-unlock-vboot`, `avb_write_lock_state`, `android_avb_boot_flow`,
+  `Android avb boot failed, error %d`, `FAILThe device is locked, can not flash!`, and there is a
+  `vbmeta` partition (`mmcblk2p6`, 1,048,576 B). `/proc/cmdline` was not readable from the Nov 5 non-root
+  probe, so the lock state is still unknown - but init turns `androidboot.*` into props, so it reads
+  without root: `getprop ro.boot.vbmeta.device_state`. If that says **locked**, a replaced `boot.img`
+  fails AVB verification and *no* transport (recovery, adb dd, SD-burn, mod ROM) boots Android 14 - the
+  whole plan changes and the vbmeta/bootloader policy (**D18**) needs revisiting with the owner. If it
+  says unlocked, AVB is not enforced and the boot-image write is fine.
+  `hu_probe.sh` now reports `device_state`, `avb_version` and `vbmeta_digest` on Android 14 too.
+
+Ranking stays: route 1 (testkey-signed zip) -> route 2 (adb root + dd) -> SD-burn only if AVB is
+unlocked *and* we build a parameter file with byte-identical partition sizes and no bootloader
+partitions -> mod ROM last. The SD/mod routes have no signature gate at all, which today is the only
+thing protecting us from a bad flash.

@@ -49,6 +49,12 @@ raw "hu_probe $TS ; uid=$(id -u) ; kernel=$(cut -s -d' ' -f1-3 /proc/version 2>/
 raw "product: $(getprop ro.product.device) ; android $(getprop ro.build.version.release) ; $(getprop ro.build.display.id)"
 raw "selinux: $(getenforce 2>/dev/null || echo unavailable) ; uptime: $(cat /proc/uptime 2>/dev/null)"
 raw "cmdline: $(tr '\0' ' ' < /proc/cmdline 2>/dev/null)"
+# AVB state, readable without root (init turns androidboot.* into ro.boot.* props). This decides
+# whether a replaced boot.img is allowed at all: uboot here carries AVB plus a bootloader lock state
+# (at-lock-vboot / avb_write_lock_state / "The device is locked, can not flash!"), and there is a
+# vbmeta partition (mmcblk2p6). If device_state is "locked", Lineage's boot.img fails AVB verification
+# ("Android avb boot failed") and no transport - recovery, adb dd, SD-burn - can boot Android 14.
+raw "avb: device_state=$(getprop ro.boot.vbmeta.device_state) ; avb_version=$(getprop ro.boot.avb_version) ; vbmeta_digest=$(getprop ro.boot.vbmeta.digest | cut -c1-16)"
 
 sec "init failures (kmsg)"
 code "$(grep -iE "cannot|failed|denied|permission" /dev/kmsg 2>/dev/null | tail -40)"
