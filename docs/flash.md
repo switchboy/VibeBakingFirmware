@@ -39,13 +39,15 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
   the partition list and sizes change, and Android 14 adds `system_ext`, which stock did not have.
 * `.patch.dat` is empty and each transfer list is one `flash` command: an unconditional full write,
   exactly like the stock package.
-* Logical content is 2,299,015,168 B inside a 3,258,974,208 B group, so there is ~917 MiB of spare
-  (Nov 8 pass: system 1,012,817,920 / vendor 444,424,192 / product 456,159,232 / system_ext
+* Logical content is 2,299,023,360 B inside a 3,258,974,208 B group, so there is ~915 MiB of spare
+  (Nov 8 rebuilt pass: system 1,012,826,112 / vendor 444,424,192 / product 456,159,232 / system_ext
   384,802,816 / odm 811,008 B, block-multiple resizes, no partition resize - **D19**/**D11**).
-* The built payload: store zip 945,061,278 B, sha256
-  `c1e5ea5a855070ba051af13d02f3defcbaeceb385eae7bceb77152d944bc534f` (NAS `aospbuild/tmp/
-  hu-package/update.zip`, workstation copy `out-hu/update.zip`). Full audit numbers:
-  `docs/decisions.md`, packaging pass Nov 8.
+* The payload to flash: store zip 945,070,196 B, sha256
+  `05b468b0eaa2a3d1ee2fbbd2883650d70b3ca713364e4346775e62342ce8fe4c` (NAS `aospbuild/tmp/
+  hu-package/update.zip`, workstation copy `out-hu/update.zip`). It carries `/system/bin/hu_probe.sh`
+  (mode 0755, 5,687 B, proven inside the decompressed system.new.dat.br). The first build of the zip
+  (945,061,278 B, `c1e5ea5a…`) predates that probe and is superseded - do not flash it. Full audit
+  numbers: `docs/decisions.md`, packaging pass Nov 8.
 
 ## Pre-flight
 
@@ -55,8 +57,11 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
    non-zero) - `docs/decisions.md`, packaging pass Nov 8, records why those are intentional
    Android 14 drops plus one real gap (`libstagefright_softomx_plugin.so`, legacy OMX soft codecs
    only). Read that section before flashing.
-2. Build the package and check it: `scripts/build_hu_package.sh ../lineage21s "extracted update.zip"
-   ../tmp/hu-package/update.zip`, then `unzip -l` and the sha256 it prints. Record the sha256.
+2. The payload already exists (`scripts/build_hu_package.sh ../lineage21s "extracted update.zip"
+   ../tmp/hu-package/update.zip`, rerun Nov 8). Check it, do not rebuild blindly: `unzip -l` shows 27
+   entries, `unzip -tqq` is clean, and the sha256 is
+   `05b468b0eaa2a3d1ee2fbbd2883650d70b3ca713364e4346775e62342ce8fe4c`. Record that sha and re-verify it
+   on the stick copy after copying - a corrupt stick copy is the one thing a pre-flash check catches.
 3. Format the stick FAT32 and put `update.zip` in its **root**.
 4. Keep the stock Android 10 `update.zip` file (the one in `incoming/`, or whatever the vendor ships).
    That is the whole rollback story: owner's decision on Nov 6 - if Android 14 turns out wrong, flash

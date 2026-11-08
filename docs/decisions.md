@@ -929,6 +929,26 @@ Bluetooth is the one headline feature that is fully absent, and the offline pict
 Decision deferred deliberately: the owner's order is **boot first**, then judge, then fix BT as a
 second pass with the probe report in hand. The probe is baked into the ROM for exactly that.
 
+**v1 feature losses restated (Nov 8, after the audio/video question).** Three headlines are not equal:
+
+* **Bluetooth is fully absent** - no framework app, as described above. Everything BT (calls, BT music,
+  the phone-audio route) is out until this route lands.
+* **Audio *output* is not declared broken.** `audio.primary.rk30board.so` resolves with 0 unresolved
+  symbols, `blob_deps.py` shows every DT_NEEDED present, and the audio HAL + `audio.effect` are in the
+  VINTF vendor manifest with verdict COMPATIBLE. So playback through Android 14's AudioFlinger into the
+  AMP is expected to work; what fails is the **MCU/controller audio path** (`gocsdk`/`sdsdk` on 3-4
+  Android 10 `AudioTrack`/`AudioRecord`/`MediaPlayer` symbols, D24) - call/SCO audio and controller-side
+  routing, not music out. The probe separates the two (`audio.primary` process vs `CANNOT LINK` lines).
+* **Video playback is half broken.** Android 14's own Codec2 software codecs are installed, so an app on
+  the `MediaCodec` API decodes AAC/MP3/H.264 in software. The legacy Stagefright/OMX path is dead: the
+  Rockchip VPU OMX libs (`libomxvpu_dec/enc`, both arches) do not load (declared gap) and
+  `libstagefright_softomx_plugin.so` never reached `vendor.img`, so `android.hardware.media.omx@1.0-service`
+  has no soft OMX codecs either. Whether each HCT movie app is on the old MediaPlayer path or MediaCodec
+  is a device question - the probe's logcat errors per app answer it.
+
+Both fixes, if wanted, are the same shape as D22/D23 (patch Android 14's own library or add the missing
+module), not blob swaps: an OMX/mapper shim for the codecs, and the audio-symbol shim for the daemons.
+
 ## Post-boot probe (`/system/bin/hu_probe.sh`, Nov 8)
 
 `hu_system/bin/hu_probe.sh` is ours (not payload), copied to `/system/bin` through `hu_apps.mk`, so it
