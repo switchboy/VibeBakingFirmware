@@ -42,13 +42,21 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
 * Logical content is 2,299,031,552 B inside a 3,258,974,208 B group, so there is ~915 MiB of spare
   (Nov 8 rebuilt pass: system 1,012,834,304 / vendor 444,424,192 / product 456,159,232 / system_ext
   384,802,816 / odm 811,008 B, block-multiple resizes, no partition resize - **D19**/**D11**).
-* The payload to flash: store zip 945,043,557 B, sha256
-  `8da3fe4c54a90e2e773557eb176a96b0b3b93d09749c81d1e0f4237ad45c7f0e` (NAS `aospbuild/tmp/
-  hu-package/update.zip`, workstation copy `out-hu/update.zip`). It carries `/system/bin/hu_probe.sh`
-  (mode 0755, 8,086 B), `/system/etc/init/hu_probe.rc` (1,183 B) and `/system/etc/hu_adb_key.pub`
-  (714 B) - all three proven by `debugfs` inside the decompressed system image. The two earlier builds
-  (945,061,278 B `c1e5ea5a…`, 945,070,196 B `05b468b0…`) predate the auto-probe service and the adb key
-  and are superseded - do not flash them. Full audit numbers: `docs/decisions.md`, packaging pass Nov 8.
+ * **The payload to try first is the signed zip**: store zip 945,046,226 B, sha256
+   `b81c50cc3eb07b8b0ba5a3ab7f518d8ba2a0339801608c892bbd640e52d04407`, with
+   SignApk's PKCS#7 signature in the EOCD comment (prefix `signed by SignApk\0`, cert `a40da80a…` = the
+   AOSP testkey) added by `scripts/sign_hu_package.sh` using the tree's own `signapk.jar -w` and its
+   prebuilt JDK. Recovery verifies that comment *before* running anything in the package, so a rejected
+   zip writes no partition at all - the attempt is free. The caveat we measured (**D25**): both OEM
+   packages are signed with HCT's own cert `cf2ab3…`, and `/system/etc/security/otacerts.zip` in both
+   stock system images contains only that cert. If this recovery bundle is only that cert, our testkey
+   signature is rejected again and the fallback below is the route.
+ * **Fallback images**, for `scripts/flash_from_android.sh` from the Android 11 root shell (rebuilt Nov 8
+   20:32 so they carry the same probe + adb key): `super.img` 2,275,747,780 B, sha256
+   `2045af9c2d730aa5cb76df48e8a081b677ccf74a3272dbd1d2419aaf8162ff69`, and `boot.img` 32,796,672 B,
+   sha256 `83fd2a15c74424e8a6c9663dfa89339a77de8ea53b9659e7e3e58819609104f8` (NAS
+   `lineage21s/out/target/product/rk3399/`, workstation copies in `out-hu/`). Recovery stays untouched in
+   both routes, which is what keeps the stock package installable as the rollback.
 
 ## Pre-flight
 
@@ -58,17 +66,49 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
    non-zero) - `docs/decisions.md`, packaging pass Nov 8, records why those are intentional
    Android 14 drops plus one real gap (`libstagefright_softomx_plugin.so`, legacy OMX soft codecs
    only). Read that section before flashing.
-2. The payload already exists (`scripts/build_hu_package.sh ../lineage21s "extracted update.zip"
-   ../tmp/hu-package/update.zip`, rerun Nov 8). Check it, do not rebuild blindly: `unzip -l` shows 27
-   entries, `unzip -tqq` is clean, and the sha256 is
-   `8da3fe4c54a90e2e773557eb176a96b0b3b93d09749c81d1e0f4237ad45c7f0e`. Record that sha and re-verify it
-   on the stick copy after copying - a corrupt stick copy is the one thing a pre-flash check catches.
-3. Format the stick FAT32 and put `update.zip` in its **root**.
-4. Keep the stock Android 10 `update.zip` file (the one in `incoming/`, or whatever the vendor ships).
-   That is the whole rollback story: owner's decision on Nov 6 - if Android 14 turns out wrong, flash
-   the official update.zip the same way. No partition dumps, no rebuilt Android 10 super, no rollback
-   scripts - keeping the zip is enough because the stock package recreates the stock layout and runs its
-   own loader step.
+2. Check the payload, then re-verify the same sha on the stick copy - a corrupt stick copy is the one
+   thing a pre-flash check catches: `unzip -tqq out-hu/update.zip` is clean, `unzip -l` shows the payload
+   entries plus SignApk's `META-INF/com/android/otacert`, and
+   `python3 tools/zip_comment_sig.py out-hu/update.zip` reports a comment signed by cert `a40da80a…`.
+   The updater-script still has zero uboot/trust/dtbo/RKLoader/loader/security/recovery writes.
+3. Format the stick FAT32 and put our signed zip at the root as `update.zip`. Keep the stock packages in
+   `backup/`, named by Android version so they cannot be mislabelled: `backup/a10-update.zip` (Android 10,
+   1,203,718,969 B, sha256 `dd3e2ac0…`, build.prop `QQ2A.200305.004.A1`) and `backup/a11-update.zip`
+   (Android 11, 1,477,122,869 B, sha256 `50775dba…`, build.prop `RQ3A.210705.001`). Rollback = copy
+   `backup/a10-update.zip` to the root as `update.zip` and install it; recovery still accepts it because
+   it is signed with the cert recovery trusts.
+
+## Install, route 1: the signed zip through recovery
+
+1. Stick in before boot (or the power-button sequence - see "Getting into the recovery"), enter recovery,
+   read the version line it prints, then install `update.zip`.
+2. Watch the verification line: `E:footer is wrong` / `E:Signature verification failed` / `E:error: 21`
+   means the signature check rejected the package - nothing is written, and route 2 applies. `E3004` is
+   the device assert, `E2001` is a partition write failure.
+3. If it installs, reboot and read the probe report off the stick (see "First boot"). The script recreates
+   the logical partitions, writes system / vendor / product / system_ext / odm and `boot.img`, and wipes the
+   first 8 MiB of `userdata` and `cache` so Android 14 formats `/data` fresh (**D10**).
+
+## Install, route 2: raw images from Android 11 (**D25**)
+
+Use this if recovery rejects the signed zip. The unit still runs Android 11 with its own root shell, and
+recovery is deliberately left untouched so it keeps working as the rollback. `/data` is mounted read-write
+by the running Android 11, so it is not wiped here - recovery's own wipe data/factory reset does that
+cleanly afterwards (**D10**).
+
+1. Put `hu14/super.img`, `hu14/boot.img`, `hu14/flash.sh` (a copy of `scripts/flash_from_android.sh`) and
+   `hu14/sha256.txt` (plain file names) on the stick; re-verify the manifest on the stick.
+2. In Termux on the unit: `/system/xbin/su 0 sh /mnt/udisk/hu14/flash.sh`. It verifies the images against
+   `sha256.txt`, backs up the head and tail of `super` plus the current `boot` partition to
+   `hu14-backup/` on the stick, then `dd`s `super.img` to `/dev/block/by-name/super` (Android 14's
+   system/vendor/product/system_ext/odm plus its dynamic-partition metadata, all inside super) and
+   `boot.img` to `/dev/block/by-name/boot`. Two partitions only: no recovery, uboot, trust, dtbo, RKLoader,
+   logo, security or GPT write, no resize (**D11**/**D19**). Log: `hu14/hu14-flash.log`.
+3. Reboot into recovery, run **wipe data/factory reset**, reboot with the stick still in; the auto-probe
+   writes `hu-probe-<ts>.md` to the stick (`/data/local/tmp/hu-probe-<ts>.md` and `/dev/kmsg` fallbacks).
+4. If it does not boot: reboot into recovery, copy `backup/a10-update.zip` to the root as `update.zip`,
+   install it. The unit returns to Android 10 at factory settings; `hu14-backup/` is the extra insurance
+   if a write was interrupted.
 
 ## Getting into the recovery
 

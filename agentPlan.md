@@ -184,8 +184,22 @@ Steps, in order:
    decompressed system image shows `/bin/hu_probe.sh` (0755, 8,086 B), `/etc/init/hu_probe.rc` (0644,
    1,183 B) and `/etc/hu_adb_key.pub` (0644, 714 B) - the auto-probe service and the adb key ship in it. VINTF
    verdict COMPATIBLE, no manifest edit needed. Honesty notes in `docs/decisions.md` (packaging pass
-   Nov 8). Remaining: stick at the root of a FAT32 card (**D18**), verify the stick copy's sha256
-   against the value above, read the recovery menu's version line, flash.
+   Nov 8).
+   **Nov 8 second pass - the first flash was rejected, and the payload is now signed.** Recovery printed
+   `E:footer is wrong` / `E:Signature verification failed` / `E:error: 21` because our zip had an empty
+   EOCD comment while both OEM packages carry SignApk's PKCS#7 in the comment (`tools/zip_comment_sig.py`).
+   `scripts/sign_hu_package.sh` reproduces that layout with the tree's own `signapk.jar -w` plus the
+   prebuilt JDK and the AOSP testkey: **`update-signed.zip` 945,046,226 B, sha256
+   `b81c50cc3eb07b8b0ba5a3ab7f518d8ba2a0339801608c892bbd640e52d04407`**, a 1,738 B comment signed by
+   cert `a40da80a…` (testkey), entry set unchanged apart from SignApk's own `META-INF/com/android/otacert`,
+   updater-script still zero uboot/trust/dtbo/RKLoader/security/recovery writes, `unzip -tqq` clean.
+   The flash is a free experiment: recovery verifies before running anything, so a rejection writes no
+   partition. If it is rejected again (**D25**, `docs/decisions.md` - the stock `otacerts.zip` holds only
+   HCT's own cert `cf2ab3…`), install from the Android 11 root shell with `scripts/flash_from_android.sh`:
+   `super.img` 2,275,747,780 B `2045af9c…` + `boot.img` 32,796,672 B `83fd2a15…`, then recovery's wipe
+   data/factory reset. Stick backups stay unambiguous: `backup/a10-update.zip` = Android 10
+   (1,203,718,969 B, `dd3e2ac0…`), `backup/a11-update.zip` = Android 11 (1,477,122,869 B, `50775dba…`),
+   and nothing named `update.zip` at the stick root until a rollback is actually wanted.
 5. First boot: run the baked-in `/system/bin/hu_probe.sh` (Nov 8) - `curl -T` upload to the
    workstation when WiFi is up, `/mnt/udisk` copy when the stick is mounted, stdout otherwise - then
    judge display/audio/tuner/CAN/AV-in/GPS/BT before anything else. Bluetooth fix is a deliberate

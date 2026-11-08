@@ -995,3 +995,80 @@ daemon list), Bluetooth (expected empty), touch/buttons (`getevent -L`, `/dev/mt
 plus `CANNOT LINK` lines from `dmesg`. Delivery matches the Nov 5 probe pattern plus the stick
 fallback: `curl -T` to a workstation URL when WiFi is up, `/mnt/udisk` copy when a stick is mounted,
 stdout otherwise. Usage is in `docs/flash.md` "First boot".
+
+## D25 - transport: the payload cannot be signed for this recovery, so flash raw images from Android 11 (Nov 8, DECIDED)
+
+**What happened.** The first flash attempt was rejected before anything was written:
+`Verifying update package... / E:footer is wrong / E:Signature verification failed / E:error: 21 /
+Installation aborted`, and the recovery menu reports `android recovery by HCT V10 3.1`,
+`10/QQ2A.200305.004.a1/hct2041215506`, `userdebug/test-keys`. Nothing partition-shaped was touched.
+
+**Why, proven offline (not guessed).** Recovery verifies the package *before* running anything in it.
+The two OEM packages we hold carry no ASHU footer at all - `tools/zip_comment_sig.py` finds zero
+`ASHU\0\0\0\0` occurrences and instead shows a 1,573 B **zip EOCD comment**: prefix
+`signed by SignApk\0` + 1,555 B DER PKCS#7 SignedData, signer cert
+
+```
+subject/issuer: C=US, ST=California, L=Mountain View, O=Android, OU=Android,
+                CN=Android, emailAddress=android@android.com
+cert sha256:    cf2ab3818595c4ed a08cec72bbe39bc3 77a30b764a3e ebde52536eae01808525
+```
+
+identical in the Android 10 package (1,203,718,969 B, sha256 `dd3e2ac0610bb64f…`) **and** the
+Android 11 package (1,477,122,869 B, sha256 `50775dba8ca9f992…`). Our payload's comment length is 0,
+which is why recovery called it "footer is wrong" and then failed the signature.
+
+**Which key is trusted.** `/system/etc/security/otacerts.zip`, dumped with `debugfs` out of *both*
+stock system images (`analysis/daisaita_a10/system.img`, `analysis/daisaita_a11/system.img`), contains
+exactly one cert - file name `testkey.x509.pem`, fingerprint `cf:2a:b3:81:85:95:c4:ed…`. So HCT
+replaced the AOSP tree's testkey with a key of their own carrying the same `CN=Android` subject. The
+fingerprints we hold do not match it: AOSP `testkey.x509.pem` is `a40da80a…`, our
+`platform.x509.pem` is `c8a2e9bc…`, Lineage's release key is `518325ef…`, and the payload's apk key is
+`2d370c21…`. None of them is `cf2ab3…`, and its private half is not in any package or vendor tree we
+have (searched: zero `*.pk8`/`*.x509.pem` outside the AOSP security dir). **A package we sign cannot
+pass this recovery's check**, and a testkey-signed package would fail the same way.
+
+**Decision.** Keep the recovery partition exactly as it is (**D18** still holds for the partition, not
+for the transport) and install through the channel already proven to work on this unit: the Android 11
+ROM's own root shell (`/system/xbin/su 0`, Termux carries `dd`/`sha256sum`/`blockdev`).
+`scripts/flash_from_android.sh` reads the images off the stick, verifies them against `sha256.txt`,
+backs up the head/tail of super and the current boot partition to the stick, then writes `super.img`
+(Android 14's system/vendor/product/system_ext/odm **plus** its dynamic-partition metadata, which lives
+inside super) and `boot.img`. Exactly two partitions, no resize, no GPT write, no
+recovery/uboot/trust/dtbo/RKLoader/logo/security write (**D11**/**D19**). `/data` is *not* wiped from a
+mounted Android 11 - the clean wipe is recovery's own "wipe data/factory reset" afterwards (**D10**).
+Rollback stays the stock Android 10 package, installed the normal recovery way, because recovery is
+untouched and still trusts `cf2ab3…`.
+
+**Images for that transport** (rebuilt Nov 8 20:32 so they carry the auto-probe and the adb key):
+`super.img` 2,275,747,780 B, sha256
+`2045af9c2d730aa5cb76df48e8a081b677ccf74a3272dbd1d2419aaf8162ff69`; `boot.img` 32,796,672 B, sha256
+`83fd2a15c74424e8a6c9663dfa89339a77de8ea53b9659e7e3e58819609104f8`. `super.img` starts with the
+dynamic-metadata magic (`ed26ff3a`, raw, not sparse) and its metadata names system/system_ext/
+vendor/product/odm plus the group `hct_dynamic_partitions`, so one `dd` recreates the logical layout
+inside the unchanged 3,263,168,512 B partition.
+
+**Signing script anyway.** `scripts/sign_hu_package.sh <in-zip> <out-zip> [cert] [pk8]` runs the
+tree's own `out/host/linux-x86/framework/signapk.jar` with `prebuilts/jdk/jdk17` (and
+`-Djava.library.path=$TREE/out/host/linux-x86/lib64`, because SignApk signs through conscrypt's JNI
+library - without that the JVM throws "no conscrypt in java.library.path") and puts
+`signed by SignApk\0` + PKCS#7 into the comment: zip in, zip out, nothing more. It reproduces the stock
+format exactly. It installs only if the cert handed to it is one the recovery trusts - if HCT's
+`cf2ab3…` private key is ever obtained, this same script signs with it.
+
+**Payload signed (Nov 8, second pass).** `scripts/sign_hu_package.sh` ran on the build host and produced
+`aospbuild/tmp/hu-package/update-signed.zip`: **945,046,226 B**, sha256
+`b81c50cc3eb07b8b0ba5a3ab7f518d8ba2a0339801608c892bbd640e52d04407` (workstation `out-hu/update.zip`, same
+sha). Comment 1,738 B = `signed by SignApk\0` + 1,720 B DER PKCS#7, signer cert `a40da80a…` (AOSP
+testkey). `unzip -tqq` clean; the entry set is unchanged except SignApk's own `META-INF/com/android/otacert`
+(the stock packages carry one too, 1,440 B) and the four directory entries SignApk drops; the
+updater-script audit is unchanged: zero uboot/trust/dtbo/RKLoader/loader/security/recovery writes. Route 1
+in `docs/flash.md` is flashing this through recovery - a rejection writes nothing, because verification
+happens before the updater-script runs. Route 2 is the raw-image transport above.
+
+**Backup naming, so a rollback cannot be mislabelled.** Android 10 = the July 2021 package
+(1,203,718,969 B, sha256 `dd3e2ac0…`, build.prop `QQ2A.200305.004.A1`, release 10); Android 11 =
+`daisaita_a11.zip` (1,477,122,869 B, sha256 `50775dba…`, build.prop `RQ3A.210705.001`, release 11).
+On the stick they belong in `backup/a10-update.zip` and `backup/a11-update.zip`; rename one to
+`update.zip` at the stick root only when a rollback is actually wanted, because some HCT firmware
+offers an automatic firmware update the moment it sees `update.zip` at the root.
