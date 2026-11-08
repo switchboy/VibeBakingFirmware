@@ -116,16 +116,20 @@ stock updater cannot carry Android 14's layout, which is then a decision point, 
 
 ## First boot
 
-1. Boot Android 14. Once WiFi is up (or over the eth tether), reach the unit from the workstation and
-   run the baked-in probe: `sh /system/bin/hu_probe.sh http://<workstation>:<port>` - it prints and
-   saves `/tmp/hu-probe-<ts>.md`, uploads it with `curl -T` (a workstation `nc -l <port> > report.md`
-   receives it), and copies it to `/mnt/udisk` if a stick is mounted. Without WiFi the same command
-   from any shell on the unit prints the whole report to stdout, and the stick copy works as soon as
-   USB storage is mounted. The report covers boot, WiFi (`wlan0` under `fe3c0000.usb`, `iw reg`),
-   Bluetooth (expected empty in v1 - D24), touch/buttons (`getevent -L`, `/dev/mtc-*`), CANBUS
-   (`/dev/mtc-car`, `HCTCanBus`), audio (`audio.primary.rk30board.so`, `/proc/asound/cards`) and every
-   error/warning logcat line for those subsystems, plus `CANNOT LINK` lines from `dmesg` (the
-   gocsdk/sdsdk ABI gap, D24).
+1. Boot Android 14. The build ships **no terminal and no su**, so the report comes to you without a
+   shell: `/system/etc/init/hu_probe.rc` runs `/system/bin/hu_probe.sh` as root when boot completes and
+   waits ~2 min for the stick to mount. The dump then lands in three places - `/mnt/udisk/hu-probe-<ts>.md`
+   (the stick that carried `update.zip`, read it on the workstation), `/data/local/tmp/hu-probe-<ts>.md`
+   (pullable with `adb pull`, no root needed), and stdout into `/dev/kmsg` (`dmesg` over adb or the FIQ
+   serial console, `console=ttyFIQ0`). USB adb needs no auth prompt once our key is in `/data/adb/adb_keys`
+   (the probe injects `/system/etc/hu_adb_key.pub` at boot; `ro.adb.secure` stays 1), and `adb root` works
+   because `ro.debuggable=1`. If you get a shell and WiFi is up, run
+   `sh /system/bin/hu_probe.sh http://<workstation>:9000` (workstation side `nc -l 9000 > report.md`) or
+   `setprop persist.hu.probe.url http://<workstation>:9000/` before a reboot. The report covers boot, WiFi
+   (`wlan0` under `fe3c0000.usb`, `iw reg`), Bluetooth (expected empty in v1 - D24), touch/buttons
+   (`getevent -L`, `/dev/mtc-*`), CANBUS (`/dev/mtc-car`, `HCTCanBus`), audio (`audio.primary.rk30board.so`,
+   `/proc/asound/cards`) and the error/warning logcat lines per subsystem, plus `CANNOT LINK` lines from
+   `dmesg` (the gocsdk/sdsdk ABI gap, D24).
 2. Judge the hardware before anything else: display, audio/AMP, tuner, CAN/MTC, AV-in, GPS, Bluetooth,
    wired CarPlay/AA. If the unit boots, the recovery/bootloader were never touched and everything
    below is reversible.

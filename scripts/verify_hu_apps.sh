@@ -34,9 +34,12 @@ for f in system/bin/gocsdk system/bin/gocsdk6 system/bin/gocsdk8 system/bin/gocs
          system/lib/libbluelet.so system/lib/libbt_platform.so system/lib/libGbtsTask.so \
          system/lib/libgocdfu.so system/lib/librockchip_update_jni.so \
          system/lib64/librockchip_update_jni.so system/etc/init/hct.rc \
+         system/etc/init/hu_probe.rc system/bin/hu_probe.sh \
          system/etc/permissions/privapp-permissions-hct.xml system/etc/bluesoleil/TL.INI; do
   printf '%-52s %s\n' "$f" "$([ -e "$P/$f" ] && stat -c %s "$P/$f" || echo MISSING)"
 done
+echo "auto-probe service defined: $(grep -c '^service hu_probe /system/bin/hu_probe.sh' "$P/system/etc/init/hu_probe.rc" 2>/dev/null || echo 0) ; started on boot_completed: $(grep -c 'start hu_probe' "$P/system/etc/init/hu_probe.rc" 2>/dev/null || echo 0)"
+echo "adb key staged for /data/adb/adb_keys injection: $(stat -c %s "$P/system/etc/hu_adb_key.pub" 2>/dev/null || echo MISSING) ; ro.adb.secure kept: $(grep -c 'ro.adb.secure=1' "$P/system/build.prop" 2>/dev/null || echo 0)"
 echo "init fragment import lines still pointing at a missing file: $(grep -n 'import' "$P/system/etc/init/hct.rc" || echo none)"
 echo "init fragment fidelity: $(diff <(tail -n +2 "$REPO/analysis/system_init.hct.rc") "$P/system/etc/init/hct.rc" > /dev/null 2>&1 && echo 'identical apart from the dropped import line' || echo 'DIFFERS from the payload copy')"
 

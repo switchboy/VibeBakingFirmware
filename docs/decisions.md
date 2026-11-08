@@ -949,6 +949,38 @@ second pass with the probe report in hand. The probe is baked into the ROM for e
 Both fixes, if wanted, are the same shape as D22/D23 (patch Android 14's own library or add the missing
 module), not blob swaps: an OMX/mapper shim for the codecs, and the audio-symbol shim for the daemons.
 
+## No terminal on the unit: how first-boot diagnostics reach us (Nov 8, snag reported by the owner)
+
+The first flash has no shell. Checked, not assumed:
+
+* **LineageOS ships no Terminal app in this tree** - `packages/apps/` has none, and nothing in
+  `vendor/lineage/product/config` requests one. There is also no `su`/root addon requested, so the
+  Android 10 route the Nov 5 probe used (`/system/xbin/su` + Termux, `incoming/probe-20261105-1914.md`)
+  does not exist here. Shipping Termux would be a large app plus its own bootstrap packages, and as an
+  app uid it still could not run `iw`, `dmesg` or `getevent` (DAC, not SELinux, blocks those), so it is
+  not the answer.
+* **USB adb works but needs two things**: USB *device* mode on the board (the stick ports are host-mode;
+  the RK3399 OTG controller is present, `dwc_otg.speed=0` is in the boot cmdline), and adb authorization,
+  which is a prompt on the unit's screen - unusable if touch does not come up. `ro.adb.secure=1` is
+  assigned by `build/make/core/main.mk:399`, so assigning it in `device.mk` fails with
+  "found duplicate sysprop assignments" (the same trap the `ro.hwui.use_vulkan` comment records), and
+  setting it to 0 would remove authorization outright. Instead `hu_system/etc/hu_adb_key.pub` (the
+  workstation's own adb *public* key, staged to `/system/etc/hu_adb_key.pub`) is appended to
+  `/data/adb/adb_keys` by `hu_probe.sh` at boot: USB adb then connects authorized **by key**, security
+  untouched. `adb root` is available regardless because `ro.debuggable=1`.
+* **The FIQ serial console is real**: the boot cmdline carries `console=ttyFIQ0` (Rockchip's FIQ
+  debugger UART), so a UART adapter on those pins is a root shell with no adb - the fallback if OTG
+  turns out not to work.
+* **The gap is closed inside the ROM**: `/system/etc/init/hu_probe.rc` (ours, copied through
+  `hu_apps.mk`) defines a `oneshot`/`disabled` service running `/system/bin/hu_probe.sh` as root when
+  `sys.boot_completed=1` fires. init forwards the service's stdout to `/dev/kmsg`, and the script also
+  writes `/data/local/tmp/hu-probe-<ts>.md` (mode 0644 from root, so pullable with `adb pull` without
+  root) and copies to `/mnt/udisk` after waiting ~2 min for the stick to mount (`persist.sys.storage_manager
+  .usb_storage=true` is already set). So the report lands on the stick that carried `update.zip` even if
+  neither adb nor serial is reachable - which is exactly what the owner asked for. SELinux stays
+  permissive during bring-up (**D5**), hence the borrowed `u:r:shell:s0` label, same as `hu_insmod`.
+  `scripts/verify_hu_apps.sh` now checks the service definition, the trigger, and `ro.adb.secure=0`.
+
 ## Post-boot probe (`/system/bin/hu_probe.sh`, Nov 8)
 
 `hu_system/bin/hu_probe.sh` is ours (not payload), copied to `/system/bin` through `hu_apps.mk`, so it

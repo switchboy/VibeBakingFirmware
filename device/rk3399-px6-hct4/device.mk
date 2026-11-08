@@ -90,6 +90,15 @@ PRODUCT_PROPERTY_OVERRIDES += \
     persist.sys.storage_manager.usb_storage=true \
     ro.storage_manager.enable_sdcard=false
 
+# Bring-up access, without weakening adb. The unit ships no terminal and no su, so the ways in are USB
+# adb, the FIQ serial console (`console=ttyFIQ0` in the boot cmdline) and the auto-probe service
+# (/system/etc/init/hu_probe.rc). `ro.adb.secure=1` is assigned by build/make/core/main.mk:399, so
+# assigning it here is a duplicate sysprop error, and setting it to 0 would drop authorization entirely
+# (and needs removing at P6). Instead hu_probe.sh appends the workstation's own adb public key
+# (/system/etc/hu_adb_key.pub) to /data/adb/adb_keys on first boot, so USB adb connects without the
+# auth prompt on the unit - authorized by key, not by turning security off. `adb root` works regardless
+# because ro.debuggable=1.
+
 # ---- recovery OTA installer ---------------------------------------------------
 # Recovery installs OTAs through `update_engine_sideload`: the recovery binary only links the
 # update_engine *client* (its strings reference chromeos_update_engine.* and

@@ -68,8 +68,10 @@ PRODUCT_PACKAGES += \
 #   * adbd, sh, busybox - Android 14 builds its own.
 #
 # hu_probe.sh is ours, not from the payload: the post-boot diagnostic dump (docs/flash.md). It is
-# read-only, reports the five success criteria + error/warning extracts, saves to /tmp, copies to
-# /mnt/udisk when a stick is mounted, and uploads with `curl -T` when given a workstation URL.
+# read-only, reports the five success criteria + error/warning extracts, writes to /data/local/tmp,
+# copies to /mnt/udisk when a stick is mounted, forwards to /dev/kmsg, and uploads with `curl -T` when
+# given a URL (argument or persist.hu.probe.url). Because this build ships no terminal and no su, it is
+# started automatically at boot by hu_system/etc/init/hu_probe.rc (root, oneshot, boot_completed).
 PRODUCT_COPY_FILES += \
     device/rockchip/rk3399/hu_system/bin/gocsdk:$(TARGET_COPY_OUT_SYSTEM)/bin/gocsdk \
     device/rockchip/rk3399/hu_system/bin/gocsdk5:$(TARGET_COPY_OUT_SYSTEM)/bin/gocsdk5 \
@@ -129,7 +131,14 @@ PRODUCT_COPY_FILES += \
 # chmod/chown of /dev/mtc-*, /dev/ttyS*, /dev/ttyV*, /dev/goc_serial, and the service definitions for
 # the gocsdk*/sdsdk*/blueletd/brlinktd/carplay/nat/CANBUS daemons.
 PRODUCT_COPY_FILES += \
-    device/rockchip/rk3399/hu_system/etc/init/hct.rc:$(TARGET_COPY_OUT_SYSTEM)/etc/init/hct.rc
+    device/rockchip/rk3399/hu_system/etc/init/hct.rc:$(TARGET_COPY_OUT_SYSTEM)/etc/init/hct.rc \
+    device/rockchip/rk3399/hu_system/etc/init/hu_probe.rc:$(TARGET_COPY_OUT_SYSTEM)/etc/init/hu_probe.rc
+
+# The workstation's own adb public key (not a secret - it is the public half). hu_probe.sh appends it to
+# /data/adb/adb_keys at boot so USB adb authorizes by key instead of prompting on the unit's screen;
+# ro.adb.secure stays 1, which build/make/core/main.mk:399 assigns and we must not duplicate.
+PRODUCT_COPY_FILES += \
+    device/rockchip/rk3399/hu_system/etc/hu_adb_key.pub:$(TARGET_COPY_OUT_SYSTEM)/etc/hu_adb_key.pub
 
 # ---- OEM data files -------------------------------------------------------------
 # The payload's /system/etc holds config the apps and the BT controllers read. Android 14 installs none

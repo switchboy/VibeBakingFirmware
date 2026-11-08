@@ -1,23 +1,31 @@
 #!/bin/sh
 # hu_probe.sh - post-boot diagnostics for the PX6 HU running LineageOS 21 (docs/flash.md, D24).
 #
-# Baked into the ROM at /system/bin/hu_probe.sh (hu_apps.mk), so it survives every flash.
-# Same shape as the Nov 5 probe (incoming/probe-20261105-1914.md): one markdown report with the
-# owner's five success criteria as headings, errors/warnings where they exist, and honest
-# "missing" markers where they do not. Read-only: never writes /system, /vendor, /data or
-# anything partition-shaped; the only write is the report file.
+# Baked into the ROM at /system/bin/hu_probe.sh (hu_apps.mk), so it survives every flash. Two ways in:
+#   * automatically at boot, through /system/etc/init/hu_probe.rc (root, no terminal needed);
+#   * by hand from any shell: adb (ro.adb.secure=0 + ro.debuggable=1 -> adb root), or the FIQ serial
+#     console (console=ttyFIQ0 in the boot cmdline).
+# Same shape as the Nov 5 probe (incoming/probe-20261105-1914.md): one markdown report with the owner's
+# success criteria as headings, errors/warnings where they exist, honest "missing" markers where they do
+# not. Writes only three things: its report files (/tmp, /data/local/tmp, the stick copy) and, once, the
+# workstation's adb public key into /data/adb/adb_keys. Nothing in /system, /vendor or anything
+# partition-shaped is touched.
 #
-# Usage (needs a shell with root or permissive-shell access; this ROM ships no su):
-#   sh /system/bin/hu_probe.sh                  -> report printed, saved, copied to /mnt/udisk if mounted
-#   sh /system/bin/hu_probe.sh http://HOST:PORT -> additionally uploads with curl -T (PUT), so a
-#     workstation receiver like `nc -l 9000 > hu-probe.md` or a small http server works.
-# If neither stick nor network is reachable the report is on stdout (serial console / ttyS ports).
+# Delivery, in order of reliability:
+#   1. /data/local/tmp/hu-probe-<ts>.md          - pullable with adb, no root needed to read it
+#   2. /mnt/udisk/hu-probe-<ts>.md               - the same stick that carried update.zip
+#   3. stdout -> /dev/kmsg for the boot service   - readable later via adb/serial `dmesg`
+#   4. `curl -T` upload, if a URL is available: first argument, else the property persist.hu.probe.url
+#      (set it from adb: setprop persist.hu.probe.url http://<workstation>:9000/ ; workstation side:
+#       nc -l 9000 > hu-probe.md).
 set -u
 
 URL=${1:-}
+[ -z "$URL" ] && URL=$(getprop persist.hu.probe.url 2>/dev/null)
 TS=$(date +%Y%m%d-%H%M%S 2>/dev/null || echo unknown)
 REPORT=/tmp/hu-probe-$TS.md
 STICK=/mnt/udisk
+PUBLIC=/data/local/tmp/hu-probe-$TS.md
 
 # every line goes to stdout AND the report file (no `local`: /system/bin/sh is mksh)
 sec()  { printf '\n## %s\n\n' "$1" | tee -a "$REPORT"; }
@@ -28,6 +36,14 @@ run() {  # run a command; its output (truncated) or an honest marker
   if [ -n "${out:-}" ]; then code "$out"; else raw "missing or empty: $1"; fi
 }
 
+# When run by init at boot_completed the dexopt of the 37 shipped apks is still going and WiFi may not
+# have associated yet; wait, then also wait for the stick to be mounted.
+if [ "$(id -u)" = 0 ]; then
+  sleep 60
+  n=0
+  while [ ! -d "$STICK" ] && [ "$n" -lt 6 ]; do sleep 20; n=$((n + 1)); done
+fi
+
 sec "header"
 raw "hu_probe $TS ; uid=$(id -u) ; kernel=$(cut -s -d' ' -f1-3 /proc/version 2>/dev/null)"
 raw "product: $(getprop ro.product.device) ; android $(getprop ro.build.version.release) ; $(getprop ro.build.display.id)"
@@ -36,6 +52,25 @@ raw "cmdline: $(tr '\0' ' ' < /proc/cmdline 2>/dev/null)"
 
 sec "init failures (kmsg)"
 code "$(grep -iE "cannot|failed|denied|permission" /dev/kmsg 2>/dev/null | tail -40)"
+
+sec "adb authorization (bring-up)"
+# This build ships no terminal/su, and ro.adb.secure=1 comes from build/make/core/main.mk, so USB adb
+# would ask for authorization on the unit's screen. Appending our own key to /data/adb/adb_keys lets the
+# workstation connect without the prompt - authorization by key, not by turning security off. One key per
+# line; only added once.
+if [ "$(id -u)" = 0 ] && [ -f /system/etc/hu_adb_key.pub ]; then
+  mkdir -p /data/adb 2>/dev/null
+  if [ -f /data/adb/adb_keys ] && grep -qFf /system/etc/hu_adb_key.pub /data/adb/adb_keys 2>/dev/null; then
+    raw "adb key already authorized in /data/adb/adb_keys"
+  else
+    printf '%s\n' "$(cat /system/etc/hu_adb_key.pub)" >> /data/adb/adb_keys 2>/dev/null &&
+      chown root:root /data/adb /data/adb/adb_keys 2>/dev/null; chmod 0700 /data/adb 2>/dev/null;
+      chmod 0600 /data/adb/adb_keys 2>/dev/null
+    raw "adb key appended to /data/adb/adb_keys (sha256 $(sha256sum /data/adb/adb_keys 2>/dev/null | cut -c1-12))"
+  fi
+else
+  raw "adb key injection skipped (uid $(id -u), key file $(ls /system/etc/hu_adb_key.pub 2>/dev/null || echo absent))"
+fi
 
 sec "wifi (criterion 3)"
 run ip link show wlan0
@@ -88,13 +123,17 @@ sec "storage and mounts"
 code "$(mount 2>/dev/null | head -25)"
 raw "udisk contents: $(ls "$STICK" 2>/dev/null | head -10 | tr '\n' ' ')"
 
+sec "one-line verdict"
+raw "wifi: $(ip link show wlan0 2>/dev/null | grep -c 'state up') ; screen-input: $(ls /dev/input 2>/dev/null | grep -c event) ; mtc nodes: $(ls /dev/mtc-* 2>/dev/null | wc -l) ; audio hal: $(ls /vendor/bin/hw/*audio* 2>/dev/null | wc -l) ; bt app: $(pm list packages 2>/dev/null | grep -c '^package:com.android.bluetooth$')"
+
 sec "end"
 raw "report: $REPORT"
 
+cp "$REPORT" "$PUBLIC" 2>/dev/null && raw "public copy: $PUBLIC (pullable with adb, no root needed)"
 if [ -d "$STICK" ]; then
   cp "$REPORT" "$STICK/hu-probe-$TS.md" 2>/dev/null && raw "report copied to stick: $STICK/hu-probe-$TS.md"
 else
-  raw "no /mnt/udisk mounted - stick fallback unavailable (mount the stick in Settings/Storage first, or rely on the LAN upload)"
+  raw "no /mnt/udisk mounted after ~2 min - stick fallback unavailable; rely on $PUBLIC or the upload"
 fi
 if [ -n "$URL" ]; then
   curl -T "$REPORT" "$URL" 2>/dev/null && raw "report uploaded to $URL" || raw "upload failed; report stays at $REPORT"

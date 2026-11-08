@@ -1,0 +1,22 @@
+# HU auto-probe, copied to /system/etc/init/hu_probe.rc (init parses that dir; see hu_apps.mk).
+#
+# Why this exists: the LineageOS build ships no terminal app and no su, so on first boot there is no
+# shell to run hu_probe.sh from - unless USB adb works (needs USB device mode on the board) or the FIQ
+# serial console is wired (console=ttyFIQ0 in the boot cmdline). This service closes that gap: init runs
+# the probe as root at boot, and the script writes the report to /data/local/tmp (pullable with adb
+# without root), to /mnt/udisk on the stick that carried update.zip, and to stdout, which init forwards
+# to /dev/kmsg (readable later through adb or the serial console).
+#
+# disabled + oneshot: started only when boot completes, so the dexopt of the 37 shipped apks and the
+# WiFi association have had time to settle; hu_probe.sh then waits 60 s itself and retries the stick
+# mount for ~2 min. SELinux is permissive during bring-up (**D5**), hence the borrowed shell label,
+# same as hu_insmod above.
+service hu_probe /system/bin/hu_probe.sh
+    user root
+    group root
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+on property:sys.boot_completed=1
+    start hu_probe
