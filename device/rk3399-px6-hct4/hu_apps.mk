@@ -66,6 +66,10 @@ PRODUCT_PACKAGES += \
 #     nothing to copy. D24 records which services stay dead.
 #   * vendingpatch.sh - a Google Play property patcher; this ROM ships no Play, so it is dead code.
 #   * adbd, sh, busybox - Android 14 builds its own.
+#
+# hu_probe.sh is ours, not from the payload: the post-boot diagnostic dump (docs/flash.md). It is
+# read-only, reports the five success criteria + error/warning extracts, saves to /tmp, copies to
+# /mnt/udisk when a stick is mounted, and uploads with `curl -T` when given a workstation URL.
 PRODUCT_COPY_FILES += \
     device/rockchip/rk3399/hu_system/bin/gocsdk:$(TARGET_COPY_OUT_SYSTEM)/bin/gocsdk \
     device/rockchip/rk3399/hu_system/bin/gocsdk5:$(TARGET_COPY_OUT_SYSTEM)/bin/gocsdk5 \
@@ -85,7 +89,8 @@ PRODUCT_COPY_FILES += \
     device/rockchip/rk3399/hu_system/bin/sd-link.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/sd-link.sh \
     device/rockchip/rk3399/hu_system/bin/z-link.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/z-link.sh \
     device/rockchip/rk3399/hu_system/bin/hctlog.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/hctlog.sh \
-    device/rockchip/rk3399/hu_system/bin/ethtether.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/ethtether.sh
+    device/rockchip/rk3399/hu_system/bin/ethtether.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/ethtether.sh \
+    device/rockchip/rk3399/hu_system/bin/hu_probe.sh:$(TARGET_COPY_OUT_SYSTEM)/bin/hu_probe.sh
 
 # `ec_usb_filter` is not a binary: it is a 46-byte JSON list of USB vendor ids (3034, 1133, 7531) that
 # the IVT/CarPlay side reads to decide which sticks are its own. Same destination as the payload had.

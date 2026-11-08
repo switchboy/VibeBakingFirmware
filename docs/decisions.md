@@ -892,3 +892,39 @@ logical content 2,299,015,168 B of group `hct_dynamic_partitions` 3,258,974,208 
 * vendor `.new.dat.br` decompresses (brotli -d) to exactly 444,424,192 B; ext4 magic `53 ef` at
   offset 1080, `dumpe2fs -h` reports Block count 108502, `debugfs` reads /bin/hw (wifi-service) and
   /lib (libwifi-hal.so) - nothing mounted.
+
+## Bluetooth route - what a fix would take (note, Nov 8, NOT decided or implemented)
+
+Bluetooth is the one headline feature that is fully absent, and the offline picture is now clear:
+
+* **The framework app is not in the tree at all.** Android 14 moved Bluetooth out of AOSP's
+  `packages/apps/Bluetooth` (which does not exist in `lineage21s`) into the LineageOS-maintained
+  `packages/services/Bluetooth` project - it is simply not cloned in this tree, and no product config
+  requests it. That is the same class of step as **D21**: fetch an Apache-2.0 upstream project
+  (`github.com/LineageOS/android_packages_services_Bluetooth`, branch `lineage-21.0`) and request its
+  `Bluetooth` module. Unlike the WiFi HAL glue, this one is a large app build (JNI, AIDL, permissions),
+  so it is a real build step, not a one-file glue.
+* **The vendor HAL is already staged and resolves.** `vendor/hct4/tree/vendor/bin/hw/android.hardware
+  .bluetooth@1.0-service` + its `.rc` exist, and `blob_deps.py` shows every DT_NEEDED resolves - the
+  Nov 8 `vendor_abi_check.py` counts only the declared codec gap. So the HIDL bluetooth HAL *starts*;
+  what is missing is a framework that speaks to it (Android 14 dropped HIDL bluetooth). Whether
+  Lineage's `packages/services/Bluetooth` keeps a legacy-HIDL transport on `lineage-21.0`, or whether a
+  Realtek/AIDL glue must be built (the WiFi analogy done properly: Lineage has Realtek bluetooth glue
+  in `github.com/LineageOS/android_hardware_realtek`), is the open question - the same shape as D21's
+  "find the published glue, build it, wire `PRODUCT_PACKAGES`".
+* **The MCU-controller audio path is separate.** `gocsdk`/`sdsdk` fail on 3-4 Android 10 audio symbols
+  (D24); phone-call audio over the MCU will stay broken until a compat shim exists, regardless of BT.
+
+Decision deferred deliberately: the owner's order is **boot first**, then judge, then fix BT as a
+second pass with the probe report in hand. The probe is baked into the ROM for exactly that.
+
+## Post-boot probe (`/system/bin/hu_probe.sh`, Nov 8)
+
+`hu_system/bin/hu_probe.sh` is ours (not payload), copied to `/system/bin` through `hu_apps.mk`, so it
+survives every flash. Read-only; writes only its report file. It prints/saves one markdown report with
+the owner's success criteria as headings - boot cmdline + SELinux, WiFi (`wlan0`, driver, `iw reg`,
+daemon list), Bluetooth (expected empty), touch/buttons (`getevent -L`, `/dev/mtc-*`), CANBUS
+(`/dev/mtc-car`), audio HAL + `/proc/asound/cards` - and the error/warning logcat lines per subsystem
+plus `CANNOT LINK` lines from `dmesg`. Delivery matches the Nov 5 probe pattern plus the stick
+fallback: `curl -T` to a workstation URL when WiFi is up, `/mnt/udisk` copy when a stick is mounted,
+stdout otherwise. Usage is in `docs/flash.md` "First boot".

@@ -111,8 +111,16 @@ stock updater cannot carry Android 14's layout, which is then a decision point, 
 
 ## First boot
 
-1. Boot Android 14 and run the SD-card probe (`sh allinone.sh` - no adb, no root) to read partition
-   sizes and the HAL list; compare with `misc_info.txt`.
+1. Boot Android 14. Once WiFi is up (or over the eth tether), reach the unit from the workstation and
+   run the baked-in probe: `sh /system/bin/hu_probe.sh http://<workstation>:<port>` - it prints and
+   saves `/tmp/hu-probe-<ts>.md`, uploads it with `curl -T` (a workstation `nc -l <port> > report.md`
+   receives it), and copies it to `/mnt/udisk` if a stick is mounted. Without WiFi the same command
+   from any shell on the unit prints the whole report to stdout, and the stick copy works as soon as
+   USB storage is mounted. The report covers boot, WiFi (`wlan0` under `fe3c0000.usb`, `iw reg`),
+   Bluetooth (expected empty in v1 - D24), touch/buttons (`getevent -L`, `/dev/mtc-*`), CANBUS
+   (`/dev/mtc-car`, `HCTCanBus`), audio (`audio.primary.rk30board.so`, `/proc/asound/cards`) and every
+   error/warning logcat line for those subsystems, plus `CANNOT LINK` lines from `dmesg` (the
+   gocsdk/sdsdk ABI gap, D24).
 2. Judge the hardware before anything else: display, audio/AMP, tuner, CAN/MTC, AV-in, GPS, Bluetooth,
    wired CarPlay/AA. If the unit boots, the recovery/bootloader were never touched and everything
    below is reversible.

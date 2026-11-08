@@ -183,7 +183,12 @@ Steps, in order:
    verdict COMPATIBLE, no manifest edit needed. Honesty notes in `docs/decisions.md` (packaging pass
    Nov 8). Remaining: stick at the root of a FAT32 card (**D18**), read the recovery menu's version
    line, flash.
-5. First boot: SD-card probe, then judge display/audio/tuner/CAN/AV-in/GPS/BT before anything else.
+5. First boot: run the baked-in `/system/bin/hu_probe.sh` (Nov 8) - `curl -T` upload to the
+   workstation when WiFi is up, `/mnt/udisk` copy when the stick is mounted, stdout otherwise - then
+   judge display/audio/tuner/CAN/AV-in/GPS/BT before anything else. Bluetooth fix is a deliberate
+   second pass (`docs/decisions.md` "Bluetooth route"): fetch Lineage's `packages/services/Bluetooth`
+   (Android 14 moved BT out of `packages/apps/Bluetooth`, which is not in our tree) and wire the HAL
+   transport - the staged `android.hardware.bluetooth@1.0-service` blob already resolves cleanly.
 
 Older numbered action (still true, now folded into step 3): `scripts/package.sh` runs
    `tools/vendor_link_closure.py` before the deploy (it writes `vendor_modules_extra.mk`, which
