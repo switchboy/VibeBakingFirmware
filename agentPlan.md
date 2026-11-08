@@ -169,19 +169,20 @@ Steps, in order:
    describe services that do not exist - if VINTF objects, drop those blocks from `vintf/vendor_manifest.xml`.
 4. **Payload built + offline-verified (Nov 8), rebuilt so the probe ships inside - flash the rebuilt zip.** First run of `scripts/build_hu_package.sh` (its
    relative `<out-zip>` broke `zip` from the scratch dir - fixed by absolutizing `OUT`). Resize values
-   system 1,012,826,112 / vendor 444,424,192 / product 456,159,232 / system_ext 384,802,816 /
-   odm 811,008 B; logical content 2,299,023,360 B of the 3,258,974,208 B group - spare 959,950,848 B,
-   no resize (**D19**); brotli -q 9 sizes 462,245,856 / 127,220,764 / 195,341,325 / 115,347,508 /
-   216,933 B; store zip 945,070,196 B, sha256 `05b468b0eaa2a3d1ee2fbbd2883650d70b3ca713364e4346775e62342ce8fe4c`
-   (NAS `aospbuild/tmp/hu-package/update.zip`, workstation `out-hu/update.zip`; the older
-   945,061,278 B / `c1e5ea5a…` zip is superseded and must not be flashed). Offline audit green:
+   system 1,012,834,304 / vendor 444,424,192 / product 456,159,232 / system_ext 384,802,816 /
+   odm 811,008 B; logical content 2,299,031,552 B of the 3,258,974,208 B group - spare 959,942,656 B,
+   no resize (**D19**); brotli -q 9 sizes 462,219,217 / 127,220,764 / 195,341,325 / 115,347,508 /
+   216,933 B; store zip 945,043,557 B, sha256 `8da3fe4c54a90e2e773557eb176a96b0b3b93d09749c81d1e0f4237ad45c7f0e`
+   (NAS `aospbuild/tmp/hu-package/update.zip`, workstation `out-hu/update.zip`; the two older
+   zips - 945,061,278 B `c1e5ea5a…` and 945,070,196 B `05b468b0…` - are superseded and must not be flashed). Offline audit green:
    27 entries exactly, `unzip -tqq` clean; op list `add_group hct_dynamic_partitions 3258974208` with
-   system_ext as fifth partition, resize sum 2,299,023,360 <= group; updater-script has **zero**
+   system_ext as fifth partition, resize sum 2,299,031,552 <= group; updater-script has **zero**
    uboot/trust/dtbo/RKLoader/loader/security/recovery writes (comment words only); uboot/trust/dtbo/
    RKLoader.bin and update-binary byte-identical to stock (sha256), boot.img identical to the product
    copy (32,796,672 B, header v2, cmdline `rk30board` + `selinux=permissive`); vendor.new.dat.br
    decompresses to 444,424,192 B, ext4 magic `53 ef` at 1080, debugfs reads /bin/hw + /lib, and the
-   decompressed system.new.dat.br shows `/bin/hu_probe.sh` (inode 413, mode 0755, 5,687 B). VINTF
+   decompressed system image shows `/bin/hu_probe.sh` (0755, 8,086 B), `/etc/init/hu_probe.rc` (0644,
+   1,183 B) and `/etc/hu_adb_key.pub` (0644, 714 B) - the auto-probe service and the adb key ship in it. VINTF
    verdict COMPATIBLE, no manifest edit needed. Honesty notes in `docs/decisions.md` (packaging pass
    Nov 8). Remaining: stick at the root of a FAT32 card (**D18**), verify the stick copy's sha256
    against the value above, read the recovery menu's version line, flash.

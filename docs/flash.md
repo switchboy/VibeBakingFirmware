@@ -39,15 +39,16 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
   the partition list and sizes change, and Android 14 adds `system_ext`, which stock did not have.
 * `.patch.dat` is empty and each transfer list is one `flash` command: an unconditional full write,
   exactly like the stock package.
-* Logical content is 2,299,023,360 B inside a 3,258,974,208 B group, so there is ~915 MiB of spare
-  (Nov 8 rebuilt pass: system 1,012,826,112 / vendor 444,424,192 / product 456,159,232 / system_ext
+* Logical content is 2,299,031,552 B inside a 3,258,974,208 B group, so there is ~915 MiB of spare
+  (Nov 8 rebuilt pass: system 1,012,834,304 / vendor 444,424,192 / product 456,159,232 / system_ext
   384,802,816 / odm 811,008 B, block-multiple resizes, no partition resize - **D19**/**D11**).
-* The payload to flash: store zip 945,070,196 B, sha256
-  `05b468b0eaa2a3d1ee2fbbd2883650d70b3ca713364e4346775e62342ce8fe4c` (NAS `aospbuild/tmp/
+* The payload to flash: store zip 945,043,557 B, sha256
+  `8da3fe4c54a90e2e773557eb176a96b0b3b93d09749c81d1e0f4237ad45c7f0e` (NAS `aospbuild/tmp/
   hu-package/update.zip`, workstation copy `out-hu/update.zip`). It carries `/system/bin/hu_probe.sh`
-  (mode 0755, 5,687 B, proven inside the decompressed system.new.dat.br). The first build of the zip
-  (945,061,278 B, `c1e5ea5a…`) predates that probe and is superseded - do not flash it. Full audit
-  numbers: `docs/decisions.md`, packaging pass Nov 8.
+  (mode 0755, 8,086 B), `/system/etc/init/hu_probe.rc` (1,183 B) and `/system/etc/hu_adb_key.pub`
+  (714 B) - all three proven by `debugfs` inside the decompressed system image. The two earlier builds
+  (945,061,278 B `c1e5ea5a…`, 945,070,196 B `05b468b0…`) predate the auto-probe service and the adb key
+  and are superseded - do not flash them. Full audit numbers: `docs/decisions.md`, packaging pass Nov 8.
 
 ## Pre-flight
 
@@ -60,7 +61,7 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
 2. The payload already exists (`scripts/build_hu_package.sh ../lineage21s "extracted update.zip"
    ../tmp/hu-package/update.zip`, rerun Nov 8). Check it, do not rebuild blindly: `unzip -l` shows 27
    entries, `unzip -tqq` is clean, and the sha256 is
-   `05b468b0eaa2a3d1ee2fbbd2883650d70b3ca713364e4346775e62342ce8fe4c`. Record that sha and re-verify it
+   `8da3fe4c54a90e2e773557eb176a96b0b3b93d09749c81d1e0f4237ad45c7f0e`. Record that sha and re-verify it
    on the stick copy after copying - a corrupt stick copy is the one thing a pre-flash check catches.
 3. Format the stick FAT32 and put `update.zip` in its **root**.
 4. Keep the stock Android 10 `update.zip` file (the one in `incoming/`, or whatever the vendor ships).

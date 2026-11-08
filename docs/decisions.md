@@ -874,16 +874,20 @@ logical content 2,299,015,168 B of group `hct_dynamic_partitions` 3,258,974,208 
 945,061,278 B, sha256 `c1e5ea5a855070ba051af13d02f3defcbaeceb385eae7bceb77152d944bc534f`. NAS:
 `aospbuild/tmp/hu-package/update.zip`; workstation: `out-hu/update.zip` (same sha, verified).
 
-**Rebuilt after the probe landed (Nov 8, 16:0x) - this is the flashable one.** `/system/bin/hu_probe.sh`
-was added to `hu_apps.mk` and `m systemimage` carried it into `system.img` (byte-identical repo copy,
-sha256 `04bb6e03…`). `scripts/build_hu_package.sh` reran: `system` raw/resize grows to 1,012,826,112 B
-(+8,192 B), logical content 2,299,023,360 B, spare 959,950,848 B, brotli copies byte-identical for
-vendor/product/system_ext/odm, system 462,245,856 B. New store zip 945,070,196 B, sha256
-`05b468b0eaa2a3d1ee2fbbd2883650d70b3ca713364e4346775e62342ce8fe4c`, NAS
-`aospbuild/tmp/hu-package/update.zip`, workstation `out-hu/update.zip` (same sha). `debugfs` on the
-decompressed `system.new.dat.br` shows `/bin/hu_probe.sh` inode 413, mode 0755, size 5687 - the probe
-is provably in the payload; `unzip -tqq` clean, 27 entries, updater-script audit unchanged (the older
-zip `c1e5ea5a…` is superseded, not flashable).
+**Rebuilt twice after the probe landed (Nov 8) - the second rebuild is the flashable one.**
+`/system/bin/hu_probe.sh` was added to `hu_apps.mk` and `m systemimage` carried it into `system.img`
+(byte-identical repo copy, sha256 `04bb6e03…`). First rerun of `scripts/build_hu_package.sh`: `system`
+resize 1,012,826,112 B, zip 945,070,196 B, sha256 `05b468b0…`. Second rerun, after the auto-probe
+service `/system/etc/init/hu_probe.rc` (1,183 B) and the adb key `/system/etc/hu_adb_key.pub` (714 B)
+were staged: `system` raw/resize 1,012,834,304 B, logical content 2,299,031,552 B, spare 959,942,656 B,
+brotli system 462,219,217 B with vendor/product/system_ext/odm byte-identical to the earlier pass.
+**Final payload: store zip 945,043,557 B, sha256
+`8da3fe4c54a90e2e773557eb176a96b0b3b93d09749c81d1e0f4237ad45c7f0e`**, NAS
+`aospbuild/tmp/hu-package/update.zip`, workstation `out-hu/update.zip` (same sha), `unzip -tqq` clean,
+updater-script audit unchanged (zero bootloader/recovery/security writes). `debugfs` on the decompressed
+system image shows `/bin/hu_probe.sh` (inode 413, 0755, 8086 B), `/etc/init/hu_probe.rc` (797, 0644,
+1183 B) and `/etc/hu_adb_key.pub` (772, 0644, 714 B) - the auto-probe and the adb key are provably in
+the payload. The two earlier zips (`c1e5ea5a…`, `05b468b0…`) are superseded, not flashable.
 
 **Offline payload audit (owner's pre-flash gate), all proven:**
 * `unzip -l`: 27 entries exactly - `dynamic_partitions_op_list`, 5 transfer lists, 5 `.new.dat.br`,
