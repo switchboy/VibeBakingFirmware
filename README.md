@@ -1,9 +1,9 @@
 # VibeBaking Firmware — PX6 (RK3399) head-unit upgrade project
 
-Goal: take a **Rockchip PX6 Android head unit** (HCT4 platform, currently Android 10 with a
-May 2020 security patch level) and bring it to a **modern, patched Android** so the unit is
-safe to use again, while keeping the head-unit hardware (CAN bus / MCU "MTC", radio tuner,
-AMP, AV-in, GPS, Bluetooth-on-UART, CarPlay bridges) working.
+Goal: take a **Rockchip PX6 Android head unit** (HCT4 platform, currently Android 10/11 with a 2020
+security patch level) and bring it to **Android 14 / LineageOS 21** while keeping the head-unit hardware
+(CAN bus / MCU "MTC", radio tuner, AMP, AV-in, GPS, Bluetooth-on-UART, CarPlay bridges) working, and
+without bricking the single unit we have.
 
 ## Hardware / firmware as found
 
@@ -19,125 +19,49 @@ AMP, AV-in, GPS, Bluetooth-on-UART, CarPlay bridges) working.
 | Data | `/data` = F2FS with `quota`, `checkpoint=fs` |
 | Flashing | Rockchip `update.zip` on FAT32 USB/SD → unit's built-in upgrade flow (`RKLoader.bin` loader + custom `update-binary` with `do_rk_firmware_upgrade()`), plus `uboot.img` / `trust.img` / `dtbo.img` written directly |
 
-## Why the current firmware is unsafe
+The current firmware's concrete security problems are listed in `docs/firmware-analysis.md`
+(permissive SELinux, Magisk in the vendor image, world-writable `/dev/mtc-*`/`ttyS*`/`ttyV*`, adb over
+TCP, 2020-05 vendor patch level, third-party OTA server).
 
-Concrete problems found in the payload (see `docs/firmware-analysis.md`):
+## Where things live
 
-- `androidboot.selinux=permissive` — SELinux is not enforcing.
-- Vendor SELinux policy is from Android 10, security patch level **2020-05-05** (≈6 years of CVEs missing).
-- Root framework shipped inside the ROM: `/vendor/magisk`, plus init services running as **root** with
-  `u:r:shell:s0` (`hctcanbusservice`, `adbec`, `usbmuxd`, `vendingpatch.sh`, `hctlog.sh`, `sd-reverse.sh`).
-- Device nodes made world-writable/world-readable: `/dev/ttyS0…ttyS4`, `/dev/ttyV0…ttyV5`,
-  `/dev/goc_serial`, `/dev/mtc-car`, `/dev/mtc-av`, `/dev/mtc-dab`, `/dev/mtc-cvbs(2)` at `0666/0777`.
-- ADB over TCP (`service.adb.tcp.port=5555`) and an "adb-ec-server" started on `sys.boot_completed`.
-- `userdebug` + `test-keys` build, world-writable `/mnt/oem` and `/etc/bluesoleil`.
-- OTA is fetched from a third-party server (`ota.hal9k.ru:2300`) and the payload itself is unsigned by us.
+| path | what it is |
+|---|---|
+| `device/rk3399-px6-hct4/` | the device tree, copied into the synced Lineage tree by `scripts/deploy_device.sh` |
+| `patches/` | tree patches, applied by `scripts/apply_tree_patches.sh` |
+| `scripts/`, `tools/` | build / verify / flash plumbing; usage is in each file's own header |
+| `scripts/archive/`, `tools/archive/` | historical one-shots whose results are recorded in `docs/decisions.md` / `docs/findings.md` - do not run blindly |
+| `docs/` | see `docs/index.md` for which file is canonical |
+| `analysis/` | generated dumps + tracked evidence (`*.txt`, kernel configs, partition offsets, app-layer inventory, `gpt/gpt_head.bin` + `gpt_tail.bin`) |
+| `incoming/` | owner's probe reports from the live unit (tracked `*.md`) |
+| `out-hu/` | workstation copies of the payload artefacts (ignored, reproducible): `update.zip` (signed payload), `super.img`, `boot.img` |
+| `update.zip`, `extracted update.zip/`, `diatsia fw/` | the OEM reference packages on disk (ignored; originals also live on the NAS). `update.zip` here is the **Android 10** package (`dd3e2ac0…`), `diatsia fw/update.zip` is the Android 11 package (`50775dba…`) - do not confuse them with `out-hu/update.zip`, which is OUR payload |
+| `hal/`, `rom/` | parked shim/hardening stubs, superseded in practice by D21/D22/D23 |
 
-## Repo layout
+Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/lineage21s`, scratch
+`/srv/dev-disk-by-label-SSData/aospbuild/tmp`, OEM archive
+`/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive`.
 
-```
-VibeBakingFirmware/
-├── README.md            this file
-├── agentPlan.md         phased plan, decision log, risks (agent-facing)
-├── docs/
-│   ├── firmware-analysis.md   what the shipped firmware actually contains
-│   ├── feasibility.md         can modern Android run on this vendor/kernel? version ceiling
-│   ├── decisions.md           design decisions + questions for the owner (D1-D10)
-│   ├── plan.md                milestones M1..M9, order and rollback
-│   ├── head-unit-findings.md  live-unit data + Daisaita A10/A11 comparison
-│   ├── build-host.md          the NAS build box, space plan, sync/build units
-│   ├── flash.md               install via the unit's own update.zip flow; recovery/bootloader never touched
-│   ├── ota.md                 packaging the install zip and how it reaches recovery
-│   └── termux.md              how the probe runs on the unit and uploads over LAN
-├── tools/               analysis + packaging tooling (Python, no root needed)
-│   ├── reassemble.py    transfer.list + *.new.dat  -> raw ext4 partition images
-│   ├── ext4_ls.py       recursive listing / file dump from ext4 images via debugfs
-│   ├── hal_gap.py       vendor manifest vs framework matrix gap report
-│   ├── gen_vendor_staging.py  turns vendor/hct4/tree/vendor into vendor_staging.mk + vendor_props.mk
-│   │                          + prebuilt_apps/Android.mk (vendor APKs the copy list cannot carry)
-│   ├── namecheck.py     lists vendor file names Make cannot stage (# : = whitespace wildcards)
-│   ├── vendor_conflicts.py  copy list vs out/soong/installs-*.mk: which destinations the build
-│   │                        installs itself (drop the blob) and which need a module removed
-│   ├── vendor_dropped_check.py  post-build: every dropped destination must be present, same-kind
-│   │                        substituted, or declared in vendor_dest_deviations.txt
-│   ├── vendor_module_names.py   names the module behind each missing destination, for PRODUCT_PACKAGES
-│   ├── vendor_link_closure.py  walks the kept blobs' DT_NEEDED graph and answers each soname:
-│   │                  public library (loads from /system), kept staged blob, Android 14's
-│   │                  <name>.vendor module (=> vendor_modules_extra.mk), inject, or unresolved
-│   ├── vendor_abi_check.py  the symbols half: every undefined symbol of a kept blob must be
-│   │                  defined by something the vendor namespace can load
-│   ├── extract_reference_libs.py  pulls the libraries Android 14 does not build at all out of a
-│   │                  reference firmware image into prebuilt_vendor_libs/<arch>/
-│   ├── blob_deps.py       kept blobs' DT_NEEDED resolved against the built image inventory
-│   ├── extract_vendor.py  debugfs-based extraction of a vendor partition into a tree
-│   └── vendor_diff.py   built vendor.img vs the stock reference, differences classified
-├── analysis/            generated artefacts (gitignored: images, dumps, listings)
-├── device/rk3399-px6-hct4/  → device tree for this unit (deployed as device/rockchip/rk3399)
-├── hal/               → HAL wrappers / shims for the legacy vendor blobs
-├── rom/               → ROM-level config, sepolicy overlays, packaging recipes
-├── scripts/           → build / flash / device-inspection helper scripts
-│   ├── probe.sh          run it on the SD card; writes probe.md next to itself (no adb/root)
-│   ├── deploy_device.sh  copies the device tree into a LineageOS checkout
-│   ├── prebuilt_vendor.sh stages the stock Android 11 vendor partition into the build tree
-│   │                  (read-only loop mount -> vendor/hct4/tree/vendor, GPU aliases materialised,
-│   │                  vendor APKs mirrored for the module build, then runs tools/gen_vendor_staging.py)
-│   ├── apply_tree_patches.sh applies patches/ to the LineageOS checkout (idempotent, git apply)
-│   ├── package.sh      the packaging pass on the NAS: patches -> vendor staging -> deploy ->
-│   │                  bootimage/recoveryimage/dist/superimage/otapackage, reveal-and-retry on
-│   │                  install collisions, prune unused dist packages
-│   ├── verify_artifacts.sh checks a finished pass offline (VENDOR/ + vendor.map, vendor_diff,
-│   │                  super layout, VINTF compat, boot header, recovery installer, OTA zip)
-│   ├── build_hu_package.sh  builds the update.zip the unit's stock recovery installs: stock
-│   │                  update-binary reused, op list from misc_info.txt, no bootloader writes
-│   ├── gen_hu_payload.py    (used by it) transfer lists + brotli payload + op list
-│   ├── inject_vendor_blobs.sh  writes the few libs with no vendor variant module into /vendor
-│   ├── check_super.py  verifies the staged super offline (lpdump layout + dumpe2fs per partition)
-│   └── upload_server.py / upload_client.sh  LAN endpoint the unit reports to
-```
+## Workflow today
 
-The payload itself (`update.zip`, 1.2 GB, and its extracted copy) is the **unaltered reference
-firmware** — never edit it; everything derived goes into `analysis/`. Both are gitignored.
+1. `scripts/package.sh <tree>` — vendor closure, deploy, dist, superimage, bootimage (`docs/build-host.md`).
+2. `scripts/verify_artifacts.sh <tree>` + `scripts/verify_hu_apps.sh <tree>` — offline gates.
+3. `scripts/build_hu_package.sh <tree> "extracted update.zip" <out>` — payload zip; then
+   `scripts/sign_hu_package.sh <in> <out>` adds the SignApk comment signature the OEM packages use, and
+   `tools/zip_comment_sig.py <zip>` reads back whatever signature a package carries.
+4. Stick: route 1 = signed `update.zip` at the root (recovery install); route 2 =
+   `scripts/make_flash_stick.sh <mountpoint>` for the raw-image install (`docs/flash.md`).
+5. First boot: the ROM's own `/system/bin/hu_probe.sh` writes the report to the stick - no terminal needed.
 
-## Tooling used in this environment
+## Status (Nov 9)
 
-`brotli`, `simg2img`/`img2simg`, `debugfs`/`dumpe2fs` (read ext4 images without mounting/root),
-`readelf`, `unpack_bootimg`, `sgdisk`/`gdisk`, `strings`, `python3`.
-
-## Status
-
-- Phase 0 (firmware inventory): **done** — `docs/firmware-analysis.md`.
-- Phase 1 (feasibility): **done** — `docs/feasibility.md`; Android 14 is the ceiling, framework-only upgrade path chosen.
-- Design decisions D1-D10: **answered** - `docs/decisions.md`. D8/D10: shrink `userdata` to 49.84 GiB,
-  grow `super` to 8 GiB, install via SD/USB stick handed to recovery. Factory reset / losing apps
-  during upgrade is fine; only bricking is unacceptable.
-- M1 (live-unit data): **mostly done** via Termux + `allinone.sh` over LAN - see
-  `docs/head-unit-findings.md`. The unit reports a `userdebug/test-keys` Android 10 build (patch
-  level 2020-05-05), `super` = 3.04 GiB with ~730 MB free, kernel 4.19.111 with `/proc/config.gz`,
-  SELinux Permissive (`getenforce` in the latest probe), and a **USB Realtek RTL8188E WiFi adapter**
-  (2.4 GHz silicon). Its vendor HAL
-  surface matches the reference payload except three undeclared HALs; blob hashes land in the next report.
-- M2 (LineageOS 21 tree): **building cleanly** - shallow source sync on the NAS (`docs/build-host.md`),
-  device tree in `device/rk3399-px6-hct4/` deployed as `device/rockchip/rk3399`. Per **D15** the vendor
-  is now *built from staged blobs* instead of being prebuilt: `scripts/prebuilt_vendor.sh` mirrors the
-  stock Android 11 vendor partition into `vendor/hct4/tree/vendor` and `tools/gen_vendor_staging.py`
-  turns it into `vendor_staging.mk` (1034 copy entries — 1233 staged files minus the 173 the build
-  installs itself — + the VINTF manifest/matrix),
-  `vendor_props.mk` (100 stock properties) and `prebuilt_apps/Android.mk` (the stock vendor RRO,
-  which `PRODUCT_COPY_FILES` refuses as an `.apk` destination); the kernel comes from
-  `prebuilt/kernel_a11`. `m -j4`
-  finished with rc=0 in 45 min (`los-build11`): `super.img` 2.01 GB, `system.img` 922 MB,
-  `product.img` 456 MB, `system_ext.img` 385 MB, `odm.img` 811 KB. `boot.img` (32,796,672 B in a
-  33,554,432 B partition: vendor kernel + Android 14 ramdisk + vendor DTB + RSCE logo) and
-  `recovery.img` (44,689,408 B in 100,663,296 B, with `update_engine_sideload` in it) build too, and
-  `super.img` is staged for the unit's real 3,263,168,512 B partition. Packaging (`los-pack`: patches
-  -> vendor staging -> deploy -> bootimage/recoveryimage/dist/superimage/otapackage) reruns until the
-  OTA zip lands; what the lunch attempts, the missing boot image, the zip-symlink failure and the four
-  OTA failures exposed is written up in `docs/build-host.md`.
-- M2b (repartition): **dropped** on Nov 6 (owner: no partition-size change for the test). Android 14's
-  logical images are 2,183,183,264 B inside the existing 3,258,974,208 B group, so super already fits
-  with ~1.07 GiB spare and the GPT is never touched (**D19**, **D11**). The real LBAs are captured in
-  `analysis/hu_partition_offsets.txt`.
-- Next is M3: build the payload with `scripts/build_hu_package.sh` and flash it through the unit's own
-  `update.zip` route - stick at the root, stock recovery, stock `update-binary` (**D18**,
-  `docs/flash.md`) - then run the on-device probe. Fastboot/Boot-ADB is not used; MASKROM, which does
-  exist on the PX6 board, is only a brick rescue and writes the boot chain, so it stays out.
+* Apps, WiFi HAL, libdrm, drmservice and the vendor module set are in the tree and verified offline
+  (D21-D24). Packaging pass and payload audit: `docs/findings.md`.
+* First flash attempt was **rejected by the unit's recovery**: `E:footer is wrong`,
+  `E:Signature verification failed`, `E:error: 21` - recovery trusts only HCT's own cert
+  (`cf2ab3…`), which we do not hold (**D25**).
+* A testkey-signed payload now exists (route 1) and the raw-image route 2 is ready
+  (`scripts/flash_from_android.sh`, over `adb root` on the still-booting Android 11).
+* Bluetooth is a deliberate second pass after first boot (`docs/decisions.md`, "Bluetooth route").
+* No partition is ever resized or rewritten, and recovery/uboot/trust/dtbo/RKLoader/security are never
+  written; rollback stays the stock Android 10 package (**D11**/**D18**/**D19**).

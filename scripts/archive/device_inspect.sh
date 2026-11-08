@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Collects the facts we still need from the live PX6 unit. Run it ON the unit (root shell),
+# ARCHIVED (Nov 9): superseded by scripts/probe.sh and the in-ROM /system/bin/hu_probe.sh
+# (docs/decisions.md 'No terminal on the unit', docs/findings.md 'Post-boot probe').
 # or from a PC:  adb shell "sh /sdcard/device_inspect.sh" > device-report.txt
 #
 # Safe: read-only, no writes outside /tmp.

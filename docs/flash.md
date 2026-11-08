@@ -63,7 +63,7 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
 1. `scripts/verify_artifacts.sh <tree>` must pass: `VENDOR/` + `vendor.map`, the injected vendor
    libraries, super layout, VINTF `COMPATIBLE`, boot header, OTA zip. The Nov 8 pass flagged
    `flashable = NO` only on the parity flags (`vendor_diff.py` / `vendor_dropped_check.py` exit
-   non-zero) - `docs/decisions.md`, packaging pass Nov 8, records why those are intentional
+   non-zero) - `docs/findings.md`, packaging pass Nov 8, records why those are intentional
    Android 14 drops plus one real gap (`libstagefright_softomx_plugin.so`, legacy OMX soft codecs
    only). Read that section before flashing.
 2. Check the payload, then re-verify the same sha on the stick copy - a corrupt stick copy is the one

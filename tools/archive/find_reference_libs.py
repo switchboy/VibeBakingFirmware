@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Where the Android 10/11 copies of the four breaking libraries live, and whether they cover
+# ARCHIVED (Nov 9): one-shot investigation of the four breaking libs; answers are in D20/D22/D23.
+# Superseded by tools/extract_reference_libs.py + tools/vendor_link_closure.py.
 the needs of both the Android 11 blobs and Android 14's own vendor libraries."""
 import os, re, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

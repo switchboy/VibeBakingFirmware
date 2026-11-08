@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # One-shot D24 verification pass on the build host (docs/decisions.md D24 "Gates").
+# ARCHIVED (Nov 9): one-shot D24 gate run; the results it produced are recorded verbatim
+# in docs/decisions.md (D24) and docs/findings.md. Do not run blindly - it hardcodes NAS paths.
 #   systemd-run --unit=los-d24 --collect /bin/bash /srv/dev-disk-by-label-SSData/aospbuild/VibeBakingFirmware/scripts/run_d24_gates.sh
 # Read-only except the build itself; nothing partition-shaped, no packaging pass.
 # NOTE: no `set -u` here - build/envsetup.sh reads $TOP unconditionally (line 21).

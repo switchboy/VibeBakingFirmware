@@ -19,9 +19,9 @@ against our ROM.
 | file | role |
 |---|---|
 | `AndroidProducts.mk` | declares the lunch targets for the tree scanner |
-| `rk3399.mk` | product config (name, device, inherited bases) |
+| `lineage_rk3399.mk` | product config (name, device, inherited bases) |
 | `device.mk` | HU feature/permission/property config + vendor prebuilt import |
-| `BoardConfig.mk` | arch, boot image layout, dynamic partitions (8 GiB super, D8), SELinux |
+| `BoardConfig.mk` | arch, boot image layout, dynamic partitions (super unchanged at 3,263,168,512 B - **D11**/**D19**, the 8 GiB variant of D8 is recorded in `docs/decisions.md` and rejected), SELinux |
 | `fstab.rk30board` | eMMC layout with dynamic partitions and F2FS userdata (named after ro.hardware) |
 | `configs/` | HU-specific rc / xml fragments copied into the images |
 | `sepolicy/` | device sepolicy; builds permissive for M3 (the unit is permissive today) |

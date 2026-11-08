@@ -1,37 +1,42 @@
-# Generated analysis artefacts (large, reproducible via tools/) - small text artefacts are kept
-analysis/*
-!analysis/*.txt
-
-# Owner's downloaded vendor firmware (2.7 GB) - never commit
-diatsia fw/
-
-# Reference firmware payload: 1.2 GB, kept on disk but never committed
-update.zip
-extracted update.zip/
-
-# Final flashable payload (copy of the NAS-built update.zip); the pattern below also matches it
-out-hu/
-
-# Partition payloads / rebuilt images
-*.new.dat
-*.new.dat.br
-*.patch.dat
-*.transfer.list
-*.img
-
-# AOSP / Lineage build trees and output (cloned separately, huge)
+# Generated dumps: large and reproducible via tools/. Small evidence files stay tracked.
+# analysis/gpt/disk.img (62.8 GB full-eMMC snapshot) is brick insurance and lives on the HDD archive.
+analysis/*/
+!analysis/gpt/
+analysis/gpt/disk.img
+analysis/*.img
 out/
+out-hu/
 prebuilts/
 .AOSP
 lineage/
 aosp/
 
-# editor noise
-*.swp
-.DS_Store
+# OEM reference firmware: on disk here and on the NAS archive
+# (/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive), never in git.
+# The dir name "diatsia fw" is the owner's spelling and stays: scripts reference it.
+diatsia fw/
+update.zip
+extracted update.zip/
+refs/
 
-# local machine config and secrets — never commit credentials
+# Payload parts and rebuilt images (reproducible from the build tree)
+*.img
+*.new.dat
+*.new.dat.br
+*.patch.dat
+*.transfer.list
+
+# Probe reports: markdown evidence is tracked, binaries/backups are not
+incoming/*
+!incoming/*.md
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Credentials and editor noise (local.env.example stays tracked)
 local.env
 *.env
 .env.*
-incoming/
+*.swp
+.DS_Store

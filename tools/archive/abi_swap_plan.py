@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Per-library decision table for the legacy vendor blobs.
+# ARCHIVED (Nov 9): tool of the DROPPED blob-overwrite strategy (docs/decisions.md: the libdrm
+# overwrite plan was dropped in favour of patching Android 14's own libdrm, D22).
 
 For every soname a kept Android 11 blob links, answer the four questions that decide whether the
 Android 14 build can carry the blob unchanged:

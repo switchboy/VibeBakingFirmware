@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Prove the device.mk newline fix restores the four HU vendor copy rules (docs/decisions.md D24 gates addendum).
+# ARCHIVED (Nov 9): one-shot proof of the device.mk newline regression fix; outcome recorded in
+# docs/decisions.md (D24). Hardcodes NAS paths - historical, not a live workflow step.
 #   nohup bash .../scripts/run_d24_vendor_fix.sh > /tmp/d24-vfix.log 2>&1 &
 set -o pipefail
 export HOME=/tmp
