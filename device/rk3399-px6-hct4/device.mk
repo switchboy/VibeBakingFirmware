@@ -176,6 +176,7 @@ PRODUCT_PACKAGES += \
     libprotobuf-cpp-full-3.9.1-vendorcompat \
     libprotobuf-cpp-lite-3.9.1-vendorcompat \
     usb_modeswitch \
+    usb_dongle \
     vulkan.pastel
 
 # The OMX service is restored on purpose: the stock manifest declares android.hardware.media.omx@1.0
@@ -193,6 +194,18 @@ PRODUCT_PACKAGES += \
 # `android.hardware.wifi.supplicant.xml` / `.hostapd.xml` manifest fragments and the service .rc files).
 # `libwifi-hal` then selects `libwifi-hal-rtk` through BOARD_WLAN_DEVICE (see BoardConfig.mk). The
 # kernel driver needs nothing: `8188eu.ko` is a cfg80211/nl80211 driver, loaded by hu_insmod.sh.
+#
+# Two Android 11-era vendor binaries are made loadable rather than swapped (**D23**):
+#   * `bin/rockchip.drmservice` (kept blob, 32-bit ARM) needs `wifi_load_driver`, and the only
+#     provider is libwifi-hal - which upstream compiles for the primary arch only. The patch in
+#     patches/frameworks-opt-net-wifi-libwifi-hal-32bit.patch makes it `both`, so /vendor/lib gets a
+#     32-bit copy too and the blob resolves. It loads the WiFi driver and hands the MAC in
+#     /sys/class/net/wlan0/address to the MCU through /data/misc/wifi/wlan_mac + /dev/mtc-car.
+#   * `bin/usb_dongle` (kept blob, 64-bit) needs five legacy libsysutils symbols that Android 14
+#     does not export for /vendor/lib64. It is rebuilt from Rockchip's published BSP source as
+#     `usb_dongle` (device/rockchip/rk3399-px6-hct4/usb_dongle), same uevent handling and the same
+#     `/vendor/bin/usb_modeswitch -W -v ... -p ... -c /vendor/etc/usb_modeswitch.d/...` invocation,
+#     against Android 14's own libsysutils. Its blob copies are dropped in vendor_dest_skip_extra.txt.
 #
 # One deviation is declared, not restored: the RIL daemon and its libraries, because this unit has no
 # cellular modem. See device/rk3399-px6-hct4/vendor_dest_deviations.txt.

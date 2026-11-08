@@ -1,0 +1,80 @@
+// usb_dongle - Rockchip's uevent-driven USB mode-switch helper, rebuilt from published BSP source
+// for Android 14 (docs/decisions.md D23).
+//
+// The staged Android 11 blob `/vendor/bin/usb_dongle` is a 64-bit executable that links libsysutils
+// and calls SocketListener::startListener(), ~SocketListener(), NetlinkEvent::findParam(),
+// NetlinkListener::NetlinkListener(int) and NetlinkListener::onDataAvailable(). Those five symbols
+// became private/static in Android 14's libsysutils for /vendor/lib64, so the blob cannot dlopen.
+// Rebuilding it is cheaper than salvaging: Android 14's own libsysutils still exports all five (the
+// 32-bit /vendor/lib copy it installs proves the ABI), and the published sources compile unchanged.
+//
+// The module installs /vendor/bin/usb_dongle and, through init_rc, /vendor/etc/init/usb_dongle.rc -
+// the same two destinations the blob occupied, so the blob copies are dropped by the staging lists
+// (vendor_dest_skip_extra.txt) instead of swapping a binary.
+//
+// Semantics kept as published, including `-DUSE_USB_MODE_SWITCH`: uevents for subsystem `usb` and
+// `scsi_device` are handed to MiscManager, G3Dev::handleUsbEvent() switches any id whose config file
+// exists in /vendor/etc/usb_modeswitch.d/, and handleUsb() switches the device on /sys/bus/usb/
+// devices/1-1 once at start. It ends in `pause()`, like the blob.
+cc_binary {
+    name: "usb_dongle",
+
+    proprietary: true,
+
+    // The blob was ELF64; this unit has no 32-bit /vendor ABI for binaries of this kind.
+    compile_multilib: "64",
+
+    init_rc: ["usb_dongle.rc"],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        // The published Make module carried exactly these three (external/usb_modeswitch/usb_dongle/
+        // Android.mk). The rest are ours: the BSP code holds fields and variables it never reads
+        // (NetlinkManager::mBroadcaster, main.cpp's fstab/sehandle), and clang's newer warnings would
+        // turn that into an error.
+        "-Wno-missing-field-initializers",
+        "-Wno-unused-variable",
+        "-Wno-unused-parameter",
+        "-Wno-unused-private-field",
+        "-Wno-unused-but-set-variable",
+        // clang 17's format checks flag the published `sprintf` targets as short. Same values, same
+        // output.
+        "-Wno-format",
+        // The published code indents with tabs, so clang's -Wmisleading-indentation reads the tab-
+        // indented `pid_t status;` after `if( devtype!=NULL && ... )` as belonging to that if - it
+        // does not, and clang's own diagnosis proves the published control flow is what we vendored.
+        "-Wno-misleading-indentation",
+        // The published Make module sets this (`LOCAL_CFLAGS += -DUSE_USB_MODE_SWITCH`), and it is
+        // not optional here: NetlinkHandler.cpp's `#ifdef USE_USB_MODE_SWITCH` block opens a brace
+        // whose closing `}` sits after `#endif`, so without the define the function body is one
+        // closing brace short. The blob has this branch - its strings name MiscManager.
+        "-DUSE_USB_MODE_SWITCH",
+    ],
+
+    // The published Make module linked eight libraries; six of them are real dependencies of this
+    // code. libbinder.so and libhwbinder.so appear in the blob's DT_NEEDED because the BSP linked
+    // them, not because the code uses them (`nm -D --undefined-only` on the blob names no binder or
+    // HIDL symbol at all), and Android 14's Soong forbids the link anyway: system/libhwbinder/
+    // Android.bp:105 restricts visibility to its own subtree and //vendor/..., so a vendor module in
+    // device/rockchip/rk3399 cannot depend on it (Make had no visibility rule, which is why the blob
+    // built). Dropping them changes nothing at runtime - the linker just stops loading two libraries
+    // nobody calls.
+    shared_libs: [
+        "libsysutils",
+        "libcutils",
+        "liblog",
+        "libselinux",
+        "libutils",
+        "libbase",
+    ],
+
+    srcs: [
+        "main.cpp",
+        "NetlinkManager.cpp",
+        "NetlinkHandler.cpp",
+        "MiscManager.cpp",
+        "Misc.cpp",
+        "G3Dev.cpp",
+    ],
+}

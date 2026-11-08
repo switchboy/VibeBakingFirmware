@@ -539,3 +539,96 @@ Composer HAL. So there is no consumer this patch could break: it only adds a sym
 
 `out/target/product/rk3399/vendor.img` still holds the pre-patch libdrm until the next packaging pass
 (`scripts/package.sh` dists and re-syncs it), so the payload must be rebuilt before any flash.
+
+## D23 - the two remaining vendor binaries: patch open source, rebuild published source (Nov 8, DECIDED)
+
+Two blobs were left unresolved after **D21**/**D22**. Both are ordinary vendor programs, not HALs, so
+"patch the library / rebuild from source" beats "swap a blob" and beats "declare a gap".
+
+**What they needed, and how it was proved.** `tools/vendor_abi_check.py` (per ELF class, not per
+directory) reported 6 blobs that would not load:
+
+| blob | arch | unresolved symbols | provider |
+|---|---|---|---|
+| `bin/rockchip.drmservice` | ELF32 | 1: `wifi_load_driver` | only `libwifi-hal.so` - and Android 14 compiles that `compile_multilib: "first"`, so `/vendor/lib` has no copy for a 32-bit binary |
+| `bin/usb_dongle` | ELF64 | 5: `SocketListener::{startListener,~SocketListener}`, `NetlinkEvent::findParam`, `NetlinkListener::{ctor,onDataAvailable}` | `libsysutils.so` - Android 14 installs only the 32-bit `/vendor/lib/libsysutils.so`, which exports all five; `/vendor/lib64/libsysutils.so` does not exist |
+| `lib(64)/libomxvpu_{dec,enc}.so` | both | 2 each: `GraphicBufferMapper::{lock,unlock}` | declared **v1 gap**, untouched here |
+
+The binaries' own `DT_NEEDED`, `nm -D --undefined-only` and strings say what they do:
+`rockchip.drmservice` links `libwifi-hal.so` and mentions `/sys/class/net/wlan0/address`,
+`/data/misc/wifi/wlan_mac`, `/dev/mtc-car`, `/dev/rknand_sys_storage` - it loads the WiFi driver and
+hands the WiFi MAC to the MCU. `usb_dongle` mentions `external/usb_modeswitch/usb_dongle/{main.cpp,
+NetlinkManager.cpp}`, `/vendor/etc/usb_modeswitch.d/%04x_%04x` and
+`/vendor/bin/usb_modeswitch -W -v %04x -p %04x -c %s &`.
+
+**Route A - `libwifi-hal` gets a 32-bit variant.** `patches/frameworks-opt-net-wifi-libwifi-hal-
+32bit.patch` changes `compile_multilib: "first"` to `"both"` in
+`frameworks/opt/net/wifi/libwifi_hal/Android.bp`. No other patch was needed: every dependency already
+has a vendor_32 variant (`libnl.vendor_32`, `libbase.vendor_32`, `libcutils.vendor_32`,
+`liblog.vendor_32`, `libutils.vendor_32`, `libwifi-hal-common_32`, and our own `libwifi-hal-rtk`
+arm variant), and Soong installs them as install dependencies - `libnl.vendor_32` appeared in
+`vendor/lib/libnl.so` without being added to `PRODUCT_PACKAGES`. The blob is kept, byte-for-byte; the
+staged 32-bit blob `lib/libwifi-hal.so` stays dropped (it has 32 unresolved symbols of its own) and
+`vendor_dest_deviations.txt` no longer lists `lib/libwifi-hal.so` as lost, because the build now fills
+that destination.
+
+| file | before | after |
+|---|---|---|
+| `vendor/lib/libwifi-hal.so` | not installed | 111,528 B, `wifi_load_driver` and `init_wifi_vendor_hal_func_table` exported (1 hit each) |
+| `vendor/lib64/libwifi-hal.so` | 211,592 B | 211,592 B (unchanged) |
+| `vendor/lib/libnl.so` | not installed | 174,872 B |
+| `vendor/bin/rockchip.drmservice` | 13,020 B blob, 1 unresolved | same blob, 0 unresolved |
+
+**Route B - `usb_dongle` rebuilt from published source.** Rockchip ships it as
+`external/usb_modeswitch/usb_dongle`; published mirror used: `gitlabhost.argos-navy.ru/rockchip/
+firefly/rk3588_android12`, commit `e12ba531a1ef63b99ce4d8b17b9daf2ea30f69ec`. All thirteen files carry
+the Apache-2.0 AOSP header (the helper itself is Apache-2.0; the `usb_modeswitch` program it shells out
+to is GPLv2 and is already built from `device/generic/car/emulator/usbpt/bluetooth/usb_modeswitch`).
+The mirror's code is the code the blob was compiled from - the blob's strings name exactly its log
+messages, its `usb_modeswitch.d` path and its `-DUSE_USB_MODE_SWITCH` branch (`Unable to create/
+start MiscManager`). Vendored into `device/rk3399-px6-hct4/usb_dongle/` with a Soong `cc_binary`
+(`proprietary: true`, `compile_multilib: "64"`, `init_rc`), which installs `/vendor/bin/usb_dongle`
+and `/vendor/etc/init/usb_dongle.rc`; the blob copies of both paths are dropped
+(`vendor_dest_skip_extra.txt`). Adaptations are only: `libbinder`/`libhwbinder` dropped (Soong's
+visibility forbids them for a vendor module in this namespace - `system/libhwbinder/Android.bp:105` -
+and `nm -D --undefined-only` on the blob names no binder symbol, so they were dead DT_NEEDED entries),
+extra `-Wno-*` for newer clang, `#include <limits.h>` for `PATH_MAX`, and two mojibake comments
+rewritten in English. No semantic change: same uevent handling, same invocation, same `pause()`.
+
+| file | before | after |
+|---|---|---|
+| `vendor/bin/usb_dongle` | 29,872 B blob copy, 5 unresolved | 135,344 B module output, 0 unresolved |
+| `vendor/etc/init/usb_dongle.rc` | 70 B blob copy | 69 B module output (same three lines, blob's trailing blank line gone) |
+| `vendor/lib64/libsysutils.so` | not installed | 134,944 B, exports all five legacy symbols |
+
+**Numbers, same tree before and after** (`tools/vendor_abi_check.py`): blobs that would not load
+**6 -> 4**; the four left are `lib/libomxvpu_dec.so`, `lib/libomxvpu_enc.so`, `lib64/libomxvpu_dec.so`,
+`lib64/libomxvpu_enc.so` with the declared `GraphicBufferMapper::lock/unlock` gap. `/vendor` libraries
+went 511 -> 514 (libwifi-hal 32, libnl 32, libsysutils 64).
+`tools/consumer_abi_check.py` - Android 14's own consumers of the touched libraries, all 0 unresolved:
+
+| soname | consumers checked | unresolved |
+|---|---|---|
+| `libwifi-hal.so` | 2 (`android.hardware.wifi-service`, `bin/rockchip.drmservice`) | 0 |
+| `libnl.so` | 5 (wifi service, `hostapd`, `wpa_supplicant`, `lib(64)/libwifi-hal.so`) | 0 |
+| `libsysutils.so` | 1 (`bin/usb_dongle`) | 0 |
+| `libnetutils.so` | 6 (`rockchip.drmservice`, the five libril blobs) | 0 |
+| `libhardware_legacy.so` | 9 | 0 |
+| `libdrm.so` | 12 (the **D22** consumers) | 0 |
+
+The WiFi stack itself is unaffected: `android.hardware.wifi-service`, `wpa_supplicant`, `hostapd` and
+`lib64/libwifi-hal.so` all still have 0 unresolved symbols. Gates: `scripts/prebuilt_vendor.sh ""
+../lineage21s` and `scripts/deploy_device.sh ../lineage21s` pass, `tools/vendor_dropped_check.py` says
+186 dropped destinations, 184 present, 2 absent and declared (rild + its .rc).
+
+**Consequences worth watching.** `/vendor` grows by ~426 KB (111,528 + 174,872 + 134,944 + 105,472
+over the blob it replaced) inside the existing super group, which D8/D19 left unmodified - no
+partition change. Both binaries are `class main`, `oneshot`, exactly like the stock ones, and the WiFi
+driver is already insmod'ed before class main starts (`configs/init.hu.rc` starts `hu_insmod` on
+`early-boot`; Android 14's `system/core/rootdir/init.rc:1206-1209` starts `core` then `main` at
+`on boot`), so `rockchip.drmservice` sees `wlan0` when it reads the MAC. `usb_dongle` needs
+`/vendor/bin/sh` for its `system()` call - Android 14 builds it (339,792 B). Nothing new is declared
+in the vendor manifest; both are init services, not HAL interfaces.
+`out/target/product/rk3399/vendor.img` is still the pre-D23 image (Nov 8 build installed into
+`out/target/product/rk3399/vendor/`, no packaging pass was run), so the payload has to be rebuilt
+before any flash - same caveat as **D22**.

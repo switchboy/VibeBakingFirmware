@@ -52,3 +52,24 @@ etc/init/hostapd.android.rc
 bin/wpa_cli
 lib/libwpa_client.so
 lib64/libwpa_client.so
+
+# ---- D23: libwifi-hal's 32-bit variant ----
+# `lib/libwifi-hal.so` is the Android 11 blob's 32-bit WiFi HAL glue. patches/frameworks-opt-net-
+# wifi-libwifi-hal-32bit.patch gives Android 14's own libwifi-hal `compile_multilib: "both"`, so the
+# build installs /vendor/lib/libwifi-hal.so itself (the 64-bit copy already won this path through
+# vendor_build_wins.txt). The blob must not come back: its own copy has 32 unresolved symbols (no
+# 32-bit libnl provider in the staged tree, libnl 3.8 ABI drift), and `bin/rockchip.drmservice` - a
+# 32-bit ELF - resolves `wifi_load_driver` against the built copy.
+lib/libwifi-hal.so
+
+# ---- D23: usb_dongle is rebuilt in-tree ----
+# device/rockchip/rk3399-px6-hct4/usb_dongle/Android.bp builds `usb_dongle` and installs
+# /vendor/bin/usb_dongle plus /vendor/etc/init/usb_dongle.rc (init_rc). Same destinations as the
+# blob, so the blob copies are dropped; the blob cannot load here (five legacy libsysutils symbols,
+# see vendor_dest_deviations.txt for why it is not declared as a gap).
+# tools/vendor_conflicts.py classifies a path installed by a *device-tree* module as "blob must win"
+# (that heuristic exists to stop an AOSP default HAL from shadowing a Rockchip HAL). Here it is the
+# opposite: the device-tree module IS the blob's own source rebuilt for Android 14, so this file is
+# the override that drops the blob - the final conflict scan reports "no collisions".
+bin/usb_dongle
+etc/init/usb_dongle.rc

@@ -27,12 +27,13 @@ etc/init/vendor_flash_recovery.rc
 # frameworks/opt/net/wifi/service/java/ -> 0 files`), so `android.hardware.wifi@1.0-service` would
 # start, register, and never be spoken to. WiFi comes from Android 14's own AIDL service instead
 # (`android.hardware.wifi-service` + `libwifi-hal` -> `libwifi-hal-rtk`, device.mk and BoardConfig.mk).
-# `lib/libwifi-hal.so` is the blob's 32-bit glue: nothing left links it once the service is gone, and
-# Android 14's libwifi-hal is multilib `first` (arm64 only) and wins the lib64 path anyway.
 # `librkwifi-ctrl.so` only served that service (`check_wifi_chip_type_string`, `get_wifi_device_id`);
 # the module loading it used to do is hu_insmod.sh's job.
+# `lib/libwifi-hal.so` (the blob's 32-bit glue) is NOT a deviation any more: **D23** gives Android 14's
+# libwifi-hal `compile_multilib: "both"`, so the build installs that destination itself and
+# `bin/rockchip.drmservice` resolves `wifi_load_driver` there. The blob copy is dropped because the
+# build owns the path (vendor_dest_skip_extra.txt), not because it is lost.
 bin/hw/android.hardware.wifi@1.0-service
 etc/init/android.hardware.wifi@1.0-service.rc
-lib/libwifi-hal.so
 lib64/librkwifi-ctrl.so
 lib/librkwifi-ctrl.so

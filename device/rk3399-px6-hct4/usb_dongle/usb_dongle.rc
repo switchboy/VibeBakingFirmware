@@ -1,0 +1,3 @@
+service usb_dongle /vendor/bin/usb_dongle
+    class main
+    oneshot

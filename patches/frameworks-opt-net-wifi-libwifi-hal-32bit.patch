@@ -1,0 +1,22 @@
+diff --git a/frameworks/opt/net/wifi/libwifi_hal/Android.bp b/frameworks/opt/net/wifi/libwifi_hal/Android.bp
+index 2b1c3f7..6d9a1c4 100644
+--- a/frameworks/opt/net/wifi/libwifi_hal/Android.bp
++++ b/frameworks/opt/net/wifi/libwifi_hal/Android.bp
+@@ -206,7 +206,14 @@
+ }
+ 
+ cc_library_shared {
+     name: "libwifi-hal",
+     proprietary: true,
+-    compile_multilib: "first",
++    // This unit keeps one vendor binary that talks to libwifi-hal directly: /vendor/bin/
++    // rockchip.drmservice is a 32-bit ARM executable (ELF class 1) whose DT_NEEDED names
++    // libwifi-hal.so, so it resolves that soname against /vendor/lib - which `first` never fills.
++    // Upstream restricts this library to the primary arch because Android 14's own WiFi stack is
++    // 64-bit only; the 32-bit variant costs one extra shared library and every dependency it needs
++    // already has a vendor_32 variant (libnl, libbase, libcutils, liblog, libutils,
++    // libwifi-hal-common, libwifi-hal-rtk). See docs/decisions.md D23.
++    compile_multilib: "both",
+     defaults: [
+         "libwifi_hal_cflags_defaults",
+         "libwifi_hal_vendor_deps_defaults", // shared_libs used by libwifi-hal-<vendor>
