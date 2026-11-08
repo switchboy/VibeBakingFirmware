@@ -39,12 +39,22 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
   the partition list and sizes change, and Android 14 adds `system_ext`, which stock did not have.
 * `.patch.dat` is empty and each transfer list is one `flash` command: an unconditional full write,
   exactly like the stock package.
-* Logical content is 2,182,987,776 B inside a 3,258,974,208 B group, so there is ~1.07 GiB of spare.
+* Logical content is 2,299,015,168 B inside a 3,258,974,208 B group, so there is ~917 MiB of spare
+  (Nov 8 pass: system 1,012,817,920 / vendor 444,424,192 / product 456,159,232 / system_ext
+  384,802,816 / odm 811,008 B, block-multiple resizes, no partition resize - **D19**/**D11**).
+* The built payload: store zip 945,061,278 B, sha256
+  `c1e5ea5a855070ba051af13d02f3defcbaeceb385eae7bceb77152d944bc534f` (NAS `aospbuild/tmp/
+  hu-package/update.zip`, workstation copy `out-hu/update.zip`). Full audit numbers:
+  `docs/decisions.md`, packaging pass Nov 8.
 
 ## Pre-flight
 
 1. `scripts/verify_artifacts.sh <tree>` must pass: `VENDOR/` + `vendor.map`, the injected vendor
-   libraries, super layout, VINTF `COMPATIBLE`, boot header, OTA zip.
+   libraries, super layout, VINTF `COMPATIBLE`, boot header, OTA zip. The Nov 8 pass flagged
+   `flashable = NO` only on the parity flags (`vendor_diff.py` / `vendor_dropped_check.py` exit
+   non-zero) - `docs/decisions.md`, packaging pass Nov 8, records why those are intentional
+   Android 14 drops plus one real gap (`libstagefright_softomx_plugin.so`, legacy OMX soft codecs
+   only). Read that section before flashing.
 2. Build the package and check it: `scripts/build_hu_package.sh ../lineage21s "extracted update.zip"
    ../tmp/hu-package/update.zip`, then `unzip -l` and the sha256 it prints. Record the sha256.
 3. Format the stick FAT32 and put `update.zip` in its **root**.

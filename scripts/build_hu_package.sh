@@ -23,6 +23,12 @@ PROD=$TREE/out/target/product/rk3399
 [ -d "$PROD" ] || { echo "no built product dir: $PROD"; exit 1; }
 [ -s "$STOCK/META-INF/com/google/android/update-binary" ] || { echo "no stock update-binary in $STOCK"; exit 1; }
 
+# OUT may be relative to the *caller's* cwd, but the zip runs from the scratch dir - a relative
+# OUT there resolves to the wrong path ("../tmp" from tmp/hupkg.XXXX is tmp/tmp). Absolutize it
+# before anything uses it, so the stock-script copy and the zip resolve the same file.
+mkdir -p "$(dirname "$OUT")" 2>/dev/null || true
+OUT=$(realpath -m -- "$OUT" 2>/dev/null || printf '%s' "$OUT")
+
 # The payload needs ~2 GB of uncompressed .new.dat plus the compressed copies, so keep the scratch
 # on the build host's data disk, not in the repo folder or sshd's small PrivateTmp /tmp.
 SCRATCH=${SCRATCH:-/srv/dev-disk-by-label-SSData/aospbuild/tmp}

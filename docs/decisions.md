@@ -816,3 +816,79 @@ could not see it because it reads the file, not kati. Fixed by restoring the new
   the controller-side daemons above are.
 * **Dexopt cost at boot.** No `oat/` is shipped, so the first boot dexopts 37 apks (this is intended; it makes the
   first boot slower and the second one normal).
+
+## Packaging pass Nov 8 - dist, super, the HU payload, and its offline verification
+
+**Run on the build host** with the daytime policy (`-j4`, docker fleet untouched, everything via
+`nohup` over ssh - never systemd-run, whose unit env breaks `envsetup.sh`; scratch under
+`aospbuild/tmp`). Order mirrored `scripts/package.sh` minus `m otapackage` (the HU payload does not
+need it): deploy exit 0, `m dist -j4` rc=0, `m superimage -j4` rc=0, `m bootimage -j4` rc=0.
+Mid-dist the SSD dipped to 6.6 GB free while the regenerable symbol/img/proguard zips were being
+written; they were pruned (the `prune_dist` list) and the pass finished with ~14 GB free. The dist
+flow ran `ota_from_target_files` itself, so a fresh `lineage_rk3399-ota.zip` (1,012,957,295 B,
+sha256 `931bbb45…`) exists too - it is not the flash transport, the HU payload is.
+
+**Gate verdicts (`scripts/verify_artifacts.sh`), honest:**
+* super layout: `ALL LOGICAL PARTITIONS VERIFIED: True` - every embedded partition byte-identical to
+  the raw image in the product dir, ext4 parses, used 2,301,386,752 of 3,258,974,208 (group spare
+  957,587,456), group inside super_partition_size 3,263,168,512.
+* VINTF: `check_vintf_compatible.log` COMPATIBLE, no ERROR lines; the derived vendor manifest carries
+  10 HIDL HAL entries (audio, audio.effect, bluetooth, camera.provider, allocator, composer, mapper,
+  omx, memtrack, sensors) + 5 fragments (health@2.1, cas@1.2, wifi-service, hostapd, supplicant); no
+  duplicate FqInstance, no vendor-ndk. The stock wifi@1.3/hostapd/supplicant HIDL blocks are *not* in
+  the manifest.xml the image assembled, so the watch above did not need an edit.
+* boot header: v2, Android 14.0.0, patch 2026-10, cmdline keeps `androidboot.hardware=rk30board` and
+  `androidboot.selinux=permissive`; `boot.img` 32,796,672 B (the bootimage rebuild was a ninja no-op).
+* recovery ramdisk carries `update_engine_sideload` + `libfusesideload.so` + `recovery.fstab` rows for
+  boot/recovery/misc/userdata/cache/metadata.
+* `vendor_abi_check.py`: 4 unresolved blobs - exactly the declared `libomxvpu_dec/enc` gap (x2 arches),
+  unchanged from D23. `blob_deps.py`: every DT_NEEDED of the kept blobs resolves.
+* `vendor_diff.py` and `vendor_dropped_check.py` exit non-zero. Checked against the image, the flags
+  are mostly tool noise: the `usb_modeswitch.d` names containing `=`/`#` are intentionally unstaged
+  (`gen_vendor_staging.py` records why - Make cannot carry them in a `src:dst` pair, and the HU's
+  `usb_dongle` only looks up `%04x_%04x`); the manifest "MISSING HAL" lines are the HIDL-vs-AIDL key
+  mismatch (the same services are declared, as fragments/AIDL); the missing `wifi@1.0-service`,
+  `librkwifi-ctrl` and `rild` paths are the D21 drop / declared deviations, replaced by the AIDL wifi
+  stack. One flag is a real content gap: **`libstagefright_softomx_plugin.so` is not in vendor.img**
+  (the staging dir holds it and `installed-files-vendor.txt` lists it, but the dist image filter drops
+  it) - `android.hardware.media.omx@1.0-service` therefore cannot dlopen soft OMX codecs. Android 14's
+  media stack uses Codec2 and the Rockchip VPU OMX plugin is already the declared gap, so the loss is
+  confined to legacy OMX paths (some HCT media apps); not fixed in this pass, recorded here.
+  `libwpa_client.so` shared lib is absent but inert: `wpa_supplicant`/`hostapd` link it statically and
+  the installed `libwifi-hal.so` (both arches) does not name it (readelf-checked from the image).
+
+**The payload (`scripts/build_hu_package.sh`, first run).** Its relative `<out-zip>` broke `zip`
+when the script ran from the scratch dir (`../tmp` from `tmp/hupkg.XXXX` is `tmp/tmp`); fixed by
+absolutizing `OUT` (and creating its dir) before anything uses it. Numbers:
+
+| partition | raw image | resize | `new.dat.br` (brotli -q 9) |
+|---|---|---|---|
+| system | 1,012,817,920 | 1,012,817,920 | 462,236,938 |
+| vendor | 444,424,192 | 444,424,192 | 127,220,764 |
+| product | 456,159,232 | 456,159,232 | 195,341,325 |
+| system_ext | 384,802,816 | 384,802,816 | 115,347,508 |
+| odm | 811,008 | 811,008 | 216,933 |
+
+logical content 2,299,015,168 B of group `hct_dynamic_partitions` 3,258,974,208 B - spare
+959,959,040 B, no resize (**D19**); super device size stays 3,263,168,512 B (**D11**). Store zip
+945,061,278 B, sha256 `c1e5ea5a855070ba051af13d02f3defcbaeceb385eae7bceb77152d944bc534f`. NAS:
+`aospbuild/tmp/hu-package/update.zip`; workstation: `out-hu/update.zip` (same sha, verified).
+
+**Offline payload audit (owner's pre-flash gate), all proven:**
+* `unzip -l`: 27 entries exactly - `dynamic_partitions_op_list`, 5 transfer lists, 5 `.new.dat.br`,
+  5 empty `.patch.dat`, `boot.img`, `uboot.img`, `trust.img`, `dtbo.img`, `RKLoader.bin`,
+  `META-INF/com/google/android/{update-binary,updater-script}`. No super.img, no stray files;
+  `unzip -tqq` clean.
+* op list: `add_group hct_dynamic_partitions 3258974208`, five `add` (system_ext included), five
+  `resize` summing to 2,299,015,168 <= the group; stock vocabulary only.
+* updater-script: device assert, `update_dynamic_partitions`, five `block_image_update`, the boot
+  write, `wipe_block_device` userdata+cache 8 MiB; zero uboot/trust/dtbo/RKLoader/loader/security/
+  recovery writes (those words appear only in the trailing comment). Removed from the stock script:
+  the trust/uboot/dtbo writes, `RKLoader.bin` -> `/tmp` + `write_raw_loader_image()`, the whole
+  `super.img` write, the `security` wipe; added: the `system_ext` partition and the two wipes.
+* byte-identity (sha256): `uboot.img` `8407e60d…`, `trust.img` `7f2c4e52…`, `dtbo.img` `28a07d49…`,
+  `RKLoader.bin` `02cade6d…`, `update-binary` `80571323…` all equal the stock package copies;
+  `boot.img` `83fd2a15…` equals the product-dir copy.
+* vendor `.new.dat.br` decompresses (brotli -d) to exactly 444,424,192 B; ext4 magic `53 ef` at
+  offset 1080, `dumpe2fs -h` reports Block count 108502, `debugfs` reads /bin/hw (wifi-service) and
+  /lib (libwifi-hal.so) - nothing mounted.

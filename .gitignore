@@ -9,6 +9,9 @@ diatsia fw/
 update.zip
 extracted update.zip/
 
+# Final flashable payload (copy of the NAS-built update.zip); the pattern below also matches it
+out-hu/
+
 # Partition payloads / rebuilt images
 *.new.dat
 *.new.dat.br
