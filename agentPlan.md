@@ -104,13 +104,13 @@ Detailed milestone breakdown: `docs/plan.md`.
 
 ## Next action (Nov 7 — first boot, with the HCT apps in the same flash)
 
-**Owner change of plan (Nov 7):** the first flash ships the head-unit app layer too, so the unit is
-usable after one flash instead of two (**D6** moves from "later" into M3). Apps live in `system`, not
-`vendor`: `system/app/HCT8Radio` … `system/priv-app/HCTCanBus` + `/system/bin/gocsdk*/sdsdk*/blueletd/
-brlinktd/hctcanbusservice` + `/init.hct.rc`. The unit's own app set is the **HCT8/HCT8_1** generation
-(`pm list packages -f` in probe 20261105-1914), which is *not* what the reference payload carries
-(HCT4, Mar 2021) nor what the Daisaita images carry (HCT7) - so the app layer must come from the live
-unit (or an official zip the owner has), not out of `analysis/`.
+**Owner change of plan (Nov 7, revised Nov 8):** the first flash ships the head-unit app layer too, so the
+unit is usable after one flash instead of two (**D6** moves from "later" into M3). Apps live in `system`,
+not `vendor`. The Nov 8 revision: the layer comes out of the **reference payload** (`extracted update.zip`),
+not off the live unit, because those images are built for this MCU architecture and are meant as drop-ins
+(**D24**). The unit's own app set is the HCT8/HCT8_1 generation (`pm list packages -f` in probe
+20261105-1914) and the payload carries the HCT4 generation (Mar 2021) - so package names differ from the
+probe's list, and the payload is the one that gets staged.
 
 Three vendor gaps come out of the ABI run (`tools/vendor_abi_check.py`, arch-aware version); two are
 fixed in the tree, one is declared:
@@ -125,11 +125,38 @@ Steps, in order:
 
 1. **Disk first** (the SSD had 14 GB free): prune old attempts, then move the read-only reference
    firmware to the HDD pool and symlink it back. See `docs/build-host.md` "Space plan".
-2. Pull the app layer off the live unit with the SD/Termux probe (tar + LAN upload, cap raised), or from
-   the owner's official zip; then stage it: APKs as `BUILD_PREBUILT` `APPS` modules (no `oat/`, Android 14
-   dexopts at boot), `/system/bin` control binaries + OEM `system/lib` libs via `PRODUCT_COPY_FILES`, and
-   `/init.hct.rc` as `/system/etc/init/hct.rc`. The framework-coupled forks (`HCTSystemUI10`, `HCTSettings10`,
-   `HCT8Launcher3`, `HCTProvision10`, `HCTPackageInstaller10`) stay out - Lineage 21 ships its own.
+2. **App layer: staged (Nov 8, D24).** The set comes from the **reference payload**, not the live unit:
+   the owner's decision is that the payload's images are built for this MCU architecture and are meant
+   as drop-ins. Reassembled `product.img` beside the existing `system.img` (`system_ext` does not exist
+   in the payload at all), read the app dirs/binaries/libs/permissions with `tools/ext4_ls.py`, and
+   staged them as real build modules:
+   * `device/rk3399-px6-hct4/apps/Android.bp` - 37 `android_app_import` modules (32 `/system/app`,
+     5 `/system/priv-app`), `certificate: "platform"` (the seven `android.uid.system` apps need our
+     platform key or PackageManager refuses them), `dex_preopt: { enabled: false }`, no `oat/`.
+   * `device/rk3399-px6-hct4/hu_apps.mk` (included from `device.mk`) - `/system/bin` control binaries,
+     the OEM `/system/lib` libraries they and the apps name, the init fragment as
+     `/system/etc/init/hct.rc` (Android 14's init reads that directory; the `import
+     /init.hct.camera.rc` line is dropped because that file is not in the payload), the OEM `/system/etc`
+     config files, and our own `/system/etc/permissions/privapp-permissions-hct.xml`.
+   * Excluded: the framework-coupled forks (`HCTSystemUI10`, `HCTSettings10`, `HCT4Launcher3`,
+     `HCTProvision10`, `HCTPackageInstaller10`), the package-colliding forks (`HCTExactCalculator10`,
+     `HCTDeskClock10`, `HCTGallery10`), `ExtAospBluetooth10` (the Android 10 Bluetooth *stack*, package
+     `com.android.bluetooth`), the Google/GMS apks, and every `oat/` directory. Collision table:
+     `analysis/app_layer_package_collisions.txt`, full inventory `analysis/app_layer_inventory.tsv`,
+     ABI evidence `analysis/app_layer_system_abi.txt`, narrative `analysis/app_layer_stage.md`.
+   **Verified on the build host Nov 8** (`scripts/run_d24_gates.sh`, run with `nohup` over ssh - not
+   systemd-run, whose unit environment makes `build/envsetup.sh` bail with `TOP: unbound variable`; the
+   script must not `set -u` for the same reason): deploy exit 0, `vendor_conflicts.py` exit 0 ("no
+   collisions", 1021 staged destinations vs 5943 vendor install targets), `m -j4 systemimage productimage`
+   exit 0 (22 s incremental), `scripts/verify_hu_apps.sh`: 32 + 5 HCT dirs installed, 0 `oat/` dirs under
+   any HCT app dir (the 53 that exist are Lineage's own dexpreopt), init fragment byte-identical apart
+   from the dropped import line, 35 system destinations with 0 module collisions, re-signed apks carry our
+   platform cert digest `c8a2e9…` with package and `android.uid.system` intact, system.img 1,012,817,920 B
+   (+83.7 MB), product.img unchanged, total 2,338,787,328 B against the 3,258,974,208 B group - 920 MB
+   spare, no resize (**D19**).
+   Still open from this step (recorded in D24): the payload has no `hctcanbusservice`, no
+   `com.android.bluetooth` module is in our build at all, and the gocsdk/sdsdk daemons need Android 10
+   `AudioTrack`/`AudioRecord` constructors that Android 14 does not export.
 3. WiFi is landed (**D21**): `libwifi-hal-rtk` compiles unchanged for arm64 and arm, and Android 14's own
    `android.hardware.wifi-service` / `wpa_supplicant` / `hostapd` install with their `.rc` files and VINTF
    fragments, all resolving with 0 unresolved symbols (`docs/decisions.md` D21 for the four config gotchas).

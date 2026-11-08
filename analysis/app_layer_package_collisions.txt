@@ -1,0 +1,8 @@
+COLLISION  com.android.packageinstaller  candidate=priv-app/HCTPackageInstaller10/HCTPackageInstaller10.apk  lineage=lineage21s/out/target/product/rk3399/system/priv-app:PackageInstaller/PackageInstaller.apk
+COLLISION  com.android.deskclock  candidate=product/app/HCTDeskClock10/HCTDeskClock10.apk  lineage=lineage21s/out/target/product/rk3399/product/app:DeskClock/DeskClock.apk
+COLLISION  com.android.gallery3d  candidate=product/app/HCTGallery10/HCTGallery10.apk  lineage=lineage21s/out/target/product/rk3399/product/app:Gallery2/Gallery2.apk
+COLLISION  com.android.launcher3  candidate=product/priv-app/HCT4Launcher3/HCT4Launcher3.apk  lineage=lineage21s/out/target/product/rk3399/system_ext/priv-app:TrebuchetQuickStep/TrebuchetQuickStep.apk
+COLLISION  com.android.settings  candidate=product/priv-app/HCTSettings10/HCTSettings10.apk  lineage=lineage21s/out/target/product/rk3399/system_ext/priv-app:Settings/Settings.apk
+COLLISION  com.android.systemui  candidate=product/priv-app/HCTSystemUI10/HCTSystemUI10.apk  lineage=lineage21s/out/target/product/rk3399/system_ext/priv-app:SystemUI/SystemUI.apk
+COLLISION  com.android.calculator2  candidate=system/HCTExactCalculator10/HCTExactCalculator10.apk  lineage=lineage21s/out/target/product/rk3399/product/app:ExactCalculator/ExactCalculator.apk
+candidates=48 our_packages=90 collisions=7

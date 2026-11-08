@@ -1,0 +1,305 @@
+// Prebuilt head-unit apps from the reference Android 10 payload (Microntek/HCT), staged as real
+// build modules so they land in the image instead of being copied by hand.
+//
+// Why a module and not PRODUCT_COPY_FILES: build/make/core/Makefile:118 refuses a `.apk`
+// destination in PRODUCT_COPY_FILES ("Prebuilt apk found in PRODUCT_COPY_FILES"), so the only way to
+// install an apk is a module - this is the same route prebuilt_apps/Android.mk takes for the stock
+// vendor resource-overlay, just with Soong's android_app_import.
+//
+// `apk:` is the source path relative to this folder (there is no `prebuilt:` property on
+// android_app_import); the blobs live here in the repo device dir so scripts/deploy_device.sh copies
+// them into the tree and checks they exist.
+//
+// `certificate: "platform"` re-signs every apk with the platform key this build signs its own system
+// apps with (build/make/target/product/security/platform.x509.pem - cert digest
+// c8a2e9bccf597c2fb6dc66bee293fc13f2fc47ec77bc6b2b0d52c11f51192ab8, which is what framework-res.apk,
+// SystemUI.apk and Settings.apk carry). Seven of these apks declare android:sharedUserId="android.uid.system"
+// and PackageManager refuses an apk that claims a system shared uid while signed by anyone else; the
+// rest are signed with the same key so the signature permissions between the HCT apps keep working
+// (android.permission.HCT_FACTORY is declared by HCTFactorySettings and used by the others). The
+// payload's own signature is a different Android key (digest 2d370c21f5dfd553d2a796314b70925fb38adeef90864c920bbbbb12887d3522),
+// so byte-for-byte fidelity is deliberately broken here - see docs/decisions.md D24.
+//
+// dex_preopt is off: Android 14 dexopts at boot, and shipping Android 10's `oat/` directories from the
+// payload would put dex files next to a runtime that cannot use them.
+//
+// Everything installed here targets API 22..29 on purpose (they were built against Android 10). Apps
+// keep the framework behaviour of their target SDK, which is what the OEM code expects; the risk that
+// a specific Android 10 framework API is gone is listed in D24 rather than fixed here.
+
+android_app_import {
+    name: "HCT4Radio",
+    apk: "system/HCT4Radio/HCT4Radio.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCT4Music",
+    apk: "system/HCT4Music/HCT4Music.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCT4Movie",
+    apk: "system/HCT4Movie/HCT4Movie.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCT4FileBrowser",
+    apk: "system/HCT4FileBrowser/HCT4FileBrowser.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCT4BlueTooth",
+    apk: "system/HCT4BlueTooth/HCT4BlueTooth.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCT4BtMusic",
+    apk: "system/HCT4BtMusic/HCT4BtMusic.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCT4UsbIpod",
+    apk: "system/HCT4UsbIpod/HCT4UsbIpod.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCT8AmpSetup",
+    apk: "system/HCT8AmpSetup/HCT8AmpSetup.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTApkInstall",
+    apk: "system/HCTApkInstall/HCTApkInstall.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+// package com.android.music, sharedUserId android.uid.system -> needs the platform key.
+// Lineage 21's music player is Jelly (package org.lineageos.jelly), so this does not collide.
+android_app_import {
+    name: "HCTAudioPreview",
+    apk: "system/HCTAudioPreview/HCTAudioPreview.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTAvin",
+    apk: "system/HCTAvin/HCTAvin.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTBackView",
+    apk: "system/HCTBackView/HCTBackView.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTCarCD",
+    apk: "system/HCTCarCD/HCTCarCD.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTCarRecoder",
+    apk: "system/HCTCarRecoder/HCTCarRecoder.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+// The on-screen button overlay: it is what the capacitive keys and the steering-wheel controls map to.
+android_app_import {
+    name: "HCTCarTouch",
+    apk: "system/HCTCarTouch/HCTCarTouch.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTCivicusbipod",
+    apk: "system/HCTCivicusbipod/HCTCivicusbipod.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTControlInfo",
+    apk: "system/HCTControlInfo/HCTControlInfo.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTControlSettings",
+    apk: "system/HCTControlSettings/HCTControlSettings.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTDvd",
+    apk: "system/HCTDvd/HCTDvd.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTDVR_IR",
+    apk: "system/HCTDVR_IR/HCTDVR_IR.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTExtMovie",
+    apk: "system/HCTExtMovie/HCTExtMovie.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTExtMusic",
+    apk: "system/HCTExtMusic/HCTExtMusic.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+// package com.hct.factory, sharedUserId android.uid.system; declares android.permission.HCT_FACTORY.
+android_app_import {
+    name: "HCTFactorySettings",
+    apk: "system/HCTFactorySettings/HCTFactorySettings.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTFrontView",
+    apk: "system/HCTFrontView/HCTFrontView.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTNaviSettings",
+    apk: "system/HCTNaviSettings/HCTNaviSettings.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTScreenClock",
+    apk: "system/HCTScreenClock/HCTScreenClock.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTSync",
+    apk: "system/HCTSync/HCTSync.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTTpms",
+    apk: "system/HCTTpms/HCTTpms.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTTv",
+    apk: "system/HCTTv/HCTTv.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+// package android.rockchip.update.service; System.loadLibrary("rockchip_update_jni"), whose library is
+// copied to /system/lib(64) by hu_apps.mk.
+android_app_import {
+    name: "HCTUpdateService",
+    apk: "system/HCTUpdateService/HCTUpdateService.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTWheelStudy",
+    apk: "system/HCTWheelStudy/HCTWheelStudy.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTWidget",
+    apk: "system/HCTWidget/HCTWidget.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+// ---- privileged apps (installed into /system/priv-app) ---------------------------
+// privileged: true is what grants the signature|privileged permissions; those have to appear in
+// /system/etc/permissions/privapp-permissions-hct.xml (copied by hu_apps.mk) or the framework logs
+// "permission X not in whitelisting" - enforcement is log-only on a userdebug build.
+
+android_app_import {
+    name: "HCTBlueToothManager",
+    apk: "priv-app/HCTBlueToothManager/HCTBlueToothManager.apk",
+    privileged: true,
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+// package android.microntek.canbus - the CANBUS/MCU bridge (reads /dev/mtc-car and the goc serial).
+android_app_import {
+    name: "HCTCanBus",
+    apk: "priv-app/HCTCanBus/HCTCanBus.apk",
+    privileged: true,
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTExtAppDocker",
+    apk: "priv-app/HCTExtAppDocker/HCTExtAppDocker.apk",
+    privileged: true,
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+android_app_import {
+    name: "HCTExtScreenClock",
+    apk: "priv-app/HCTExtScreenClock/HCTExtScreenClock.apk",
+    privileged: true,
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}
+
+// package android.microntek.service - the HCT system service (boot/reboot, app ops, preferred apps).
+android_app_import {
+    name: "HCTManagerService",
+    apk: "priv-app/HCTManagerService/HCTManagerService.apk",
+    privileged: true,
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+}

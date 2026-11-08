@@ -632,3 +632,187 @@ in the vendor manifest; both are init services, not HAL interfaces.
 `out/target/product/rk3399/vendor.img` is still the pre-D23 image (Nov 8 build installed into
 `out/target/product/rk3399/vendor/`, no packaging pass was run), so the payload has to be rebuilt
 before any flash - same caveat as **D22**.
+
+## D24 - head-unit app layer: staged out of the reference payload and re-signed with our platform key (Nov 8, implemented + verified on the build host)
+
+**Decided (owner, Nov 7/8):** the app layer comes from the **reference payload** (`extracted update.zip`),
+not off the live unit, because those images are built for this MCU architecture and are meant as drop-ins.
+This implements **D6** ("keep the HCT apps for v1") inside M3, without a packaging pass: `systemimage` +
+`productimage` only, nothing partition-shaped touched (**D18**/**D19** still stand).
+
+**Provenance and licensing.** The apks and the OEM libraries are Microntek/HCT binaries with no source in
+the payload and no licence grant - they are proprietary prebuilts, kept only for feature parity, exactly
+like the vendor blobs of **D4**. Nothing here is Apache/MIT; the payload's Google packages (GmsCore, Chrome,
+WebView, Velvet, Phonesky, LatinImeGoogle, `~330 MB` of `/product`) were not taken at all. Extracting them
+from the payload and shipping them in our own image is a decision about *this* unit; it is not something to
+redistribute. Every copied byte is recorded with its sha256 in `analysis/app_layer_inventory.tsv`, and the
+two deliberate byte changes are the re-signing and the one dropped init line.
+
+**How they were extracted.** `debugfs` cannot read a `.new.dat` payload, so `product.img` was reassembled
+with `tools/reassemble.py` beside the existing `system.img` (`system_ext` is not in the payload at all - the
+Android 10 package has system/product/vendor/odm only). Files were read with `tools/ext4_ls.py` and
+`debugfs -R dump`, never mounted. Evidence: `analysis/app_layer_stage.md` (narrative),
+`analysis/app_layer_inventory.tsv` (48 candidates: package, sharedUserId, target SDK, size, sha256, permission count),
+`analysis/app_layer_package_collisions.txt`, `analysis/app_layer_system_abi.txt`.
+
+**Included:** 32 apks into `/system/app`, 5 into `/system/priv-app` (`HCTCanBus`, `HCTManagerService`,
+`HCTBlueToothManager`, `HCTExtAppDocker`, `HCTExtScreenClock`), the `/system/bin` control binaries
+(`gocsdk`, `gocsdk5`, `gocsdk6`, `gocsdk8`, `gocsdkrf210`, `sdsdk6`, `sdsdk816`, `sdsdk835`, `sdsdk936`,
+`sdsdk968`, `blueletd`, `brlinktd`, `sd_carplay`, `dhcpcd`, `ec_usb_filter`, `sd-link.sh`, `z-link.sh`,
+`hctlog.sh`, `ethtether.sh`), the OEM libraries a kept binary or apk actually names (`libGbtsTask.so`,
+`libbluelet.so`, `libbt_platform.so`, `libbrlinktd.so`, `libbt_platform_brlinktd.so`, `libgocdfu.so`,
+`librockchip_update_jni.so` in both arches), the init fragment as `/system/etc/init/hct.rc`, the OEM
+`/system/etc` config (`car_filter.xml`, `alarm_filter.xml`, `ec.conf`, `ec_conn_type`, `operator_table`,
+`bluesoleil/TL.INI`) and our own `/system/etc/permissions/privapp-permissions-hct.xml`.
+
+**Excluded, with the reason:**
+* the framework-coupled forks `HCTSystemUI10` (package `com.android.systemui`, `android.uid.systemui`),
+  `HCTSettings10` (`com.android.settings`), `HCT4Launcher3` (`com.android.launcher3`), `HCTProvision10`,
+  `HCTPackageInstaller10` (`com.android.packageinstaller`) - Lineage 21 ships SystemUI, Settings, Trebuchet,
+  LineageSetupWizard and PackageInstaller built against Android 14 internals, and every one of those except
+  Provision collides by package name;
+* `HCTExactCalculator10`, `HCTDeskClock10`, `HCTGallery10` - package collisions with ExactCalculator,
+  DeskClock and Gallery2 (table in `analysis/app_layer_package_collisions.txt`);
+* `HCTCalendar10` (`com.android.calendar`) - not a head-unit feature, and our build installs no Calendar app,
+  so it would add Android 10 UI code on API 34 rather than restore something Lineage removed; owner can add it later;
+* `HCT4Launcher` (4,606 B stub, package `com.android.launcher`) - the home screen here is Trebuchet;
+* `ExtAospBluetooth10` (package `com.android.bluetooth`, `android.uid.bluetooth`) - that is the Android 10
+  Bluetooth *stack implementation*, which Android 14 replaced with an AIDL stack; it would crash, not restore Bluetooth;
+* all Google/GMS packages, all stock AOSP apps Android 14 builds itself, and every `oat/` directory (Android 14
+  dexopts at boot; Android 10's odex/vdex is unusable dead weight).
+
+**Package collision table** (candidates vs the 90 packages our build installs, `tools/hct_apk_inventory.py
+--collision`): 7 collisions - `com.android.calculator2`, `com.android.deskclock`, `com.android.gallery3d`,
+`com.android.launcher3`, `com.android.settings`, `com.android.systemui`, `com.android.packageinstaller`.
+Nothing included collides: `HCTAudioPreview` is `com.android.music` while Lineage's player is Jelly
+(`org.lineageos.jelly`), and `HCTCalendar10`'s `com.android.calendar` is not installed by anyone (our
+`CalendarProvider` is `com.android.providers.calendar`).
+
+**Signing decision.** Seven included apks declare `android:sharedUserId="android.uid.system"`
+(`HCTCanBus` `android.microntek.canbus`, `HCTManagerService` `android.microntek.service`,
+`HCTBlueToothManager` `android.microntek.mtcser`, `HCTExtAppDocker` `com.microntek.externshow`,
+`HCTExtScreenClock` `com.microntek.extscreenclock`, `HCTAudioPreview` `com.android.music`,
+`HCTFactorySettings` `com.hct.factory`). PackageManager refuses an apk that claims a system shared uid when
+it is not signed with this build's platform certificate, so they cannot be shipped as-is.
+
+| certificate | sha256 of the cert DER | who has it |
+|---|---|---|
+| our platform cert (`build/make/target/product/security/platform.x509.pem`) | `c8a2e9bccf597c2fb6dc66bee293fc13f2fc47ec77bc6b2b0d52c11f51192ab8` | `framework-res.apk`, `SystemUI.apk`, `Settings.apk` in our tree |
+| the payload's own Android key | `2d370c21f5dfd553d2a796314b70925fb38adeef90864c920bbbbb12887d3522` | every HCT/Microntek apk in the payload (same `CN=Android` subject, different key) |
+| `testkey.x509.pem` | `a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc` | `default_system_dev_certificate`, not what platform modules get |
+| LineageOS release key | `518325ef7f96c0d1194c2e856b040d636166ffb846717d72fa87f4fae5be7bbb` | `extra_recovery_keys` only |
+
+So the payload's signature is *not* ours, and the key material behind it is not in the payload either (it is
+the OEM's private `platform.pk8`, unrecoverable). All 37 apks are therefore re-signed by Soong with
+`certificate: "platform"` in `device/rk3399-px6-hct4/apps/Android.bp`, which resolves to
+`build/make/target/product/security/platform.{pk8,x509.pem}` (`processMainCert`, `build/soong/java/app.go:664`)
+and runs the build's own `signapk` - the same key the framework, SystemUI and Settings carry. Signing the whole
+kept set with one key is also what keeps the signature permissions between the HCT apps working
+(`android.permission.HCT_FACTORY` is declared by `HCTFactorySettings` and used by others). `apksigner` cannot
+be run standalone on the build host (`out/host/linux-x86/bin/apksigner` needs `java`, not installed there), so
+verification is done on the installed apks: certificate digest with `tools/hu_apk_cert.py` (openssl PKCS7) and
+package + `sharedUserId` with `tools/hct_apk_inventory.py`.
+
+| apk | sha256 before (payload copy) | sha256 after (installed) | package + sharedUserId after | cert digest after |
+|---|---|---|---|---|
+| `system/app/HCT4Radio/HCT4Radio.apk` | `b7322b3dfea178f74a297774b491251c5fac7cbb39c4313fd7d563ad5355a6ac` | `3219278c2f681c1023717a035c27cf2309c4f6061c567b8c307803af583c3f12` | `com.microntek.radio`, no sharedUserId | `c8a2e9…2ab8` (ours) |
+| `system/priv-app/HCTCanBus/HCTCanBus.apk` | `90c587fcf3657d8f4a67f8033bcadc9f3159d469d89890cb699cbd871af15857` | `c7a97a119013ed10bc3b056cf94c20e4fe99ff9e1b095a2d5932af02c3227206` | `android.microntek.canbus`, `android.uid.system` | `c8a2e9…2ab8` (ours) |
+
+Verified on the installed apks (`scripts/verify_hu_apps.sh`, Nov 8): `framework-res.apk`, `HCT4Radio.apk` and
+`HCTCanBus.apk` all carry cert digest `c8a2e9bccf...` - the same platform certificate - and
+`HCTManagerService.apk` keeps `android.microntek.service` + `android.uid.system`.
+
+**Privapp whitelist.** The payload ships no HCT whitelist (its `/system/etc/permissions` has only the AOSP
+platform and Google ones), so we write our own: `/system/etc/permissions/privapp-permissions-hct.xml`, generated
+from the apk manifests (`tools/hct_apk_inventory.py --perms`), one `<privapp-permissions>` block per kept priv-app
+package. Android 14 enforces it strictly only on `user` builds; on `userdebug` a missing entry is a log line. It is
+best effort for v1 - some permission names the apks request no longer exist in Android 14 (`SERIAL_PORT`,
+`READ_OWNER_DATA`, `REAL_GET_TASKS`, `GET_TOP_ACTIVITY_INFO`, `RUN_INSTRUMENTATION`, `SYSTEM_OVERLAY_WINDOW`,
+`SET_PREFERRED_APPLICATIONS`), so those apps lose the feature that depended on them rather than failing to install.
+
+**Sizes and the super group** (**D19**: no size change, no GPT write, no resize):
+
+| image | before (Nov 6 pass) | after, Nov 8 rebuild | delta |
+|---|---|---|---|
+| `system.img` | 929,140,736 B | 1,012,817,920 B | +83,677,184 B |
+| `product.img` | 456,159,232 B | 456,159,232 B | 0 |
+| `system_ext.img` | 384,802,816 B | unchanged | 0 |
+| `vendor.img` | 484,196,352 B | 444,424,192 B | -39,772,160 B |
+| `odm.img` | 811,008 B | unchanged | 0 |
+| total logical content | 2,255,910,144 B | 2,299,015,168 B | +43,105,024 B |
+
+The vendor delta is not the app layer: `m vendorimage` on Nov 8 finally applied the **D21** drop list
+(the Android 11 blob `wpa_supplicant`/`hostapd`/`wifi@1.0-service`/`libwifi-hal`/`librkwifi-ctrl` copies
+are gone, Android 14's own WiFi stack took their place), plus the **D22** patched libdrm and the **D23**
+files (`usb_dongle`, 32-bit `libwifi-hal`/`libnl`, `libsysutils`) - `vendor/lib/libdrm.so` and
+`vendor/lib64/libdrm.so` export `drmModeAddFB2_ext` in the new image, and `vendor_abi_check.py` still
+counts 4 unresolved blobs (the declared libomxvpu gap). The app layer itself is `~33 MB` of apks
+(`analysis/app_layer_inventory.tsv`); the rest of the `system.img` delta is Lineage's own dexpreopt output
+that the Nov 6 pass did not carry. Nothing in `misc_info.txt` or the GPT changed (**D19**).
+
+**Gates** (all run on the build host Nov 8, one pass: `scripts/run_d24_gates.sh`, launched with
+`nohup` over ssh - **not** systemd-run: a systemd unit's environment makes `build/envsetup.sh` fail with
+`TOP: unbound variable`, and the script must not `set -u` for the same reason):
+`bash scripts/deploy_device.sh ../lineage21s` exit 0 (it now also checks that every `apk:` in
+`apps/Android.bp` exists); `tools/vendor_conflicts.py` exit 0, "no collisions - the copy list can be
+parsed" (1021 staged destinations vs 5943 build install targets under /vendor); `m -j4 systemimage
+productimage` exit 0 (22 s incremental - the tree builds the app layer reproducibly from a fresh deploy);
+`scripts/verify_hu_apps.sh` reports 32 `system/app` + 5 `system/priv-app` HCT dirs, 0 `oat/` dirs under any
+HCT app dir (the 53 oat dirs that exist are Lineage's own dexpreopt, not copied Android 10 ones), the init
+fragment byte-identical to the payload apart from the dropped `import /init.hct.camera.rc` line, 35 system
+destinations copied and 0 colliding with a module install rule in `out/soong/installs-*.mk`;
+`vendor_dropped_check.py`: "every dropped destination is present, substituted, or declared as a deviation".
+No packaging pass, no OTA zip, no `superimage` (the sizes are read from `misc_info.txt`, not written).
+The group `super_hct_dynamic_partitions_group_size=3258974208` (super device 3,263,168,512 B over
+`system vendor product system_ext odm`) holds: 2,299,015,168 B of content leaves 959,959,040 B spare, so
+it fits with no resize.
+
+**A regression the verification caught.** The agent's `device.mk` edit had swallowed a newline: the
+`PRODUCT_COPY_FILES += \` line ended up glued to the comment above it, which in Make makes the whole
+line a comment *and swallows the continuation* - the four HU vendor copies (`fstab.rk30board`,
+`ueventd.rc`, `init/hu.rc`, `hu_insmod.sh`) silently left the copy list, and `vendor_conflicts.py`
+could not see it because it reads the file, not kati. Fixed by restoring the newline; the Nov 8
+`vendorimage` rebuild proves the four files land in `out/.../vendor/etc/` and inside `vendor.img`
+(`scripts/run_d24_vendor_fix.sh`). Lesson recorded: a product-config .mk edit must be checked with
+`grep -n PRODUCT_COPY_FILES` on the *deployed* copy, and `verify_hu_apps.sh` only covers the system side.
+
+**What still breaks at first boot** (all of these are honest gaps, not guesses):
+* **Bluetooth is not restored.** No `com.android.bluetooth` exists in our build at all: no install rule for
+  `Bluetooth/Bluetooth.apk` in `out/soong/installs-lineage_rk3399.mk`, and no product config asks for it. The
+  payload's `ExtAospBluetooth10` cannot fill that hole (Android 10 stack on Android 14 framework internals).
+  The fix is Android 14's own `Bluetooth` module in `PRODUCT_PACKAGES` plus a Bluetooth HAL the vendor namespace
+  can serve - a separate product-config decision, recorded here rather than folded into this step.
+  `HCT4BlueTooth`, `HCT4BtMusic` and `HCTBlueToothManager` will install but have no stack to talk to.
+* **The controller daemons do not resolve.** `tools/hu_system_abi_check.py`: `gocsdk`, `gocsdk6`, `gocsdk8`,
+  `sdsdk6`, `sdsdk816` (and `gocsdkrf210`) need Android 10's `AudioTrack`/`AudioRecord` constructors and
+  `MediaPlayer` ctor (`_ZN7android10AudioTrackC1E...`, `AudioRecord::getMinFrameCount`, `_ZN7android11MediaPlayerC1Ev`)
+  which Android 14's `libaudioclient.so`/`libmedia.so` do not export - 3-4 symbols each, 32-bit. `gocsdk5`,
+  `gocsdkrf210`'s `libGbtsTask.so`, `blueletd`, `brlinktd`, `dhcpcd` resolve cleanly. BT call/SCO audio and the
+  controller-side audio path therefore fail at first boot; the candidate fix is the same shape as **D22**/**D23**
+  (a compat shim, or the payload's Android 10 `libaudioclient.so` in a private directory with
+  `setenv LD_LIBRARY_PATH` in the service definition - not tested here, and swapping it into `/system/lib` would
+  put Android 14's own 32-bit consumers on an Android 10 ABI, so it is not done).
+* **Some services the init fragment names have no binary in the payload**: `hctcanbusservice` (the CANBUS service),
+  `sdsdk`, `sd-reverse.sh`, `adb-ec-server.sh`, `start_usbmuxd.sh`, and `wb.ko`/`wlan.ko`/`sd_wb.ko` - those service
+  lines stay dead. `HCTCanBus` talks to `/dev/mtc-car` directly from Java, so CAN itself is not blocked by this,
+  but the `hct.canbus.service=1` route does nothing.
+* **CarPlay/Android-Auto helpers need third-party apps.** `sd_carplay` links `libspeedplay.so`, which lives in the
+  data dir of `com.suding.speedplay` (not in the payload), and `sd-link.sh`/`z-link.sh` call `sd_mdnsd`, `z-link`,
+  `z-mdnsd`, none of which the payload contains; several apps reference `com.zjinnova.zlink` / `com.suding.speedplay`.
+* **`/mnt/oem` and `/etc/bluesoleil` cannot be made writable.** `init.hct.rc` does `mkdir /mnt/oem` and
+  `mkdir /etc/bluesoleil`; on Android 14 `/etc` is a symlink into the read-only `/system/etc`, so those
+  `mkdir`/`chown`/`chmod` lines fail (they failed on Android 10 the same way). Anything that stores state there
+  loses it. Also the `chmod`/`chown` of `/dev/mtc-*`, `/dev/ttyS*`, `/dev/ttyV*`, `/dev/goc_serial` only work while
+  SELinux stays permissive, which it does today because the shipped boot image carries
+  `androidboot.selinux=permissive`; hardening SELinux (**D5**/P6) needs those device nodes handled in ueventd +
+  sepolicy instead.
+* **Android 10-era apps on API 34.** Every kept apk targets SDK 22..29. Hidden-API and non-SDK interface
+  restrictions, the runtime-permission model, and removed APIs (`GET_TASKS`/`REAL_GET_TASKS`, `SERIAL_PORT`,
+  `INJECT_EVENTS` for non-platform callers, `SET_PREFERRED_APPLICATIONS`) mean specific features - preferred-app
+  replacement, the serial-port route, overlay behaviour, "kill background processes" - may fail even though the
+  apk installs. The touch/button and sound-input paths specifically: `HCTCarTouch` installs and is signed with the
+  platform key (so `INJECT_EVENTS`/`SYSTEM_ALERT_WINDOW` are granted), but whether Android 14's input stack lets it
+  inject is a device-test question; sound input through the framework's `AudioRecord` from Java is unaffected, while
+  the controller-side daemons above are.
+* **Dexopt cost at boot.** No `oat/` is shipped, so the first boot dexopts 37 apks (this is intended; it makes the
+  first boot slower and the second one normal).

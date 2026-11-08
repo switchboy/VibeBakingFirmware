@@ -1,0 +1,112 @@
+<!-- Privileged permission whitelist for the HCT/Microntek priv-apps staged from the reference Android 10
+     payload (docs/decisions.md D24). Android 14 requires every signature|privileged permission a
+     /system/priv-app app requests to appear here; the reference payload ships no HCT whitelist (its
+     /system/etc/permissions has only the AOSP platform and Google ones), so this file is ours, written
+     from the apk manifests read by tools/hct_apk_inventory.py.
+
+     Best effort for v1: it grants exactly what each apk declares. Some of those permission names no
+     longer exist in Android 14 (SERIAL_PORT, READ_OWNER_DATA, REAL_GET_TASKS, GET_TOP_ACTIVITY_INFO,
+     RUN_INSTRUMENTATION, SYSTEM_OVERLAY_WINDOW, SET_PREFERRED_APPLICATIONS) - an entry for a name the
+     framework does not define is ignored with a log line, and on a userdebug build the whitelist is
+     enforced only as a log, so a missing entry is not fatal here. The apps that need a permission
+     Android 14 dropped are the ones whose feature stops working, which D24 lists.
+
+     A comment may not contain a doubled hyphen, so this one has none; the build validates every copied
+     xml with xmllint (the Copy xml rule) and would abort on it. -->
+<permissions>
+    <privapp-permissions package="android.microntek.mtcser">
+        <permission name="android.permission.ACCESS_WIFI_STATE"/>
+        <permission name="android.permission.BROADCAST_STICKY"/>
+        <permission name="android.permission.INTERNET"/>
+        <permission name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+        <permission name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS"/>
+        <permission name="android.permission.READ_EXTERNAL_STORAGE"/>
+        <permission name="android.permission.READ_MEDIA_STORAGE"/>
+        <permission name="android.permission.READ_OWNER_DATA"/>
+        <permission name="android.permission.READ_PHONE_STATE"/>
+        <permission name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+        <permission name="android.permission.SERIAL_PORT"/>
+        <permission name="android.permission.SYSTEM_ALERT_WINDOW"/>
+        <permission name="android.permission.WAKE_LOCK"/>
+        <permission name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+        <permission name="android.permission.WRITE_SECURE_SETTINGS"/>
+        <permission name="android.permission.WRITE_SETTINGS"/>
+    </privapp-permissions>
+
+    <privapp-permissions package="android.microntek.canbus">
+        <permission name="android.permission.ACCESS_COARSE_LOCATION"/>
+        <permission name="android.permission.ACCESS_FINE_LOCATION"/>
+        <permission name="android.permission.ACCESS_NETWORK_STATE"/>
+        <permission name="android.permission.ACCESS_WIFI_STATE"/>
+        <permission name="android.permission.BROADCAST_STICKY"/>
+        <permission name="android.permission.CHANGE_NETWORK_STATE"/>
+        <permission name="android.permission.CHANGE_WIFI_STATE"/>
+        <permission name="android.permission.EXPAND_STATUS_BAR"/>
+        <permission name="android.permission.GET_TASKS"/>
+        <permission name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+        <permission name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+        <permission name="android.permission.SERIAL_PORT"/>
+        <permission name="android.permission.SET_PREFERRED_APPLICATIONS"/>
+        <permission name="android.permission.SET_TIME_ZONE"/>
+        <permission name="android.permission.SYSTEM_ALERT_WINDOW"/>
+        <permission name="android.permission.WRITE_SECURE_SETTINGS"/>
+        <permission name="android.permission.WRITE_SETTINGS"/>
+    </privapp-permissions>
+
+    <privapp-permissions package="com.microntek.externshow">
+        <permission name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+        <permission name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    </privapp-permissions>
+
+    <privapp-permissions package="com.microntek.extscreenclock">
+        <permission name="android.permission.ACCESS_COARSE_LOCATION"/>
+        <permission name="android.permission.ACCESS_FINE_LOCATION"/>
+        <permission name="android.permission.CHANGE_CONFIGURATION"/>
+        <permission name="android.permission.GET_TASKS"/>
+        <permission name="android.permission.GET_TOP_ACTIVITY_INFO"/>
+        <permission name="android.permission.INJECT_EVENTS"/>
+        <permission name="android.permission.INTERNAL_SYSTEM_WINDOW"/>
+        <permission name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+        <permission name="android.permission.RUN_INSTRUMENTATION"/>
+        <permission name="android.permission.SYSTEM_ALERT_WINDOW"/>
+        <permission name="android.permission.SYSTEM_OVERLAY_WINDOW"/>
+        <permission name="android.permission.WRITE_SETTINGS"/>
+    </privapp-permissions>
+
+    <privapp-permissions package="android.microntek.service">
+        <permission name="android.permission.ACCESS_CACHE_FILESYSTEM"/>
+        <permission name="android.permission.ACCESS_FINE_LOCATION"/>
+        <permission name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS"/>
+        <permission name="android.permission.ACCESS_NETWORK_STATE"/>
+        <permission name="android.permission.ACCESS_WIFI_STATE"/>
+        <permission name="android.permission.BLUETOOTH"/>
+        <permission name="android.permission.BROADCAST_STICKY"/>
+        <permission name="android.permission.CHANGE_CONFIGURATION"/>
+        <permission name="android.permission.CHANGE_NETWORK_STATE"/>
+        <permission name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+        <permission name="android.permission.CHANGE_WIFI_STATE"/>
+        <permission name="android.permission.DEVICE_POWER"/>
+        <permission name="android.permission.GET_TASKS"/>
+        <permission name="android.permission.INTERNET"/>
+        <permission name="android.permission.KILL_BACKGROUND_PROCESSES"/>
+        <permission name="android.permission.MANAGE_APP_OPS_MODES"/>
+        <permission name="android.permission.MANAGE_APP_OPS_RESTRICTIONS"/>
+        <permission name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+        <permission name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS"/>
+        <permission name="android.permission.READ_EXTERNAL_STORAGE"/>
+        <permission name="android.permission.READ_PHONE_STATE"/>
+        <permission name="android.permission.REAL_GET_TASKS"/>
+        <permission name="android.permission.REBOOT"/>
+        <permission name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+        <permission name="android.permission.SET_PREFERRED_APPLICATIONS"/>
+        <permission name="android.permission.SET_TIME_ZONE"/>
+        <permission name="android.permission.SHUTDOWN"/>
+        <permission name="android.permission.SYSTEM_ALERT_WINDOW"/>
+        <permission name="android.permission.VIBRATE"/>
+        <permission name="android.permission.WAKE_LOCK"/>
+        <permission name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+        <permission name="android.permission.WRITE_MEDIA_STORAGE"/>
+        <permission name="android.permission.WRITE_SECURE_SETTINGS"/>
+        <permission name="android.permission.WRITE_SETTINGS"/>
+    </privapp-permissions>
+</permissions>

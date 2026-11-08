@@ -1,0 +1,333 @@
+
+on init
+	mkdir /mnt/oem 0777 system system
+	mkdir /etc/bluesoleil 0777 system system
+#	start bootwatcher
+		
+on post-fs-data
+		chown system system /mnt/oem
+		chmod 0777 /mnt/oem
+		
+		chown system system /etc/bluesoleil
+		chmod 0777 /etc/bluesoleil
+			
+on boot
+
+ 	chmod 0666 /dev/mtc-car
+	chmod 0666 /dev/mtc-av
+	chmod 0666 /dev/mtc-dab
+ 	chmod 0666 /dev/mtc-cvbs
+	chmod 0666 /dev/mtc-cvbs2
+		
+    chmod 0777 /dev/ttyS0
+    chmod 0777 /dev/ttyS1
+    chmod 0777 /dev/ttyS2
+    chmod 0777 /dev/ttyS3
+	chmod 0777 /dev/ttyS4
+    chown system system /dev/ttyS0
+    chown system system /dev/ttyS1
+    chown system system /dev/ttyS2
+    chown system system /dev/ttyS3
+	chown system system /dev/ttyS4
+
+	chmod 0777 /dev/ttyV0
+    chmod 0777 /dev/ttyV1
+    chmod 0777 /dev/ttyV2
+    chmod 0777 /dev/ttyV3
+    chmod 0777 /dev/ttyV4
+    chmod 0777 /dev/ttyV5
+	chmod 0777 /dev/goc_serial
+	
+    chown system system /dev/ttyV0
+    chown system system /dev/ttyV1
+    chown system system /dev/ttyV2
+    chown system system /dev/ttyV3
+    chown system system /dev/ttyV4
+    chown system system /dev/ttyV5
+	chown system system /dev/goc_serial
+	
+    
+
+#WQ BC
+    chmod 0777 /system/bin/gocsdk
+	chmod 0777 /system/bin/gocsdk5
+	chmod 0777 /system/bin/gocsdk6
+	chmod 0777 /system/bin/gocsdk8
+	chmod 0777 /system/bin/gocsdkrf210
+	chmod 0777 /system/bin/dhcpcd
+    chmod 0777 /data/goc
+    chmod 0777 /system/lib/wb.ko
+    chmod 0777 /system/lib/wlan.ko
+	
+#SD BC
+    chmod 0777 /system/bin/sdsdk
+    chmod 0777 /system/lib/sd_wb.ko
+	chmod 0777 /system/bin/sdsdk6
+	chmod 0777 /system/bin/sdsdk936
+	chmod 0777 /system/bin/sdsdk835
+	chmod 0777 /system/bin/sdsdk968
+	chmod 0777 /system/bin/sdsdk816
+	
+#IVT BC
+    chmod 0777 /system/bin/blueletd
+	chmod 0777 /system/bin/brlinktd
+		
+#FSC BC
+    chmod 0777 /system/bin/fscsdkbw123
+
+on property:sys.hct.wifi=adb
+    setprop service.adb.tcp.port 5555
+    stop  adbd
+    start adbd
+
+        
+on property:sys.boot_completed=1
+	chmod 0777 /dev/goc_serial
+    mkdir /data/.android 0777 system system
+    export HOME /data
+    setprop service.adbec.enable 1   
+	setprop service.usbmuxd.enable 1 	
+ 	    
+on property:sys.hctcarbox.enable=1
+    start hctcarbox 
+	
+service hctcarbox /system/bin/sd-reverse.sh
+    class core
+	user root
+    group root 
+    disabled
+    oneshot
+    seclabel 	u:r:shell:s0
+	
+on property:service.adbec.enable=1
+    start adbec 
+    
+service adbec /system/bin/adb-ec-server.sh
+    class core
+	user root
+    group root 
+    disabled
+    oneshot
+    seclabel 	u:r:shell:s0
+   
+on property:service.usbmuxd.enable=1
+    start usbmuxd 
+    
+service usbmuxd /system/bin/start_usbmuxd.sh
+    class core
+	user root
+    group root 
+    disabled
+    oneshot
+    seclabel 	u:r:shell:s0
+
+on property:service.vending.enable=1
+    start vending 
+
+on property:service.hctlog.enable=true
+    start hctlog 
+	
+service hctlog /system/bin/hctlog.sh
+    class main
+    user root
+    group root 
+    disabled
+    oneshot
+    seclabel 	u:r:shell:s0
+
+	
+service vending /system/bin/vendingpatch.sh
+    class main
+    user root
+    group root 
+    disabled
+    seclabel u:r:shell:s0
+	
+on property:bt.md725.type=1
+    start gocsdk
+
+service gocsdk /system/bin/gocsdk
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+
+on property:bt.md725.type=2
+    start sdsdk
+
+service sdsdk /system/bin/sdsdk
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=2
+    start gocsdk5
+
+service gocsdk5 /system/bin/gocsdk5 /dev/ttyS1 500000
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=3
+    start gocsdk6
+
+service gocsdk6 /system/bin/gocsdk6 /dev/ttyS1 1500000
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=4
+    start gocsdk8
+
+service gocsdk8 /system/bin/gocsdk8 /dev/ttyS1 1500000
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=6
+    start sdsdk968
+
+service sdsdk968 /system/bin/sdsdk968 /dev/ttyS1 115200
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+		
+on property:bt.goc.type=7
+    start sdsdk6
+
+service sdsdk6 /system/bin/sdsdk6 /dev/ttyS1 1500000
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=8
+    start sdsdk936
+
+service sdsdk936 /system/bin/sdsdk936 /dev/ttyS1 1500000
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=9
+    start blueletd
+
+service blueletd /system/bin/blueletd /dev/ttyS1 115200
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	socket blueletd stream 0660 bluetooth bluetooth
+	#socket goc_spp stream 0660 bluetoothbluetooth
+	
+on property:bt.goc.type=10
+    start sdsdk835
+
+service sdsdk835 /system/bin/sdsdk835 /dev/ttyS1 115200
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=11
+    start gocsdkrf210
+
+service gocsdkrf210 /system/bin/gocsdkrf210 /dev/ttyS1 1500000
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=12
+    start sdsdk816
+
+service sdsdk816 /system/bin/sdsdk816 /dev/ttyS1 1500000
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=13
+    start fscsdkbw123
+
+service fscsdkbw123 /system/bin/fscsdkbw123 /dev/ttyS1 1500000
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	
+on property:bt.goc.type=15
+    start brlinktd
+
+service brlinktd /system/bin/brlinktd /dev/ttyS1 115200
+    class main
+    user root
+    group root 
+    disabled
+    seclabel 	u:r:shell:s0
+	socket brlinktd stream 0660 bluetooth bluetooth
+	
+# for CarPlay
+on property:carplay.type=1
+    start z-link
+
+service z-link /system/bin/z-link.sh
+    class main
+	disabled
+	oneshot
+	seclabel u:r:shell:s0
+	
+on property:carplay.type=2
+    start sd-link
+
+service sd-link /system/bin/sd-link.sh
+    class main
+	disabled
+	oneshot
+	seclabel u:r:shell:s0
+	
+#for nat eth	
+on property:hct.nat.state=1
+    start hctnat
+
+on property:hct.nat.state=2
+    start hctnat
+	
+service hctnat /system/bin/ethtether.sh
+    class main
+    user root
+    group root 
+    disabled
+    oneshot
+    seclabel 	u:r:shell:s0	
+
+on property:hct.canbus.service=1
+    start hctcanbusservice	
+	
+service hctcanbusservice /system/bin/hctcanbusservice
+    class core
+    user root
+    group root
+    disabled
+	oneshot
+    seclabel 	u:r:shell:s0	
+	

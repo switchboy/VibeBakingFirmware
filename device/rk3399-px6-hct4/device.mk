@@ -20,6 +20,11 @@ include device/rockchip/rk3399/vendor_props.mk
 # The file is generated on the build host after a packaging pass, so `-include` (absent = nothing).
 -include device/rockchip/rk3399/vendor_modules_extra.mk
 
+# The head-unit app layer (**D24**): the HCT/Microntek apks are Soong modules (apps/Android.bp) and the
+# control binaries, OEM libraries, init fragment, OEM config files and privapp whitelist are copy rules
+# - all in one include so the app layer is one reviewable unit.
+include device/rockchip/rk3399/hu_apps.mk
+
 # The Android 14 framework matrices do not know the Rockchip/MTC HALs, so they need our own
 # framework matrix entries; see device/rk3399-px6-hct4/vintf/device_framework_matrix.xml.
 DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \

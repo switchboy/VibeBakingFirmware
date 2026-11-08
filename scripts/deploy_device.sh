@@ -81,6 +81,15 @@ if [ -f "$DEST/prebuilt_apps/Android.mk" ]; then
   done < <(sed -n 's/^LOCAL_SRC_FILES := //p' "$DEST/prebuilt_apps/Android.mk")
 fi
 
+# Same for the head-unit apps (apps/Android.bp, **D24**): android_app_import's `apk:` is a path
+# relative to that folder, and Soong only fails at analysis time, ~20 minutes into the build.
+if [ -f "$DEST/apps/Android.bp" ]; then
+  while read -r src; do
+    [ -s "$DEST/apps/$src" ] || { echo "  ! apk referenced by apps/Android.bp missing: apps/$src"; exit 1; }
+  done < <(sed 's|#.*||' "$DEST/apps/Android.bp" \
+            | grep -o 'apk:[[:space:]]*"[^"]*"' | sed 's/.*"\(.*\)"/\1/')
+fi
+
 # PRODUCT_COPY_FILES entries must not collide with a module the build installs to the same path:
 # ckati aborts with "overriding commands for target ... previously defined at
 # out/soong/installs-lineage_rk3399.mk", ~20 minutes into the build. scripts/prebuilt_vendor.sh
