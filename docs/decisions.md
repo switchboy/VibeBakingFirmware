@@ -1066,6 +1066,20 @@ updater-script audit is unchanged: zero uboot/trust/dtbo/RKLoader/loader/securit
 in `docs/flash.md` is flashing this through recovery - a rejection writes nothing, because verification
 happens before the updater-script runs. Route 2 is the raw-image transport above.
 
+**Ordering if route 1 is rejected (Nov 8, owner plans a modded ROM next).** Try route 2
+(`scripts/flash_from_android.sh`) before installing a third-party mod ROM such as Malaysk or Hal9k.
+Route 2 needs nothing new: it writes only super + boot, leaves the stock recovery intact, and the stock
+Android 10 package stays installable as the rollback. A mod ROM is a different trade: those images ship
+their own recovery plus `uboot.img`/`trust.img`/`dtbo.img`/loader writes, which is precisely the boot
+chain that left units stuck at the logo or black-screen with no recovery in the Dasaita thread (**D18**
+exists to avoid exactly that), and the mainboard's MCU firmware update path may only be reachable from
+the stock recovery. They are also Android 9/10 vendor builds, so installing one replaces the Android 14
+line rather than installing it - it becomes a stepping stone whose recovery then has to accept our
+package, with a recovery we did not build. If it is ever used, dump the stock recovery first, read-only:
+`dd if=/dev/block/by-name/recovery of=/mnt/udisk/recovery-stock.img bs=4096` (needs root, writes only
+the stick), which gives both a restore copy and the recovery's trusted cert bundle to read offline.
+
+
 **Backup naming, so a rollback cannot be mislabelled.** Android 10 = the July 2021 package
 (1,203,718,969 B, sha256 `dd3e2ac0…`, build.prop `QQ2A.200305.004.A1`, release 10); Android 11 =
 `daisaita_a11.zip` (1,477,122,869 B, sha256 `50775dba…`, build.prop `RQ3A.210705.001`, release 11).
