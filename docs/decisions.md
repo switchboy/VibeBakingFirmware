@@ -985,15 +985,20 @@ Canonical record: see `docs/findings.md`, section "SD-card flashing (the Malaysk
 Research verdict (`docs/findings.md`, "SD-card / `update.img` route - Nov 9 research verdict"): Rockchip's
 SD-upgrade-card flow and its USB-stick variant write the **loader** and the **recovery** partition
 unconditionally, and a `parameter`-driven flash recreates the partition table. That violates **D18** and
-**D19**, and this HU has no wired `sdmmc` slot for a card to boot from, so the route cannot be made safe
-here. Building the media offline would be harmless but unusable without breaking those decisions, so we
+**D19**, and ~~this HU has no wired `sdmmc` slot for a card to boot from~~ (**corrected Nov 10:** the unit
+has microSD slots and u-boot scans `mmc1` before the eMMC, so a card is reachable), so the route cannot be
+made safe here. Building the media offline would be harmless but unusable without breaking those decisions, so we
 do not build it. Insurance instead: untouched stock recovery + OEM packages (any of the three, all signed
-by `cf2ab3…`), the 62.8 GB full-eMMC snapshot on the HDD archive, and the tracked GPT head/tail dumps for
-reconstructing the layout by hand.
+by `cf2ab3…`), ~~the 62.8 GB full-eMMC snapshot on the HDD archive~~ - **that snapshot is not insurance**:
+measured Nov 10 `analysis/gpt/disk.img` is zero everywhere except a protective-MBR remnant at byte 448 and
+the backup GPT in the last 4 MB (`docs/findings.md`, "What the Nov 5 \"full eMMC snapshot\" actually
+contains"), and `gpt_head.bin` is all zeros. What does survive is the backup GPT in `gpt_tail.bin` plus the
+Nov 4 probe's LBA table, which is enough to rebuild the partition table by hand.
 
 **Superseded on Nov 9 by D29**: the owner chose the bootable SD burn as this unit's rollback path, so the
-media is on the table again - with the loader/IDB risk acknowledged and the `fw_update=2` verification gate
-still standing.
+media is on the table again - with the loader/IDB risk acknowledged, and now built as a **boot card**
+carrying our own rescue initramfs (**D31**) rather than an upgrade card that needs a recovery we do not
+have.
 
 ## D27 - upstream contributions are registered, not submitted (Nov 9, DECIDED)
 
@@ -1063,3 +1068,39 @@ Full log: `docs/findings.md`, "Flash attempt Nov 9/10". The short version, as a 
   vendor declares HIDL `composer@2.1::IComposer/default` plus OEM Midgard allocator/mapper blobs, and
   Android 14 may require AIDL composer3/allocator/mapper. **The next attempt must not be flashed without a
   serial console reading first** - guessing at a second write costs the unit.
+
+## D31 - rescue payload rebuilt from the OEM package; the SD media becomes a boot card (Nov 9/10, IMPLEMENTED offline)
+
+Because the Nov 5 eMMC dump turned out to be empty (**D26** correction), the rollback payload is rebuilt
+from the vendor's April 2025 Android 10 package instead of restored from a dump. The rebuilt payload is
+built, verified and stored on the NAS archive
+`/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/vibe-rescue/`:
+
+* `super-a10.img` - 3,263,168,512 B, sha256 `30da961c94ba064d1edce80d5dc3b96ad5ec7480a4971b8ca38d1bdb2cefc11c`;
+  OEM Android 10 layout (`rockchip_dynamic_partitions`, max 3,258,974,208 B; system 1,275,330,560,
+  vendor 323,530,752, product 986,509,312, odm 539,951,104 at super sectors 2048 / 2494464 / 3127296 /
+  5054464). Verified by `lpdump` *and* by carving the system slice and reading it with `debugfs`
+  (`init.hct.rc`, `init.rc`, `/system/build.prop` present). No resize beyond the OEM op_list (**D19**).
+* `boot-a10.img` - 27,406,336 B, sha256 `04a43ea931de08734d8a25afe9920cba69a099095ab4b4490dbbe4368d0b89c6`
+  (the package's own boot image; the previously installed boot backup died with adb on the unit, so this is
+  the vendor boot, which is the right rollback semantics).
+* Nothing else is needed for a rollback: `uboot`/`trust`/`dtbo`/`RKLoader.bin` stay exactly as the vendor
+  shipped them (**D18**), and the restore writes only `super` + `boot`.
+
+The SD media is built as a **boot card** (IDB flag `1`), not an upgrade card: the upgrade flow hands
+control to a recovery that flashes `update.img`, and we have no recovery image for this board (the OEM
+packages carry no `recovery.img`, and the recovery menu is unreachable on this unit per the owner). On a
+boot card u-boot loads the boot image from the SD slot and runs it, so the card carries a rescue initramfs
+whose only job is: mount the card, verify the shas, `dd` `super-a10.img` onto
+`/dev/block/by-name/super` and `boot-a10.img` onto `/dev/block/by-name/boot`, then reboot. That path needs
+no signature, no recovery, no panel, and it is fully readable over the serial console before a single byte
+is written.
+
+Rockchip's Linux tools for this are staged in `/tmp/opencode/rktools/` (`afptool`, `rkImageMaker` with
+`-storage:SD`, `upgrade_tool`, `programmer_image_tool`, `firmware_merger`, the `sdcard-update-package-file`
+and `rk3399-mkupdate.sh` templates), and the OEM loader `RKLoader.bin` (465,230 B, `BOOT` header magic) is
+extracted. **The card has not been written to any physical medium yet.** Before it is, four things must be
+measured on the desk setup: which slot is u-boot `mmc1`, whether BootROM accepts the card's loader, whether
+this u-boot's IDB parser accepts an image built with `rkImageMaker -storage:SD` + `RKLoader.bin`, and where
+the card-type flag byte actually lives in the header. See `docs/findings.md`,
+"Unbrick SD route - Nov 9/10".

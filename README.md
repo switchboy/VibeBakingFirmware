@@ -72,11 +72,18 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   offsets, Android 14-form `fstab.rk30board`, AVB unlocked/not enforced). Prime suspect is the display
   stack: HIDL `composer@2.1::IComposer/default` + OEM Midgard allocator/mapper blobs under Android 14.
   **No second flash without a serial console reading first.**
-* Rollback is now **blind** (**D29**, revises D26): serial-console `dd` of the OEM Android 10
-  `super`/`boot`, or a bootable SD card flashed by the untouched u-boot (`sdfwupdate`) - the owner's
-  chosen route, gated on verifying that `fw_update=2` (`bUpdateIDBlock=false`) skips the loader/IDB write.
-  The card must go in the sdmmc slot (`dwmmc@fe320000` = Android `sdcard1` = u-boot `mmc 1`). Outer
-  insurance: the 62.8 GB full-eMMC archive snapshot and `analysis/gpt/`.
+* Rollback is now **blind** (**D29**, revises D26) and the payload for it is **built and verified**
+  (**D31**): `super-a10.img` 3,263,168,512 B sha `30da961c…` + `boot-a10.img` 27,406,336 B sha
+  `04a43ea9…`, rebuilt from `diatsia fw/update(1).zip` with `brotli` + `tools/reassemble.py` + `lpmake`
+  and checked with `lpdump` + `debugfs`. Restore by serial-console `dd`, or by a **bootable SD card**
+  (u-boot scans `mmc1` first: `rkimg_bootdev=if mmc dev 1 && rkimgtest mmc 1`, strings `Found IDB in
+  SDcard`, `Forbid to flash mmc 1(sdcard)`) that carries the same two images plus a rescue initramfs.
+  The card goes in the sdmmc slot (`dwmmc@fe320000` = Android `sdcard1` = u-boot `mmc 1`). Nothing has
+  been burned to a physical card yet - four facts must be measured on the desk first
+  (`docs/findings.md`, "Unbrick SD route - Nov 9/10").
+* The Nov 5 "62.8 GB full-eMMC snapshot" is **not** insurance: measured Nov 10 `analysis/gpt/disk.img`
+  is zero except a protective-MBR remnant and the backup GPT, and `gpt_head.bin` is all zeros. The layout
+  reference is `gpt_tail.bin` + the Nov 4 probe's LBA table; the content reference is the OEM packages.
 * `docs/upstream.md` is the candidate register for upstream contributions - **nothing submitted yet**, and
   the verified Lineage/AOSP review and licensing rules are recorded there.
 * Bluetooth is a deliberate second pass after first boot (`docs/decisions.md`, "Bluetooth route").

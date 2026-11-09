@@ -249,14 +249,18 @@ own loader step. The unit returns to Android 10 at factory settings. Nothing in 
 Android 10 super or dumps partitions; `tools/reassemble.py` stays only because it is how the stock
 payload was decoded in `docs/firmware-analysis.md`.
 
-**Nov 9 revision.** That plan needs the recovery menu, and the menu is unreachable on this unit, so the
-rollback is now blind (**D29**): serial-console `dd` of OEM `super`/`boot`, or a bootable SD card burned by
-the untouched u-boot. The stock packages stay on the stick in `backup/` for the day a menu does appear, and
-the outer insurance is unchanged: the 62.8 GB full-eMMC snapshot in the HDD/NAS archive (`ref-a10`) plus the
-tracked GPT dumps in `analysis/gpt/`. Extracting a raw Android 10 `super`/`boot` pair from
-`diatsia fw/update(1).zip` (decode `system.new.dat.br`/`system.patch.dat` or take the stock images that
-archive already holds, then rebuild super with `lpmake` at the unchanged layout) is the work that makes
-serial `dd` possible - it is not done yet.
+**Nov 10 revision.** That plan needs the recovery menu, and the menu is unreachable on this unit, so the
+rollback is now blind (**D29**). The payload to write is rebuilt from the vendor's April 2025 Android 10
+package (**D31**), not from a dump: `super-a10.img` 3,263,168,512 B sha `30da961c…` and `boot-a10.img`
+27,406,336 B sha `04a43ea9…`, both in the NAS archive
+`/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/vibe-rescue/`. Serial-console `dd` of those
+two files restores Android 10; the bootable SD card (**D31**) carries the same two files plus a rescue
+initramfs that `dd`s them, so the restore also works with no shell at all. The stock packages stay on the
+stick in `backup/` for the day a menu does appear. **The 62.8 GB "full-eMMC snapshot" is not insurance** -
+measured Nov 10 it is zero except the backup GPT (`docs/findings.md`), which is why the payload had to be
+rebuilt; `analysis/gpt/gpt_tail.bin` plus the Nov 4 probe's LBA table remain the layout reference. The
+extraction work is done: `brotli` on the `.new.dat.br` payloads, `tools/reassemble.py` for the transfer
+lists, `lpmake` for the super, verified with `lpdump` + `debugfs`.
 
 ## Fastboot is not used
 

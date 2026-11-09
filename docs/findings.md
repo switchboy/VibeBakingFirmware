@@ -1,7 +1,7 @@
 # Measured findings — evidence, not decisions
 
 This file holds the measurement/evidence records that used to sit inside `docs/decisions.md`.
-Decisions stay in `docs/decisions.md` (D1-D30); pointers here point back. Numbers are what the
+Decisions stay in `docs/decisions.md` (D1-D31); pointers here point back. Numbers are what the
 build host / dumps / probes actually produced - do not edit a number here without re-measuring.
 
 ## Packaging pass Nov 8 - dist, super, the HU payload, and its offline verification
@@ -139,9 +139,13 @@ Checked against the uboot image we hold (`uboot.img` from the payload, 4,194,304
   So mmc boot exists in general - but the eMMC comes first, so a card is only reached when the board is
   put into SD-boot mode (a hardware/boot-mode trigger), and this HU has no wired SD slot for `/sdcard`.
   The SD route the Dasaita threads describe is the *recovery* reading a FAT32 card, not u-boot SD boot.
-* No sdcard-burn code is in the image: zero `sdcard`/`sd_update`/`update.img` strings. Rockchip's
-  `update.img` + `parameter` flow is not what this uboot carries; a `parameter`-driven flash also
-  recreates partitions from that file, which is exactly what **D19** forbids.
+* ~~No sdcard-burn code is in the image: zero `sdcard`/`sd_update`/`update.img` strings.~~
+  **Corrected Nov 10: this bullet was wrong.** The grep pattern missed the Rockchip update strings; the
+  image does carry them (`Found IDB in SDcard`, `Found IDB in U-disk`, `sdfwupdate`, `usbfwupdate`,
+  `Forbid to flash mmc 1(sdcard)`, `rkimgtest`) and the env probes `mmc dev 1` first. See
+  "Unbrick SD route - Nov 9/10" below for the re-measurement. What still holds from Nov 8 is the
+  structural objection: a `parameter`-driven flash recreates partitions (**D19**) and the card flow
+  touches the loader (**D18**), so it is rescue media only, never our normal install path.
 * **AVB and a bootloader lock state are present**: strings `avb-locked`, `bootloader-locked`,
   `at-lock-vboot`/`at-unlock-vboot`, `avb_write_lock_state`, `android_avb_boot_flow`,
   `Android avb boot failed, error %d`, `FAILThe device is locked, can not flash!`, and there is a
@@ -171,10 +175,11 @@ structural, not uncertain:
 | same payload on a USB stick (`usbfwupdate` / `boot_from_udisk`) | exists in Rockchip u-boot code, **not** verified for HCT's build | **no** | loader + recovery are still written unconditionally. The parameter/GPT write *is* skipped on the USB path, so that half is constraint-friendly |
 | per-partition writes from a booted Android (our route 2) | yes | **yes** | only `super` + `boot` are written; no loader, no recovery, no partition table |
 
-* u-boot on this unit has no sdcard-burn code at all (zero `sdcard`/`sd_update`/`update.img` strings), and
-  Rockchip's SD boot needs a boot-mode trigger plus the `sdmmc` controller (RK3399: u-boot mmc1 = SD,
-  mmc0 = eMMC; the Linux kernel numbers them sdio=0/sdmmc=1/sdhci=2, which is why the eMMC shows up as
-  `mmcblk2`). Verified from mainline U-Boot board docs:
+* ~~u-boot on this unit has no sdcard-burn code at all (zero `sdcard`/`sd_update`/`update.img` strings),~~
+  **Corrected Nov 10:** the strings are present and `rkimg_bootdev` probes `mmc dev 1` before the eMMC, so
+  the SD slot *is* scanned (`boot_targets=mmc1 mmc0 usb0 pxe dhcp`). The rest of this bullet's reasoning
+  stands: RK3399 u-boot mmc1 = SD, mmc0 = eMMC (Linux numbers them sdio=0/sdmmc=1/sdhci=2, which is why
+  the eMMC shows up as `mmcblk2`). Verified from mainline U-Boot board docs:
   <https://docs.u-boot.org/en/latest/board/rockchip/rockchip.html> (RK3399, TF-A `PLAT=rk3399`, SD boot
   `dd if=u-boot-rockchip.bin of=/dev/sda seek=64`, MaskROM fastboot `2207:330c`). Rockchip staging tree
   <https://github.com/rockchip-linux/u-boot> is active (default `next-dev`).
@@ -191,11 +196,15 @@ structural, not uncertain:
 
 **Decision (Nov 9): we do NOT build the emergency restore media.** It would be knowledge/insurance only -
 building it is harmless offline, but *using* it requires writing the loader and the recovery partition,
-which violates **D18**, and this board has no `sdmmc` slot to boot a card from. The brick insurance that
+which violates **D18**. ~~and this board has no `sdmmc` slot to boot a card from~~ - **corrected Nov 10:**
+the board does have microSD slots and u-boot scans `mmc1` first, so a card can be reached; the loader
+objection still stands, which is why the route is rescue-only (**D29**). The brick insurance that
 does exist stays: the untouched stock recovery plus the OEM packages (`docs/findings.md`, "OEM reference
-packages on disk"), and the full-eMMC snapshot (`analysis/gpt/disk.img` on the HDD archive, 62.8 GB) with
-the tracked GPT head/tail dumps (`analysis/gpt/gpt_head.bin`, `gpt_tail.bin`) for reconstructing the
-partition table by hand if the layout is ever damaged.
+packages on disk"). ~~and the full-eMMC snapshot (`analysis/gpt/disk.img` on the HDD archive, 62.8 GB)~~
+is **not** insurance - measured Nov 10 it is zero except the backup GPT (see "Unbrick SD route - Nov 9/10").
+The tracked GPT dumps still help (`analysis/gpt/gpt_head.bin` is itself all zeros; `analysis/gpt/gpt_tail.bin`
+holds the backup GPT, which together with the Nov 4 probe's LBA table is enough to rebuild the partition
+table by hand if the layout is ever damaged).
 
 ## OEM reference packages on disk - what each one is (Nov 9, measured)
 
@@ -345,8 +354,10 @@ Note the running ROM line: the unit was **Android 10** (`QQ2A.200305.004.A1`, bu
   OEM `super`/`boot` back, or the SD burn route through the untouched u-boot (`rkimg_bootdev=if mmc dev 1
   && rkimgtest mmc 1`, `sdfwupdate`, `Found IDB in SDcard`, plus `Forbid to flash mmc 1(sdcard)`). The
   recovery menu is unreachable by button combo, so recovery-based rollback is not available tonight.
-* Outer insurance still valid: the 62.8 GB full-eMMC snapshot on the HDD/NAS archive and the tracked GPT
-  head/tail dumps (`analysis/gpt/gpt_head.bin`, `gpt_tail.bin`).
+* Outer insurance: the OEM Android 10 packages (all three trusted by recovery) and the GPT dumps. The
+  62.8 GB "full-eMMC snapshot" is **not** insurance - measured Nov 10 it is zero except the backup GPT,
+  so the rollback payload was rebuilt from `diatsia fw/update(1).zip` instead
+  (`docs/findings.md`, "The real rollback payload, rebuilt from the Android 10 (April 2025) package").
 
 ### Open questions to measure before any second attempt
 1. Serial console output of Android 14's boot: does init reach second stage, which services crash-loop,
@@ -359,3 +370,117 @@ Note the running ROM line: the unit was **Android 10** (`QQ2A.200305.004.A1`, bu
    prop survive long enough to give us a shell on first boot? (Tonight it did not: WiFi never returned.)
 5. Which physical SD slot is the sdmmc one (`dwmmc@fe320000` = Android `sdcard1` = u-boot `mmc 1`) - the
    boot-card slot - versus the recovery slot (`dwmmc@fe310000` = `sdcard2`).
+
+## Unbrick SD route - Nov 9/10 (measured on the uboot image, offline; unit untouched)
+
+The Nov 8 section above claimed this uboot has "zero sdcard/sd_update/update.img strings". That was
+**wrong** - the grep pattern missed the Rockchip firmware-update strings. Re-measured on
+`uboot.img` (4,194,304 B, sha `a28fd6a0…` from the Android 11 package):
+
+* Code strings present: `Found IDB in SDcard`, `Found IDB in U-disk`, `usbfwupdate`,
+  `sdfwupdate`, `Forbid to flash mmc 1(sdcard)`, `%s: Failed to read data from IDB`,
+  `rkimgtest` ("Test if storage media have rockchip image"), `RKPARM: Invalid parameter part table`,
+  `invalid rkparm parameter`.
+* Embedded env: `bootcmd=boot_android ${devtype} ${devnum};bootrkp;run distro_bootcmd;` and
+  `rkimg_bootdev=if mmc dev 1 && rkimgtest mmc 1; then setenv devtype mmc; setenv devnum 1;
+  echo Boot from SDcard; elif mmc dev 0; ...`, with `boot_targets=mmc1 mmc0 usb0 pxe dhcp`.
+  So the SD slot is scanned **first** (`mmc1`), and `Forbid to flash mmc 1(sdcard)` means the flash
+  target is the eMMC (`mmc0`), never the card itself.
+* Mechanism (Rockchip's SD Card Boot reference, V1.0 2018, plus the SDDiskTool changelog): the card
+  carries an IDB-format firmware image whose header sits at **sector 64** (magic `0xFCDC8C3B`); a
+  flag byte near the header selects the card type - `0` = upgrade card (u-boot adds `sdfwupdate` to
+  the kernel cmdline and the recovery flashes the card's `update.img`), `1` = boot card (u-boot reads
+  the firmware from the card and boots it, cmdline gets `storagemedia=sd`), `2` = repair card (the
+  firmware is copied from the card while still in the loader stage). SDDiskTool v1.67 added
+  `sdfwupdate` to misc, v1.68 replaced it with `rk_fwupdate`.
+
+### What the Nov 5 "full eMMC snapshot" actually contains (measured now, byte-by-byte)
+
+`analysis/gpt/disk.img` (62,813,896,704 B = exactly 122,683,392 sectors) is **not a usable backup**.
+A full scan of all 62.8 GB found only two nonzero regions: a remnant at byte 448 (`0200eeffffff0100…`,
+protective-MBR-ish) and the backup GPT in the last 4 MB (byte 62,812,848,128). Everything else -
+including the primary GPT area, `boot`, `super`, `recovery`, `cache` - is zero. Carving the partition
+ranges by the probe's LBAs gave fourteen files whose sha256 is the same for every 4 MiB partition
+(`bb9f8df6…`) and zeros everywhere else, which is what a zero-filled file does, not what a live eMMC
+does. `analysis/gpt/gpt_head.bin` is likewise all zeros; only `gpt_tail.bin` holds real data
+(backup GPT: partition names `u.b.o.o.t…` visible).
+
+Consequence: partition **sizes and names** are trusted (they come from the Nov 4 probe), but partition
+**content** is not recoverable from the snapshot. The rollback payload therefore has to be rebuilt from
+the OEM package - see next section. The GPT layout can still be reconstructed from `gpt_tail.bin` plus
+the probe's LBA table if the partition table is ever damaged.
+
+### The real rollback payload, rebuilt from the Android 10 (April 2025) package (Nov 9/10, verified)
+
+Rebuilt offline on the NAS (`/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/vibe-rescue/`),
+from `diatsia fw/update(1).zip` (sha `31bb492a…`), using `brotli` to decode the `.new.dat.br` payloads
+and `tools/reassemble.py` for the transfer lists:
+
+| partition | bytes | note |
+|---|---|---|
+| system | 1,275,330,560 | matches `resize system` in `dynamic_partitions_op_list` exactly; 99.6% written |
+| vendor | 323,530,752 | matches `resize vendor`; 99.7% written |
+| product | 986,509,312 | matches `resize product`; 99.6% written |
+| odm | 539,951,104 | matches `resize odm`; 99.6% written |
+
+Group `rockchip_dynamic_partitions`, max **3,258,974,208 B**, super device size **3,263,168,512 B**,
+metadata v10.0, 2 slots, 592 B used - the Android 10 vocabulary, no `system_ext` (**D19** layout stays
+as the OEM one, nothing resized beyond what the OEM op_list declares).
+
+`super-a10.img` - 3,263,168,512 B, sha256 `30da961c94ba064d1edce80d5dc3b96ad5ec7480a4971b8ca38d1bdb2cefc11c`.
+`lpdump` reads it: system at super-sector 2048, vendor 2494464, product 3127296, odm 5054464 (512-byte
+sectors, i.e. byte offsets 1,048,576 / 1,277,164,288 / 1,601,178,368 / 2,587,884,288). Content verified,
+not just parsed: carving the system slice (`dd bs=512 skip=2048`) opens as ext4 in `debugfs`, `ls /`
+shows `init`, `init.rc`, `init.hct.rc`, `init.zygote64_32.rc`, `default.prop`, `lib`, `sbin`, `product`,
+`odm`, `oem`, and `stat /system/build.prop` gives inode 862, 2,470 B. So this really is an Android 10
+system image, and `init.hct.rc` is present in it.
+
+`boot-a10.img` - the package's own `boot.img`, 27,406,336 B, sha256 `04a43ea931de08734d8a25afe9920cba69a099095ab4b4490dbbe4368d0b89c6`
+(header: kernel 25,671,688 B, kernel addr `0x10008000`, ramdisk addr `0x11000000`, second `0x10f00000`,
+tags `0x10000100`, header_size 2048, page field 2, cmdline starts `console=ttyFIQ0 androidboot.baseband=N/A
+androidboot.basename=...`). It is **not** byte-identical to the boot the unit was running (that backup,
+`boot-current.bin` 32 MB, died with adb on the unit), so the rollback restores the vendor's April 2025
+boot image rather than the previously installed one - which is the intended rollback semantics.
+
+The OEM updater-script also writes `trust.img`, `uboot.img`, `dtbo.img` and runs `write_raw_loader_image()`
+from `RKLoader.bin` (`BOOT` header magic, 465,230 B). Those are the vendor's own boot-chain images; a
+stock install restores them too (**D18** note: our payload never wrote them, so the unit's boot chain is
+whatever the vendor shipped, untouched).
+
+### Rockchip Linux tools staged for the card build (downloaded Nov 9/10)
+
+From `github.com/vicharak-in/rockchip-linux-tools` into `/tmp/opencode/rktools/`:
+`afptool` (packs `parameter` + image list into a firmware image; needs `FIRMWARE_VER`, `MACHINE_MODEL`,
+`MACHINE_ID`, `MAGIC: 0x5041524B`, `TYPE: GPT`, `CMDLINE: mtdparts=...`; errors on overlap),
+`rkImageMaker` (`<-RKXX> <loader.bin> <image> <out> [-os_type:RKOS|ANDROIDOS] [-storage:FLASH|EMMC|SD|SPINOR|SPINAND|SATA|PCIE]`,
+plus `-unpack`), `upgrade_tool` v2.22 (`UF/UL/WL/RL/EF/EXF`, USB/rockusb only - no SD write),
+`programmer_image_tool` v1.26 (`-t SLC|SPINAND|SPINOR|EMMC`, `-f UPDATE|PARAMETER|IMAGE` - it converts a
+firmware into a programming image for those storages, **not SD**), `firmware_merger`,
+`mkrawimg.sh`, `unpack.sh`, `sdcard-update-package-file`, `rk3399-package-file`, `rk3399-mkupdate.sh`.
+
+Note what the package files imply: an SD upgrade card's own package is deliberately small -
+`bootloader Image/MiniLoaderAll.bin`, `parameter Image/parameter-sdupdate.txt`, `uboot_a Image/uboot.img`,
+`misc Image/sdupdate-ab-misc.img`, `recovery Image/recovery.img` - i.e. the card carries the boot code plus
+a recovery, and the full firmware is a separate `update.img` on the card's visible partition. Rockchip's
+own guide states an SD upgrade `update.img` must contain `MiniloaderAll.bin`, `parameter.txt`, `uboot.img`,
+`trust.img`, `misc.img`, `resource.img`, `recovery.img` or the tool reports "write MBR failed".
+
+### Why the card design for THIS unit is a boot card, not an upgrade card
+
+The upgrade-card flow hands control to a **recovery** that flashes `update.img`. We do not have a working
+recovery image for this board: the OEM packages contain no `recovery.img`, and the recovery partition's
+content is unknowable because the dump above is bogus - and the owner reports no button combo reaches any
+recovery menu. So the plan is the **boot card (flag 1)** variant: the card supplies a boot image that
+u-boot loads from the SD slot, and that boot image is a rescue initramfs which mounts the card and `dd`s
+the verified rollback images onto `/dev/block/by-name/super` and `/dev/block/by-name/boot`. Nothing
+depends on recovery, on signatures, or on the panel working, and it is fully observable over the serial
+console (`console=ttyFIQ0`, 115200 8N1, 3.3 V) before anything is written.
+
+Still unverified before any burn (**and the reason the physical card has not been written**):
+1. Which physical microSD slot maps to u-boot `mmc1` (`dwmmc@fe320000` = Android `sdcard1`) vs `mmc0`/`sdcard2`.
+2. Whether BootROM on this PX6 will load the card's loader, or whether only u-boot's `rkimgtest` path is
+   reachable (the latter still boots the card's boot image, since `rkimg_bootdev` sets `devnum 1`).
+3. Whether this u-boot's IDB parser accepts an image built with `rkImageMaker -storage:SD` and the OEM
+   `RKLoader.bin` (chip tag must match - the `BOOT` header carries it; not yet decoded).
+4. The flag byte offset inside the IDB header for card type - the guide says "sector 64 + 616 bytes"; the
+   built image must be inspected, not assumed.

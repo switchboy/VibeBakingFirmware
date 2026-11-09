@@ -72,13 +72,19 @@ This file is the index plus the risk register, and it must not restate numbers -
    around the OEM Midgard blobs instead of the declared HIDL `composer@2.1::IComposer/default`. Also
    check whether u-boot applies our boot image's `second` (recovery dtbo, hash `cb42e271…` vs OEM
    `beaa3b8b…`).
-4. **Rollback is blind (D29).** Serial `dd` of the OEM Android 10 `super`/`boot` (extract + rebuild with
-   `lpmake` at the unchanged layout - not done yet), or the owner's chosen bootable SD card burned by the
-   untouched u-boot (`sdfwupdate`, `rkimg_bootdev=if mmc dev 1 && rkimgtest mmc 1`), gated on verifying
-   that `fw_update=2` (`bUpdateIDBlock=false`) skips the loader/IDB write. Card goes in the sdmmc slot
-   (`dwmmc@fe320000` = `sdcard1` = u-boot `mmc 1`), not `sdcard2`. Insurance: the 62.8 GB eMMC archive
-   snapshot, `analysis/gpt/`, and `/data/local/tmp/hu14-backup/` on the unit (super head 16 MB, whole
-   boot 32 MB; the super **tail** backup never succeeded and was never pulled to the laptop).
+4. **Rollback is blind (D29) and the payload is ready (D31).** Rebuilt from `diatsia fw/update(1).zip`:
+   `super-a10.img` 3,263,168,512 B sha `30da961c…` and `boot-a10.img` 27,406,336 B sha `04a43ea9…`, in the
+   NAS archive `…/aospbuild-archive/vibe-rescue/`, verified with `lpdump` + `debugfs`. Serial `dd` of those
+   two restores Android 10. The SD media is built as a **boot card** (IDB flag 1) carrying the same two
+   images plus a rescue initramfs that `dd`s them - an upgrade card is useless here because it needs a
+   recovery we do not have. Rockchip's Linux tools are staged in `/tmp/opencode/rktools/` (`afptool`,
+   `rkImageMaker -storage:SD`, `upgrade_tool`, `programmer_image_tool`). Card goes in the sdmmc slot
+   (`dwmmc@fe320000` = `sdcard1` = u-boot `mmc 1`), not `sdcard2`. **No physical card has been written**:
+   the slot mapping, BootROM loader acceptance, IDB-parser acceptance for a `-storage:SD` image with
+   `RKLoader.bin`, and the flag-byte offset all need measuring on the desk with serial. The Nov 5 eMMC
+   "snapshot" is empty (zero except backup GPT), so it is not insurance; `/data/local/tmp/hu14-backup/`
+   on the unit (super head 16 MB, whole boot 32 MB, super tail backup failed) is unreachable until the
+   unit is on the desk.
 5. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
    (touch + physical buttons + CANBUS). Bluetooth is a deliberate second pass (`docs/decisions.md`).
    One agent at a time.

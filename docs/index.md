@@ -2,7 +2,7 @@
 
 | file | purpose | canonical for |
 |---|---|---|
-| `docs/decisions.md` | design decisions D1-D30 (incl. D28 bring-up access via `adbon`, D29 blind rollback, D30 the Nov 9 write outcome), owner questions, pending Bluetooth route | every DECISION and its reasoning |
+| `docs/decisions.md` | design decisions D1-D31 (incl. D28 bring-up access via `adbon`, D29 blind rollback, D30 the Nov 9 write outcome, D31 rebuilt rescue payload + SD boot card), owner questions, pending Bluetooth route | every DECISION and its reasoning |
 | `docs/findings.md` | measured evidence: packaging pass, offline payload audit, no-terminal diagnostics, SD/uboot + AVB measurements, OEM package identities, **the Nov 9/10 flash attempt log** | every measurement number and audit result |
 | `docs/flash.md` | operator procedure: stick layout, route 1 (signed zip via recovery), route 2 (raw images via TCP-adb root `dd`), first-boot probe routes, rollback (incl. the blind paths) | what to do in the car, and the shas to verify |
 | `docs/build-host.md` | build-host (NAS) operations: space, packages, lunch, packaging order, failure post-mortems | how to rebuild anything |
