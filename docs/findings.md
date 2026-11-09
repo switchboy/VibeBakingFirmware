@@ -1,7 +1,7 @@
 # Measured findings — evidence, not decisions
 
 This file holds the measurement/evidence records that used to sit inside `docs/decisions.md`.
-Decisions stay in `docs/decisions.md` (D1-D25); pointers here point back. Numbers are what the
+Decisions stay in `docs/decisions.md` (D1-D30); pointers here point back. Numbers are what the
 build host / dumps / probes actually produced - do not edit a number here without re-measuring.
 
 ## Packaging pass Nov 8 - dist, super, the HU payload, and its offline verification
@@ -223,3 +223,139 @@ What that changes:
   neither the bootloader nor the partition table (**D18**/**D19**).
 * Signature verification happens in recovery *before* any partition write, so re-flashing an OEM package
   to test the rollback path is safe; a rejected package writes nothing.
+
+## Flash attempt Nov 9/10 (night session) - what actually happened, with timestamps
+
+This is the record of the first real write to the unit. Times are local (CET) as the laptop/unit showed
+them. Nothing here is inferred: every line is either a command output we captured or an owner report.
+
+### Bring-up access (this is how we got in - no USB adb, no terminal, no developer options)
+* USB adb is impossible on this unit: all three HU sockets are host-mode. The laptop's Type-C port is
+  correctly a host (`data_role=host`, `power_role=source`) but saw **no partner at all** - `state`,
+  `partner_data_role`, `partner_power_role`, `vconn` all empty - on every socket the owner tried,
+  including the one that does Android Auto. Nothing ever enumerated on bus 003/004, zero
+  `new ... USB device` kernel lines. `adb devices` stayed empty all night.
+* The running firmware has no developer options: tapping the build version repeatedly does nothing
+  (owner tried), so USB debugging / wireless debugging could not be turned on.
+* Network adb was off: `22 23 5555 5037 8765 2300 9000 4000` all closed on `192.168.1.120` (ping ok,
+  rtt ~9-92 ms). The OEM init enables TCP adb only on `persist.internet_adb_enable=1`.
+* **The owner's discovery that opened the unit:** in the HU's factory-settings dialog the password
+  **`adbon`** (instead of `126`) enables adb for one session, which sets `persist.internet_adb_enable=1`
+  and therefore `service.adb.tcp.port=5555`. After that, from the laptop:
+  `adb connect 192.168.1.120:5555` -> `device product:rk3399 model:PX6 device:rk3399`, then
+  `adb root` -> `uid=0(root) ... context=u:r:su:s0`, no authorization prompt appeared.
+  Post-root props read over TCP: `ro.debuggable=1`, `ro.adb.secure=` (empty),
+  `ro.boot.verifiedbootstate=orange`, `ro.boot.vbmeta.device_state=` (empty),
+  `ro.boot.avb_version=` (empty), `ro.boot.vbmeta.digest=` (empty), `persist.internet_adb_enable=1`,
+  `persist.sys.usb.config=adb`. `/data` = 54G with 48G free, no `/mnt/udisk` (no stick), and
+  `/dev/block/by-name/` had backup boot cache dtb dtbo frp metadata misc recovery security super trust
+  uboot userdata vbmeta (+ mmcblk2, mmcblk2boot0, mmcblk2boot1).
+
+### Staging (laptop, over ssh - nothing on the unit until the flash)
+* `/tmp/hu/stage/hu14/` on the laptop: `super.img` 2,275,747,780 B, `boot.img` 32,796,672 B,
+  `flash.sh` (from `scripts/flash_from_android.sh`), `sha256.txt`. scp of super took 59.7 s; `sha256sum -c`
+  on the laptop: both OK.
+* On the unit: `adb push` into `/data/local/tmp/hu14/` - `super.img` 2,275,747,780 B in **675.6 s at
+  3.2 MB/s** over TCP adb; `boot.img` 32,796,672 B in 9.0 s. `sha256sum -c` on the unit: both OK
+  (`2045af9c2d730aa5cb76df48e8a081b677ccf74a3272dbd1d2419aaf8162ff69`,
+  `83fd2a15c74424e8a6c9663dfa89339a77de8ea53b9659e7e3e58819609104f8`).
+
+### flash.sh - two bugs found by running it, both fixed
+1. **mksh 32-bit arithmetic.** Android's `/system/bin/sh` (mksh) wraps integers above 2 GiB negative:
+   `echo $((2147483648+1))` on the unit prints `-2147483647`. The size guard
+   `[ "$super_img" -gt "$super_size" ]` therefore compared `2275747780` against a **negative**
+   `3263168512` and aborted with a false "not plausible" message on the first run (19:39). Fixed by
+   comparing in awk (`BEGIN{ exit (img+0 > part+0 || img+0 < 1000000000) ? 1 : 0 }`) and by printing the
+   `/proc/partitions` fallback with `printf "%.0f"`.
+2. **`dd` skip units.** The tail backup used `skip=3246391296` with `bs=4096`, i.e. a skip in *blocks*,
+   not bytes -> `Can't skip`, so `super-tail.bin` was never written. Correct value is `792576` blocks
+   (`(3263168512 - 16777216)/4096`, verified with awk; the first fix in this file said 792552, which is
+   wrong). Fixed in the script on Nov 10: the skip is now computed in awk as a block count. The manual retry of that dd got no reply
+   because adb went offline a moment later, so **the tail backup of super is NOT verified** - the head
+   backup and the whole `boot` partition are.
+
+### The write itself (19:39:51, captured output)
+```
+hu14 flash - Mon Nov  9 19:39:51 CET 2026
+running rom: 10 rk3399-userdebug 10 QQ2A.200305.004.A1 eng.hct2.20220412.155213 test-keys
+target device confirmed running Android 10
+  ok   super.img  2045af9c...   ok   boot.img  83fd2a15...
+super partition 3263168512 B ; super.img 2275747780 B ; boot.img 32796672 B
+16777216 bytes (16 M) copied, 0.089422 s, 179 M/s        <- super head backup
+/dev/block/by-name/super: Can't skip                     <- super tail backup FAILED
+33554432 bytes (32 M) copied, 0.179183 s, 179 M/s        <- boot partition backup (full)
+2275747780 bytes (2.1 G) copied, 34.105447 s, 64 M/s     <- super written
+32796672 bytes (31 M) copied, 0.941266 s, 33 M/s         <- boot written
+sync  ... done: super and boot now hold Android 14
+```
+Note the running ROM line: the unit was **Android 10** (`QQ2A.200305.004.A1`, build
+`eng.hct2.20220412.155213`, test-keys) - not Android 11 as our docs assumed. Android 11 is what the
+`diatsia fw/update.zip` package contains, not what was installed.
+
+### What the unit did afterwards (owner reports)
+* adb went `device offline` during the backup pull attempts, then `ping 192.168.1.120` = **No route to
+  host** - the unit's WiFi disappeared. So Android 14 did not reconnect (expected: Android 14 cannot
+  recover Android 10's Wi-Fi credentials, and the `persist.internet_adb_enable=1` prop lives in `/data`).
+* **Black screen: no boot animation, no Android 10 logo.** Power-cycling the unit keeps the display off.
+* **No recovery menu** - no button combo the owner tried reaches it.
+
+### Offline verification after the failure (why we think the payload itself is sound)
+* `out-hu/boot.img` vs the OEM Android 11 image: same header shape (header_size 2048, page field 2 at the
+  Rockchip offsets), same kernel size 30,455,816 B (the same OEM 4.19 kernel), same load addresses
+  kernel `0x10008000`, ramdisk `0x11000000`, second `0x10f00000`, tags `0x10000100`, gzip ramdisk at the
+  same offset (`1,632,189 B` ours vs `838,018 B` OEM), cmdline of the same shape. Differences: ramdisk is
+  Android 14's first-stage init, `androidboot.veritymode=disabled` vs OEM `enforcing`,
+  `androidboot.wificountrycode=NL` vs `CN`, and the `second` (recovery dtbo) blob differs by hash
+  (`cb42e271...` vs OEM `beaa3b8b...`) - u-boot's `android_get_dtbo` path could apply that blob, so it is a
+  minor suspect worth testing.
+* `lpdump` of the raw super (simg2img of `out-hu/super.img`, 3,263,168,512 B): metadata v10.0, slot count
+  2, group `hct_dynamic_partitions` max **3,258,974,208 B**, partitions system/vendor/product/system_ext/odm
+  starting at byte offsets 1,048,576 / 1,013,972,992 / 1,444,937,728 / 1,902,116,864 / 2,286,944,256 - and
+  the ext4 superblock magics (`53 ef`) were found exactly at those filesystem starts. The five partition
+  images total 2,285,122,532 B (system 1,012,834,304; product 456,159,232; system_ext 384,802,816;
+  vendor 430,514,176; odm 811,008), so nothing overflows the unchanged partition or group.
+* `/vendor/etc/fstab.rk30board` inside the vendor filesystem is present and in Android 14 form
+  (`wait,logical,first_stage_mount` for system/vendor/product/system_ext).
+* Vendor HAL set inside the written vendor: `/lib64/hw` holds the OEM impls (`hwcomposer.rk30board.so`,
+  `gralloc.default.so`, `audio.primary.rk30board.so`, `allocator@4.0-impl-midgard.so`,
+  `mapper@4.0-impl-midgard.so`, `hw_output.default.so`, mtc/mfi/sensors/weaver/gnss/camera/health), and
+  `/etc/vintf/manifest.xml` declares
+  `<name>android.hardware.graphics.composer</name>` with `@2.1::IComposer/default` (HIDL).
+
+### Most likely cause, ranked (the payload boots into Android, but Android does not bring up the panel)
+1. **Display stack**: Android 14's SurfaceFlinger against an **HIDL composer@2.1** + OEM Midgard
+   allocator/mapper blobs. If the composer service fails to register or the blobs need Android 10-era
+   symbols, SF never presents anything -> kernel boots, no boot animation, black screen. This matches the
+   observed symptom exactly.
+2. **first-stage init / vendor bring-up**: an early crash-loop in a required HAL (composer, gralloc,
+   audio) or a missing vendor library would give the same black screen.
+3. Boot-image handshake - ruled out by the header comparison above.
+4. AVB/trust - ruled out: `verifiedbootstate=orange` before the flash, `vbmeta` untouched, u-boot has
+   `Not AVB images, AVB skip`, and `trust.img` runs before u-boot and was never written.
+5. super layout / fstab - ruled out by the lpdump + ext4-magic + fstab checks above.
+
+### State we left the unit in, and what restoring means
+* `super` and `boot` hold our Android 14 payload (verified shas written at 64 MB/s and 33 MB/s).
+* `recovery`, `uboot`, `trust`, `dtb`, `dtbo`, `vbmeta`, `security`, the loader and the GPT are untouched.
+  So the OEM boot chain is intact and the unit is not bricked in the sense of a destroyed bootloader.
+* Backups on the unit: `/data/local/tmp/hu14-backup/` = `super-head.bin` (16 MB), `boot-current.bin`
+  (32 MB, whole boot partition), `super-tail.bin` (unverified), plus `hu14-flash.log`. These live in
+  userdata, so they survive a `super` rewrite; they were never pulled to the laptop (adb died first).
+* Rollback needs a blind path: either a serial console (`console=ttyFIQ0`, 115200 8N1, 3.3 V) to `dd`
+  OEM `super`/`boot` back, or the SD burn route through the untouched u-boot (`rkimg_bootdev=if mmc dev 1
+  && rkimgtest mmc 1`, `sdfwupdate`, `Found IDB in SDcard`, plus `Forbid to flash mmc 1(sdcard)`). The
+  recovery menu is unreachable by button combo, so recovery-based rollback is not available tonight.
+* Outer insurance still valid: the 62.8 GB full-eMMC snapshot on the HDD/NAS archive and the tracked GPT
+  head/tail dumps (`analysis/gpt/gpt_head.bin`, `gpt_tail.bin`).
+
+### Open questions to measure before any second attempt
+1. Serial console output of Android 14's boot: does init reach second stage, which services crash-loop,
+   what does SurfaceFlinger say? This is the decisive measurement.
+2. Does Android 14 need an **AIDL** composer/gralloc on this kernel, i.e. must we build
+   `composer3`/`allocator`/`mapper` AIDL wrappers around the OEM blobs (instead of declaring HIDL 2.1)?
+3. Does u-boot apply our boot image's `second` (recovery dtbo) blob on a normal boot? If yes, either
+   suppress it or make it byte-identical to the OEM stub.
+4. Is `/data` from Android 10 mountable by Android 14 at all, and does the `persist.internet_adb_enable=1`
+   prop survive long enough to give us a shell on first boot? (Tonight it did not: WiFi never returned.)
+5. Which physical SD slot is the sdmmc one (`dwmmc@fe320000` = Android `sdcard1` = u-boot `mmc 1`) - the
+   boot-card slot - versus the recovery slot (`dwmmc@fe310000` = `sdcard2`).

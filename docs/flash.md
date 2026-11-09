@@ -91,29 +91,74 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
 
 ## Install, route 2: raw images from Android 11 (**D25**)
 
-Use this if recovery rejects the signed zip. The unit still runs Android 11 with its own root shell, and
-recovery is deliberately left untouched so it keeps working as the rollback. `/data` is mounted read-write
-by the running Android 11, so it is not wiped here - recovery's own wipe data/factory reset does that
-cleanly afterwards (**D10**).
+Use this if recovery rejects the signed zip. The unit still runs its own firmware with a root shell over
+TCP adb (**D28**; measured Nov 9: Android 10 `QQ2A.200305.004.A1`, not Android 11 as earlier docs assumed),
+and recovery is deliberately left untouched so it keeps working as the rollback. `/data` is mounted
+read-write by the running firmware, so it is not wiped here - recovery's own wipe data/factory reset does
+that cleanly afterwards (**D10**).
 
 1. Put `hu14/super.img`, `hu14/boot.img`, `hu14/flash.sh` (a copy of `scripts/flash_from_android.sh`) and
-   `hu14/sha256.txt` (plain file names) on the stick; re-verify the manifest on the stick.
+   `hu14/sha256.txt` (plain file names) on the stick; re-verify the manifest on the stick. On this unit
+   `/mnt/udisk` is not mounted at all, so the equivalent is to stage the same four files on the
+   workstation (`/tmp/hu/stage/hu14/`) and `adb push` them into `/data/local/tmp/hu14/`, then re-verify
+   `sha256sum -c` **on the unit** before writing.
 2. Get a root shell. The ROM's own su is blocked (`/system/xbin/su` exists but returns "Permission
-   denied", no Magisk), so use adb: this Android 11 is `userdebug` with `ro.debuggable=1` and
-   `persist.sys.usb.config=adb`, so `adb root` gives uid 0. Cable the workstation to the port where the
-   HU is the USB *device* (the CarPlay/OTG port - the stick ports are host-mode), accept the adb
-   authorization prompt on the unit's screen once, then `adb root; adb shell sh /mnt/udisk/hu14/flash.sh`.
-   It verifies the images against
-   `sha256.txt`, backs up the head and tail of `super` plus the current `boot` partition to
-   `hu14-backup/` on the stick, then `dd`s `super.img` to `/dev/block/by-name/super` (Android 14's
-   system/vendor/product/system_ext/odm plus its dynamic-partition metadata, all inside super) and
-   `boot.img` to `/dev/block/by-name/boot`. Two partitions only: no recovery, uboot, trust, dtbo, RKLoader,
-   logo, security or GPT write, no resize (**D11**/**D19**). Log: `hu14/hu14-flash.log`.
+   denied", no Magisk), so use adb - and on this unit adb only comes over the LAN (**D28**), not over a
+   cable: every HU socket is host-mode, nothing enumerates, and the firmware has no developer options.
+   Enter **`adbon`** in the HU's factory-settings dialog (instead of `126`) - that sets
+   `persist.internet_adb_enable=1`, and the OEM init then opens TCP adb on port 5555. From the workstation:
+
+   ```
+   adb connect 192.168.1.120:5555
+   adb root                                   # uid 0, context u:r:su:s0, no auth prompt
+   adb -s 192.168.1.120:5555 shell id
+   adb -s 192.168.1.120:5555 push hu14 /data/local/tmp/   # or push the four files individually
+   adb -s 192.168.1.120:5555 shell "sync; STICK=/data/local/tmp sh /data/local/tmp/hu14/flash.sh"
+   ```
+
+   With no stick mounted, `STICK=/data/local/tmp` is what the script expects (`SRC=$STICK/hu14`,
+   `BACKUP=$STICK/hu14-backup`) - backups then land in userdata, which survives a `super` rewrite. Pull
+   them back to the workstation with `adb pull` **before** writing anything; `super.img` is 2.27 GB and
+   pushes at ~3.2 MB/s over TCP, so budget ~11 minutes each way. The script verifies the images against
+   `sha256.txt`, backs up the head and tail of `super` plus the current `boot` partition, then `dd`s
+   `super.img` to `/dev/block/by-name/super` (Android 14's system/vendor/product/system_ext/odm plus its
+   dynamic-partition metadata, all inside super) and `boot.img` to `/dev/block/by-name/boot`. Two
+   partitions only: no recovery, uboot, trust, dtbo, RKLoader, logo, security or GPT write, no resize
+   (**D11**/**D19**). Log: `$SRC/hu14-flash.log`.
+   Two script bugs were found by running it on Nov 9 and both are fixed in
+   `scripts/flash_from_android.sh`: Android's mksh does 32-bit arithmetic, so a partition size above
+   2 GiB wraps negative and the size guard aborted a valid image (now compared in awk); and the tail
+   backup used a byte value as `dd skip=` with `bs=4096`, which is a *block* count (`Can't skip`) - the
+   correct skip is `792576` blocks. Read `docs/findings.md`, "Flash attempt Nov 9/10", before flashing.
 3. Reboot into recovery, run **wipe data/factory reset**, reboot with the stick still in; the auto-probe
    writes `hu-probe-<ts>.md` to the stick (`/data/local/tmp/hu-probe-<ts>.md` and `/dev/kmsg` fallbacks).
-4. If it does not boot: reboot into recovery, copy `backup/a10-update.zip` to the root as `update.zip`,
-   install it. The unit returns to Android 10 at factory settings; `hu14-backup/` is the extra insurance
-   if a write was interrupted.
+4. If it does not boot, and the recovery menu cannot be reached (Nov 9: no button combo the owner tried
+   reaches it), the rollback must be **blind** (**D29**): either a serial console (`console=ttyFIQ0`,
+   115200 8N1, 3.3 V) with a root shell that `dd`s the OEM `super`/`boot` back, or a bootable SD card that
+   the untouched u-boot flashes (`rkimg_bootdev=if mmc dev 1 && rkimgtest mmc 1`, `sdfwupdate`) - which
+   touches the loader/IDB, so it stays gated on verifying that `fw_update=2` skips that write. The card
+   goes in the **sdmmc** slot: `dwmmc@fe320000` = Android `sdcard1` = u-boot `mmc 1`, not the recovery
+   slot `dwmmc@fe310000` = `sdcard2`.
+
+## Nov 9 attempt: route 2 ran, the write succeeded, Android 14 did not bring up the panel
+
+The full log with timestamps and every captured command is in `docs/findings.md`, "Flash attempt Nov 9/10".
+The operator-relevant consequences:
+
+* `adbon` in the factory-settings dialog opened TCP adb and `adb root` gave uid 0 - route 2 works exactly
+  as written above, and the images were verified on the unit before writing.
+* The write itself completed: `super` 2,275,747,780 B at 64 MB/s, `boot` 32,796,672 B at 33 MB/s. Only
+  those two partitions.
+* After it: **black screen, no boot animation, no OEM logo**, WiFi gone (`No route to host`), TCP adb dead,
+  no recovery menu. So the transport died with the old OS - Android 14 cannot recover Android 10's Wi-Fi
+  credentials and `persist.internet_adb_enable=1` lives in `/data`, which Android 14 formats fresh (**D10**).
+  A shell on first boot therefore cannot be assumed; if one appears it comes from the stick copy or
+  `/dev/kmsg`, not from TCP adb.
+* Nothing that could brick the unit was written (`uboot`, `trust`, `dtb`, `dtbo`, `recovery`, `vbmeta`,
+  loader, GPT all untouched), so the boot chain is intact and the unit is recoverable by a blind path.
+* Do not flash a second payload without a serial console reading first (**D30**). The prime suspect is the
+  display stack (HIDL `composer@2.1` + OEM Midgard allocator/mapper under Android 14), which is a guess
+  until `dmesg`/`logcat` says otherwise.
 
 ## Getting into the recovery
 
@@ -131,6 +176,12 @@ Three routes are reported for PX6/RK3399 head units; they are not guesses, they 
   it ~10 s did *not* bring the menu back on the unit that went black-screen in the Dasaita thread.
 * **The menu tells its own version.** The third line of the recovery menu prints the build, so before
   flashing anything, read that line and check the package is something that recovery can apply.
+
+**Measured on our unit (Nov 9):** none of these reached the menu. With the payload already written, the
+owner power-cycled the unit and tried button combos including the reset pinhole - no recovery menu, no
+logo, no animation, screen fully black. So treat recovery as **unreachable** here and plan the blind
+rollback (**D29**) instead of counting on it; the SD-card-before-boot trick could not be evaluated because
+there was no display to read an offer on.
 
 The stock `update-binary` is not a plain AOSP updater: it carries Rockchip's USB OTA module
 (`CRKUsbComm`, `emmc_point`, `/mnt/scratch`, `drmboot.ko`) and the loader step ("Start to update loader
@@ -197,6 +248,15 @@ way - root of the stick, stock recovery - and it recreates the stock logical par
 own loader step. The unit returns to Android 10 at factory settings. Nothing in this repo rebuilds an
 Android 10 super or dumps partitions; `tools/reassemble.py` stays only because it is how the stock
 payload was decoded in `docs/firmware-analysis.md`.
+
+**Nov 9 revision.** That plan needs the recovery menu, and the menu is unreachable on this unit, so the
+rollback is now blind (**D29**): serial-console `dd` of OEM `super`/`boot`, or a bootable SD card burned by
+the untouched u-boot. The stock packages stay on the stick in `backup/` for the day a menu does appear, and
+the outer insurance is unchanged: the 62.8 GB full-eMMC snapshot in the HDD/NAS archive (`ref-a10`) plus the
+tracked GPT dumps in `analysis/gpt/`. Extracting a raw Android 10 `super`/`boot` pair from
+`diatsia fw/update(1).zip` (decode `system.new.dat.br`/`system.patch.dat` or take the stock images that
+archive already holds, then rebuild super with `lpmake` at the unchanged layout) is the work that makes
+serial `dd` possible - it is not done yet.
 
 ## Fastboot is not used
 

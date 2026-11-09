@@ -53,21 +53,33 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
    `scripts/make_flash_stick.sh <mountpoint>` for the raw-image install (`docs/flash.md`).
 5. First boot: the ROM's own `/system/bin/hu_probe.sh` writes the report to the stick - no terminal needed.
 
-## Status (Nov 9)
+## Status (Nov 9/10)
 
 * Apps, WiFi HAL, libdrm, drmservice and the vendor module set are in the tree and verified offline
   (D21-D24). Packaging pass and payload audit: `docs/findings.md`.
-* First flash attempt was **rejected by the unit's recovery**: `E:footer is wrong`,
+* Route 1 (signed zip through recovery) was **rejected** on Nov 9: `E:footer is wrong`,
   `E:Signature verification failed`, `E:error: 21` - recovery trusts only HCT's own cert
   (`cf2ab3…`), which we do not hold (**D25**).
-* A testkey-signed payload now exists (route 1) and the raw-image route 2 is ready
-  (`scripts/flash_from_android.sh`, over `adb root` on the still-booting Android 11).
-* The SD-card / `update.img` route was researched on Nov 9 and is **not viable** here: it writes the
-  loader and the recovery partition unconditionally and needs a wired `sdmmc` slot this unit does not
-  have (`docs/findings.md`, "SD-card / `update.img` route").
+* Route 2 ran on Nov 9 and **the write succeeded**: `super` (2,275,747,780 B) and `boot` (32,796,672 B)
+  were flashed with verified shas over TCP adb (`adbon` in the factory-settings dialog -> port 5555 ->
+  `adb root`, **D28**). Access details, timestamps and the two `flash_from_android.sh` bugs (mksh 32-bit
+  arithmetic, `dd skip=` in block units) are in `docs/findings.md`, "Flash attempt Nov 9/10".
+* Result: **black screen, no boot animation, no OEM logo**, WiFi gone, TCP adb dead, no recovery menu
+  reachable by any button combo. The unit is *not* bricked - `uboot`, `trust`, `dtb`, `dtbo`, `recovery`,
+  `vbmeta`, the loader and the GPT were never touched, so the OEM boot chain is intact (**D30**).
+* The payload itself passes every offline audit that is possible without a display (boot header/layout
+  comparable to the OEM Android 11 image, coherent `lpdump` layout with ext4 magics at the declared
+  offsets, Android 14-form `fstab.rk30board`, AVB unlocked/not enforced). Prime suspect is the display
+  stack: HIDL `composer@2.1::IComposer/default` + OEM Midgard allocator/mapper blobs under Android 14.
+  **No second flash without a serial console reading first.**
+* Rollback is now **blind** (**D29**, revises D26): serial-console `dd` of the OEM Android 10
+  `super`/`boot`, or a bootable SD card flashed by the untouched u-boot (`sdfwupdate`) - the owner's
+  chosen route, gated on verifying that `fw_update=2` (`bUpdateIDBlock=false`) skips the loader/IDB write.
+  The card must go in the sdmmc slot (`dwmmc@fe320000` = Android `sdcard1` = u-boot `mmc 1`). Outer
+  insurance: the 62.8 GB full-eMMC archive snapshot and `analysis/gpt/`.
 * `docs/upstream.md` is the candidate register for upstream contributions - **nothing submitted yet**, and
   the verified Lineage/AOSP review and licensing rules are recorded there.
 * Bluetooth is a deliberate second pass after first boot (`docs/decisions.md`, "Bluetooth route").
 * No partition is ever resized or rewritten, and recovery/uboot/trust/dtbo/RKLoader/security are never
-  written; rollback stays an OEM Android 10 package installable through the untouched recovery - prefer
-  the vendor's April 2025 rebuild `diatsia fw/update(1).zip` (`docs/findings.md`) (**D11**/**D18**/**D19**).
+  written by our payload; rollback via the untouched recovery (prefer the vendor's April 2025 rebuild
+  `diatsia fw/update(1).zip`, sha `31bb492a…`) only works if the menu ever appears (**D11**/**D18**/**D19**).

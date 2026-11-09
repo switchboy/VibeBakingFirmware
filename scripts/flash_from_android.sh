@@ -45,7 +45,7 @@ say() { printf '%s\n' "$1" | tee -a "$LOG"; }
 part_size() {
   name=$(basename "$(readlink "$1" 2>/dev/null || printf '%s' "$1")")
   size=$(blockdev --getsize64 "$1" 2>/dev/null)
-  [ -n "${size:-}" ] || size=$(awk -v d="$name" '$4 == d { print $3 * 1024 }' /proc/partitions 2>/dev/null)
+  [ -n "${size:-}" ] || size=$(awk -v d="$name" '$4 == d { printf "%.0f", $3 * 1024 }' /proc/partitions 2>/dev/null)
   printf '%s' "${size:-0}"
 }
 
@@ -93,7 +93,12 @@ super_size=$(part_size "$SUPER")
 super_img=$(stat -c %s "$SRC/super.img" 2>/dev/null || echo 0)
 boot_img=$(stat -c %s "$SRC/boot.img" 2>/dev/null || echo 0)
 say "super partition $super_size B ; super.img $super_img B ; boot.img $boot_img B"
-if [ "$super_img" -gt "$super_size" ] || [ "$super_img" -lt 1000000000 ]; then
+# Android's mksh does 32-bit arithmetic, so partition sizes above 2 GiB wrap negative - compare in
+# awk (double precision) instead of [ -gt ].
+if awk -v img="$super_img" -v part="$super_size" \
+     'BEGIN{ exit (img+0 > part+0 || img+0 < 1000000000) ? 1 : 0 }'; then
+  :
+else
   say "ABORT: super.img size $super_img B is not plausible for a $super_size B partition"
   exit 1
 fi
@@ -103,8 +108,10 @@ fi
 # Read-only, ~64 MB, nothing written to the partitions.
 say "== backup of what we are about to overwrite =="
 dd if="$SUPER" of="$BACKUP/super-head.bin" bs=4096 count=4096 2>&1 | tail -1 | tee -a "$LOG"
-tail_off=$((super_size - 16777216))
-dd if="$SUPER" of="$BACKUP/super-tail.bin" bs=4096 skip="$tail_off" count=4096 2>&1 | tail -1 | tee -a "$LOG"
+# dd's skip is in units of bs=, i.e. *blocks*, not bytes - 16 MiB = 4096 blocks of 4096 B.
+# Computed in awk for the same reason as the size guard above.
+tail_skip=$(awk -v s="$super_size" 'BEGIN{ printf "%.0f", (s - 16777216) / 4096 }')
+dd if="$SUPER" of="$BACKUP/super-tail.bin" bs=4096 skip="$tail_skip" count=4096 2>&1 | tail -1 | tee -a "$LOG"
 dd if="$BOOT" of="$BACKUP/boot-current.bin" bs=4096 count=8192 2>&1 | tail -1 | tee -a "$LOG"
 say "  backups in $BACKUP ($(ls "$BACKUP" 2>/dev/null | tr '\n' ' '))"
 

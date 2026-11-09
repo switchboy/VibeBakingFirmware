@@ -991,6 +991,10 @@ do not build it. Insurance instead: untouched stock recovery + OEM packages (any
 by `cf2ab3…`), the 62.8 GB full-eMMC snapshot on the HDD archive, and the tracked GPT head/tail dumps for
 reconstructing the layout by hand.
 
+**Superseded on Nov 9 by D29**: the owner chose the bootable SD burn as this unit's rollback path, so the
+media is on the table again - with the loader/IDB risk acknowledged and the `fw_update=2` verification gate
+still standing.
+
 ## D27 - upstream contributions are registered, not submitted (Nov 9, DECIDED)
 
 `docs/upstream.md` holds the candidate register plus the verified review/licensing rules
@@ -1001,3 +1005,61 @@ on speculative patches. Two standing rules from that register: code that is **al
 Lineage (`libwifi-hal-rtk` in `LineageOS/android_hardware_realtek`, already `compile_multilib: "both"`)
 should be depended on instead of vendored in our device tree, and our workstation's adb **public** key
 must leave the device tree before any bring-up recipe is published.
+
+## D28 - bring-up access: TCP adb opened by the factory-settings password `adbon` (Nov 9, DECIDED)
+
+USB adb is impossible on this board - every HU socket is host-mode, and the laptop's Type-C port is a
+correct host (`data_role=host`, `power_role=source`) that saw **no partner at all** on every socket the
+owner tried, including the Android Auto one. Nothing enumerated, `adb devices` stayed empty. The shipped
+firmware also has no developer options: tapping the build version repeatedly is a no-op, so USB/wireless
+debugging could not be enabled, and network adb was off because `persist.internet_adb_enable` was unset
+(ports 22 23 5555 5037 8765 2300 9000 4000 all closed while ping answered).
+
+**The owner found the lever:** the HU factory-settings dialog accepts **`adbon`** instead of `126`, which
+enables adb for that session. That sets `persist.internet_adb_enable=1`, the OEM init then sets
+`service.adb.tcp.port=5555`, and from the workstation:
+
+```
+adb connect 192.168.1.120:5555      # -> device product:rk3399 model:PX6 device:rk3399
+adb root                            # -> restarting adbd as root
+adb -s 192.168.1.120:5555 shell id  # -> uid=0(root) ... context=u:r:su:s0
+```
+
+No authorization prompt appears (`ro.adb.secure` is empty, `ro.debuggable=1`). So this is the standard
+transport for bring-up on this unit: **TCP adb over the LAN, root shell, no USB, no terminal on the HU**.
+Two properties of it to remember: the prop lives in `/data/property`, so it only survives if the OS that
+boots next mounts the same `/data` and reads it the same way; and it is per-session, so the password has
+to be entered again after a reboot of the old firmware.
+
+## D29 - rollback policy after the Nov 9 write: SD burn is the owner's chosen blind path (Nov 9, DECIDED, revises D26)
+
+D26 said the SD/`update.img` media is deliberately not built, because Rockchip's SD flow writes the
+**loader** and the **recovery** partition and a `parameter`-driven flash recreates the partition table.
+The owner now overrides that for this unit: *"go nuclear with the bootable SD card like how I first
+unlocked my PX5"*, *"make it a bootable card and go the .img burn route"* - the SD burn is accepted as the
+rollback/flash path, exactly as it was used to unlock the PX5 unit. That is a deliberate risk decision,
+not an oversight: the card flow touches loader/IDB.
+
+The gate stays technical, not policy: **do not build or burn a card until it is verified that
+`fw_update=2` (upstream passes `bUpdateIDBlock=false`) skips the loader/IDB write on this uboot.** That
+has not been verified offline. Until it is, the rollback options are a serial console (`console=ttyFIQ0`,
+115200 8N1, 3.3 V) `dd` of the OEM `super`/`boot`, or a serial/dd path from a root shell if one appears.
+Recovery-menu rollback is not available: no button combo the owner tried reaches that menu.
+
+## D30 - the Nov 9 write left the unit running Android 14 with a black screen (Nov 9/10, RECORDED)
+
+Full log: `docs/findings.md`, "Flash attempt Nov 9/10". The short version, as a decision record:
+
+* `super` (2,275,747,780 B) and `boot` (32,796,672 B) were written with verified shas; `recovery`,
+  `uboot`, `trust`, `dtb`, `dtbo`, `vbmeta`, `security`, the loader and the GPT were **not** touched, so
+  the OEM boot chain is intact - the unit is not bricked in the sense of a destroyed bootloader.
+* The unit then showed **black screen, no boot animation, no OEM logo**, WiFi disappeared (`No route to
+  host`), and TCP adb died with it. Android 14 cannot recover Android 10's Wi-Fi credentials, and
+  `persist.internet_adb_enable=1` lives in `/data`, so D28's transport does not carry over - a shell on
+  first boot is not assumed, only checked.
+* The payload itself passed every offline audit that could be done without a display (boot header/layout
+  byte-comparable to the OEM Android 11 image, coherent `lpdump` layout with ext4 magics at the declared
+  offsets, Android 14-form `fstab.rk30board`, AVB not enforced). Prime suspect is the display stack: the
+  vendor declares HIDL `composer@2.1::IComposer/default` plus OEM Midgard allocator/mapper blobs, and
+  Android 14 may require AIDL composer3/allocator/mapper. **The next attempt must not be flashed without a
+  serial console reading first** - guessing at a second write costs the unit.

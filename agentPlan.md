@@ -54,24 +54,31 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D25 | decided | recovery cannot install our package (trusted cert `cf2ab3…` is HCT's own); route 1 = testkey-signed zip attempt, route 2 = raw images via `adb root` dd, recovery untouched |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
-## Current state (Nov 9)
+## Current state (Nov 9/10)
 
-1. Payload rebuilt and signed: route 1 zip in `out-hu/update.zip`, route 2 images `super.img` +
-   `boot.img` - shas and sizes in `docs/flash.md` pre-flight. Rollback package identified: prefer the
-   vendor's April 2025 Android 10 rebuild (`diatsia fw/update(1).zip`, sha `31bb492a...`), which the
-   untouched stock recovery accepts (`docs/findings.md`, "OEM reference packages on disk").
-2. Night busywork done (Nov 9): SD/`update.img` route researched and judged **not viable** under
-   D11/D18/D19 - we deliberately do not build the restore media (`docs/findings.md`, "SD-card /
-   `update.img` route - Nov 9 research verdict"); repo consolidated (`docs/index.md`, `docs/findings.md`,
-   `scripts/archive/` + `tools/archive/`); upstream candidate register written with **no PRs submitted**
-   (`docs/upstream.md`).
-3. Next move on the unit: route 1 (recovery install) is a free experiment - verification runs before any
-   write, so a rejection costs nothing. If it is rejected again, route 2 over `adb root` from the laptop
-   (`ssh daan@<laptop>` -> `adb devices` -> accept the on-screen authorization -> `adb root` -> `adb shell
-   id` must be uid=0 -> `adb shell sh /mnt/udisk/hu14/flash.sh`), then recovery wipe data/factory reset,
-   reboot with the stick in, read `hu-probe-<ts>.md`.
-4. AVB lock state still unmeasured and decisive - read it without root before touching `boot.img`:
-   `getprop ro.boot.vbmeta.device_state` (+ `ro.boot.verifiedbootstate`). If it says locked, a replaced
-   `boot.img` cannot boot at all and the bootloader policy (**D18**) needs revisiting with the owner.
-5. Judge boot -> screen -> WiFi -> touch/buttons -> CANBUS -> sound input from the probe report, then
-   the Bluetooth second pass. One agent at a time.
+1. **The unit is up for the first write and now holds our Android 14 payload.** Route 2 ran on Nov 9 over
+   TCP adb: `super` 2,275,747,780 B and `boot` 32,796,672 B written with verified shas; `recovery`,
+   `uboot`, `trust`, `dtb`, `dtbo`, `vbmeta`, the loader and the GPT untouched, so the boot chain is
+   intact (**D30**). Outcome: black screen, no boot animation, no OEM logo, WiFi gone, TCP adb dead, and
+   no recovery menu reachable by button combo. Full log: `docs/findings.md`, "Flash attempt Nov 9/10".
+2. **How access works here (D28):** USB adb is impossible (all HU sockets are host-mode, the laptop's
+   Type-C host saw no partner), developer options are absent, so the factory-settings password **`adbon`**
+   sets `persist.internet_adb_enable=1` -> port 5555 -> `adb connect 192.168.1.120:5555` -> `adb root` ->
+   uid 0. It does not carry over to Android 14: the prop lives in `/data`, which Android 14 formats fresh,
+   and Android 14 cannot recover Android 10's Wi-Fi credentials.
+3. **Next move - measure, don't re-flash.** Get a serial console reading (`console=ttyFIQ0`, 115200 8N1,
+   3.3 V): does init reach second stage, which services crash-loop, what does SurfaceFlinger say? Only
+   then decide the composer question: Android 14 may need AIDL `composer3`/`allocator`/`mapper` wrappers
+   around the OEM Midgard blobs instead of the declared HIDL `composer@2.1::IComposer/default`. Also
+   check whether u-boot applies our boot image's `second` (recovery dtbo, hash `cb42e271…` vs OEM
+   `beaa3b8b…`).
+4. **Rollback is blind (D29).** Serial `dd` of the OEM Android 10 `super`/`boot` (extract + rebuild with
+   `lpmake` at the unchanged layout - not done yet), or the owner's chosen bootable SD card burned by the
+   untouched u-boot (`sdfwupdate`, `rkimg_bootdev=if mmc dev 1 && rkimgtest mmc 1`), gated on verifying
+   that `fw_update=2` (`bUpdateIDBlock=false`) skips the loader/IDB write. Card goes in the sdmmc slot
+   (`dwmmc@fe320000` = `sdcard1` = u-boot `mmc 1`), not `sdcard2`. Insurance: the 62.8 GB eMMC archive
+   snapshot, `analysis/gpt/`, and `/data/local/tmp/hu14-backup/` on the unit (super head 16 MB, whole
+   boot 32 MB; the super **tail** backup never succeeded and was never pulled to the laptop).
+5. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
+   (touch + physical buttons + CANBUS). Bluetooth is a deliberate second pass (`docs/decisions.md`).
+   One agent at a time.
