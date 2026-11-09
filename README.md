@@ -35,7 +35,7 @@ TCP, 2020-05 vendor patch level, third-party OTA server).
 | `analysis/` | generated dumps + tracked evidence (`*.txt`, kernel configs, partition offsets, app-layer inventory, `gpt/gpt_head.bin` + `gpt_tail.bin`) |
 | `incoming/` | owner's probe reports from the live unit (tracked `*.md`) |
 | `out-hu/` | workstation copies of the payload artefacts (ignored, reproducible): `update.zip` (signed payload), `super.img`, `boot.img` |
-| `update.zip`, `extracted update.zip/`, `diatsia fw/` | the OEM reference packages on disk (ignored; originals also live on the NAS). `update.zip` here is the **Android 10** package (`dd3e2ac0…`), `diatsia fw/update.zip` is the Android 11 package (`50775dba…`) - do not confuse them with `out-hu/update.zip`, which is OUR payload |
+| `update.zip`, `extracted update.zip/`, `diatsia fw/` | the OEM reference packages on disk (ignored; originals also live on the NAS). Identify by sha, not name: repo-root `update.zip` = Android 10 2021 test-keys (`dd3e2ac0…`), `diatsia fw/update.zip` = Android 11 (`50775dba…`) - the OS running today - `diatsia fw/update(1).zip` = Android 10 2025 release-keys (`31bb492a…`) - the preferred rollback. All three are signed by HCT's cert `cf2ab3…`. Never confuse them with `out-hu/update.zip`, which is OUR payload (`b81c50cc…`) |
 | `hal/`, `rom/` | parked shim/hardening stubs, superseded in practice by D21/D22/D23 |
 
 Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/lineage21s`, scratch

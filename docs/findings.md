@@ -154,3 +154,30 @@ Ranking stays: route 1 (testkey-signed zip) -> route 2 (adb root + dd) -> SD-bur
 unlocked *and* we build a parameter file with byte-identical partition sizes and no bootloader
 partitions -> mod ROM last. The SD/mod routes have no signature gate at all, which today is the only
 thing protecting us from a bad flash.
+
+## OEM reference packages on disk - what each one is (Nov 9, measured)
+
+Three OEM packages live on this workstation (the originals are also on the NAS archive
+`/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive`). Names alone are ambiguous, so identify
+them by sha256. Read `META-INF/com/android/metadata` for the build, and the zip EOCD comment via
+`tools/zip_comment_sig.py` for the signature. All three OEM packages are signed by the **same** OEM
+certificate, which is the one the unit's recovery trusts (**D25**).
+
+| file | size B | sha256 | Android / build | key type | signer cert (EOCD comment) | role |
+|---|---|---|---|---|---|---|
+| `update.zip` (repo root) | 1,203,718,969 | `dd3e2ac0610bb64f0715e520300e5ee2dd6652e80fc33bdb0f1a02ba87528013` | 10 / `QQ2A.200305.004.A1`, `eng.hct2.20210311.174916` (2021-03-11) | userdebug **test-keys** | `cf:2a:b3:81:85:95:c4:ed:a0:8c:ec:72:bb:e3:9b:c3:77:a3:0b:76:4a:3e:eb:de:52:53:6e:ae:01:80:85:25` | rollback package the owner decided on (**D18**, `docs/flash.md`) |
+| `diatsia fw/update.zip` | 1,477,122,869 | `50775dba8ca9f99200ede8ec006498baaa383aec963a00de5742896afe6330e8` | 11 / `RQ3A.210705.001`, `eng.hct2.20250401.153219` (2025-04-01) | userdebug **release-keys** | same cert `cf2ab3...` | the OS the unit runs today; the vendor base for **D9**/**D15** |
+| `diatsia fw/update(1).zip` | 1,285,817,036 | `31bb492ab6036dd10a9dc9c33be900af23499eef049a260bf267b166f239db4c` | 10 / `QQ2A.200305.004.A1`, `eng.hct2.20250401.152740` (2025-04-01) | userdebug **release-keys** | same cert `cf2ab3...` | the vendor's 2025 rebuild of Android 10 - the **better rollback candidate** (same cert, newer build, patch level still 2020-05-05) |
+| `out-hu/update.zip` | 945,046,226 | `b81c50cc3eb07b8b0ba5a3ab7f518d8ba2a0339801608c892bbd640e52d04407` | 14 / our LineageOS 21 payload | userdebug test-keys | `a4:0d:a8:0a:59:d1:70:ca:a9:50:cf:15:c1:8c:45:4d:47:a3:9b:26:98:9d:8b:64:0e:cd` (AOSP testkey) | OUR payload; the recovery rejects it (**D25**) |
+
+What that changes:
+* `diatsia fw/update(1).zip` was unlabelled until Nov 9 - it is Android 10, not Android 11, and it is
+  newer than the repo-root package (`post-timestamp` 1743492149 vs 1615456030). If the rollback is ever
+  needed, this is the package to prefer: same trusted cert, a 2025 build, release-keys, and it still
+  installs through the untouched stock recovery.
+* All OEM packages carry `RKLoader.bin`, `uboot.img`, `trust.img`, `dtbo.img`, `logo.img` and a
+  `dynamic_partitions_op_list`. So a stock install restores the OEM bootloader too - that is fine for a
+  rollback (it returns the unit to vendor state), but it is also why our payload deliberately writes
+  neither the bootloader nor the partition table (**D18**/**D19**).
+* Signature verification happens in recovery *before* any partition write, so re-flashing an OEM package
+  to test the rollback path is safe; a rejected package writes nothing.

@@ -73,7 +73,7 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
    The updater-script still has zero uboot/trust/dtbo/RKLoader/loader/security/recovery writes.
 3. Format the stick FAT32 and put our signed zip at the root as `update.zip`. Keep the stock packages in
    `backup/`, named by Android version so they cannot be mislabelled: `backup/a10-update.zip` (Android 10,
-   1,203,718,969 B, sha256 `dd3e2ac0…`, build.prop `QQ2A.200305.004.A1`) and `backup/a11-update.zip`
+   1,203,718,969 B, sha256 `dd3e2ac0…`, Android 10 test-keys 2021) and `backup/a11-update.zip`
    (Android 11, 1,477,122,869 B, sha256 `50775dba…`, build.prop `RQ3A.210705.001`). Rollback = copy
    `backup/a10-update.zip` to the root as `update.zip` and install it; recovery still accepts it because
    it is signed with the cert recovery trusts.
@@ -183,6 +183,13 @@ stock updater cannot carry Android 14's layout, which is then a decision point, 
    can drive it), and later updates go through `docs/ota.md`.
 
 ## Rollback
+
+Rollback package choice (Nov 9): the vendor's 2025 Android 10 rebuild -
+`diatsia fw/update(1).zip`, 1,285,817,036 B, sha256 `31bb492ab6036dd10a9dc9c33be900af23499eef049a260bf267b166f239db4c`,
+release-keys, signed by the same cert the recovery trusts - is newer than the 2021 package and installs
+through the untouched stock recovery. Prefer it if a rollback is ever needed; put it on the stick as
+`backup/a10-2025-update.zip`. Identity of every package on disk: `docs/findings.md`, "OEM reference
+packages on disk".
 
 Owner's decision (Nov 6): no rollback tooling. Flash the **stock Android 10 `update.zip`** the same
 way - root of the stick, stock recovery - and it recreates the stock logical partitions
