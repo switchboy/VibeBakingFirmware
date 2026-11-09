@@ -24,7 +24,7 @@ against our ROM.
 | `BoardConfig.mk` | arch, boot image layout, dynamic partitions (super unchanged at 3,263,168,512 B - **D11**/**D19**, the 8 GiB variant of D8 is recorded in `docs/decisions.md` and rejected), SELinux |
 | `fstab.rk30board` | eMMC layout with dynamic partitions and F2FS userdata (named after ro.hardware) |
 | `configs/` | HU-specific rc / xml fragments copied into the images |
-| `sepolicy/` | device sepolicy; builds permissive for M3 (the unit is permissive today) |
+| *(no `sepolicy/` dir yet)* | permissive boot comes from `WITH_PERMISSIVE_SELINUX := true` in `BoardConfig.mk` (**D5**); a real device sepolicy is a post-bring-up task, and Lineage review requires enforcing (`docs/upstream.md`) |
 
 ## Vendor blobs
 

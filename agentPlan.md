@@ -57,12 +57,21 @@ This file is the index plus the risk register, and it must not restate numbers -
 ## Current state (Nov 9)
 
 1. Payload rebuilt and signed: route 1 zip in `out-hu/update.zip`, route 2 images `super.img` +
-   `boot.img` - shas and sizes in `docs/flash.md` pre-flight.
-2. Next move: flash route 1 (recovery), read the menu's version line; if verification is rejected again,
-   route 2 over `adb root` from the laptop (`ssh daan@<laptop>` -> `adb root` -> `adb shell sh
-   /mnt/udisk/hu14/flash.sh`), then recovery wipe data/factory reset, reboot, read `hu-probe-<ts>.md`
-   off the stick.
-3. AVB lock state still unmeasured - read it without root: `getprop ro.boot.vbmeta.device_state`
-   (`docs/findings.md`, "SD-card flashing"). If it is locked, a replaced `boot.img` cannot boot at all.
-4. Judge boot -> screen -> WiFi -> touch/buttons -> CANBUS -> sound input from the probe report, then
+   `boot.img` - shas and sizes in `docs/flash.md` pre-flight. Rollback package identified: prefer the
+   vendor's April 2025 Android 10 rebuild (`diatsia fw/update(1).zip`, sha `31bb492a...`), which the
+   untouched stock recovery accepts (`docs/findings.md`, "OEM reference packages on disk").
+2. Night busywork done (Nov 9): SD/`update.img` route researched and judged **not viable** under
+   D11/D18/D19 - we deliberately do not build the restore media (`docs/findings.md`, "SD-card /
+   `update.img` route - Nov 9 research verdict"); repo consolidated (`docs/index.md`, `docs/findings.md`,
+   `scripts/archive/` + `tools/archive/`); upstream candidate register written with **no PRs submitted**
+   (`docs/upstream.md`).
+3. Next move on the unit: route 1 (recovery install) is a free experiment - verification runs before any
+   write, so a rejection costs nothing. If it is rejected again, route 2 over `adb root` from the laptop
+   (`ssh daan@<laptop>` -> `adb devices` -> accept the on-screen authorization -> `adb root` -> `adb shell
+   id` must be uid=0 -> `adb shell sh /mnt/udisk/hu14/flash.sh`), then recovery wipe data/factory reset,
+   reboot with the stick in, read `hu-probe-<ts>.md`.
+4. AVB lock state still unmeasured and decisive - read it without root before touching `boot.img`:
+   `getprop ro.boot.vbmeta.device_state` (+ `ro.boot.verifiedbootstate`). If it says locked, a replaced
+   `boot.img` cannot boot at all and the bootloader policy (**D18**) needs revisiting with the owner.
+5. Judge boot -> screen -> WiFi -> touch/buttons -> CANBUS -> sound input from the probe report, then
    the Bluetooth second pass. One agent at a time.

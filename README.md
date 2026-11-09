@@ -62,6 +62,12 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   (`cf2ab3…`), which we do not hold (**D25**).
 * A testkey-signed payload now exists (route 1) and the raw-image route 2 is ready
   (`scripts/flash_from_android.sh`, over `adb root` on the still-booting Android 11).
+* The SD-card / `update.img` route was researched on Nov 9 and is **not viable** here: it writes the
+  loader and the recovery partition unconditionally and needs a wired `sdmmc` slot this unit does not
+  have (`docs/findings.md`, "SD-card / `update.img` route").
+* `docs/upstream.md` is the candidate register for upstream contributions - **nothing submitted yet**, and
+  the verified Lineage/AOSP review and licensing rules are recorded there.
 * Bluetooth is a deliberate second pass after first boot (`docs/decisions.md`, "Bluetooth route").
 * No partition is ever resized or rewritten, and recovery/uboot/trust/dtbo/RKLoader/security are never
-  written; rollback stays the stock Android 10 package (**D11**/**D18**/**D19**).
+  written; rollback stays an OEM Android 10 package installable through the untouched recovery - prefer
+  the vendor's April 2025 rebuild `diatsia fw/update(1).zip` (`docs/findings.md`) (**D11**/**D18**/**D19**).

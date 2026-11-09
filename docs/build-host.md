@@ -417,8 +417,8 @@ matched. `scripts/package.sh` now runs dist first, then superimage, and warns if
 
 ## Offline verification of the artifacts
 
-`tools/check_super.py`-style checks run on the build host without touching the unit
-(`tmp/check_super.py` there, mirrored in this repo as `scripts/check_super.py` once committed):
+`scripts/check_super.py` runs on the build host without touching the unit (an earlier version lived in
+`tmp/` on the NAS; it is invoked by `scripts/verify_artifacts.sh`):
 
 - **ext4 magic correction**: the ext4 magic is `0xEF53`, stored little-endian, so the bytes read
   `53 ef`; it sits about 1080 bytes into the filesystem (s_magic is at offset 60 of the ext4 super

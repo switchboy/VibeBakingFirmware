@@ -3,8 +3,9 @@
 #
 # Baked into the ROM at /system/bin/hu_probe.sh (hu_apps.mk), so it survives every flash. Two ways in:
 #   * automatically at boot, through /system/etc/init/hu_probe.rc (root, no terminal needed);
-#   * by hand from any shell: adb (ro.adb.secure=0 + ro.debuggable=1 -> adb root), or the FIQ serial
-#     console (console=ttyFIQ0 in the boot cmdline).
+#   * by hand from any shell: adb - `ro.adb.secure` stays 1 (build/make/core/main.mk assigns it), so this
+#     script injects the workstation's adb PUBLIC key into /data/adb/adb_keys, and ro.debuggable=1 then
+#     allows `adb root`. Or the FIQ serial console (console=ttyFIQ0 in the boot cmdline).
 # Same shape as the Nov 5 probe (incoming/probe-20261105-1914.md): one markdown report with the owner's
 # success criteria as headings, errors/warnings where they exist, honest "missing" markers where they do
 # not. Writes only three things: its report files (/tmp, /data/local/tmp, the stick copy) and, once, the

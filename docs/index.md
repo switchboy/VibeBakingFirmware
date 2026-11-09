@@ -12,6 +12,7 @@
 | `docs/ota.md` | post-install upgrades once Android 14 runs | future OTA story |
 | `docs/plan.md` | milestone history M1-M10 with status | what was tried, in order |
 | `docs/termux.md` | Android 10-era shell mechanics (Termux, upload endpoint) | how the old probes reached us |
+| `docs/upstream.md` | candidate register for upstream contributions (NO PRs submitted), with the verified review/licensing rules | what could go upstream, where, and what cleanup it needs |
 | `agentPlan.md` | lean index: mission, phases, risk register, D-status, current state | the agent's next move |
 
 Two different report transports, deliberately kept separate:

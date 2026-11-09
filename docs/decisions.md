@@ -968,6 +968,10 @@ the stick), which gives both a restore copy and the recovery's trusted cert bund
 **Backup naming, so a rollback cannot be mislabelled.** Android 10 = the July 2021 package
 (1,203,718,969 B, sha256 `dd3e2ac0…`, build.prop `QQ2A.200305.004.A1`, release 10); Android 11 =
 `daisaita_a11.zip` (1,477,122,869 B, sha256 `50775dba…`, build.prop `RQ3A.210705.001`, release 11).
+Nov 9 added a third package (`diatsia fw/update(1).zip`, 1,285,817,036 B, sha256 `31bb492a…`) which is
+**also Android 10** - the vendor's April 2025 rebuild, release-keys, same trusted cert - so it is the
+better rollback; on the stick it is `backup/a10-2025-update.zip`. Full identity table:
+`docs/findings.md`, "OEM reference packages on disk".
 On the stick they belong in `backup/a10-update.zip` and `backup/a11-update.zip`; rename one to
 `update.zip` at the stick root only when a rollback is actually wanted, because some HCT firmware
 offers an automatic firmware update the moment it sees `update.zip` at the root.
@@ -975,3 +979,25 @@ offers an automatic firmware update the moment it sees `update.zip` at the root.
 ## SD-card flashing (the Malaysk "SD_firmware_tool" idea) - what this uboot actually supports (Nov 8, measured)
 
 Canonical record: see `docs/findings.md`, section "SD-card flashing (the Malaysk "SD_firmware_tool" idea) - what this uboot actually supports (Nov 8, measured)".
+
+## D26 - the SD/`update.img` restore media is deliberately not built (Nov 9, DECIDED)
+
+Research verdict (`docs/findings.md`, "SD-card / `update.img` route - Nov 9 research verdict"): Rockchip's
+SD-upgrade-card flow and its USB-stick variant write the **loader** and the **recovery** partition
+unconditionally, and a `parameter`-driven flash recreates the partition table. That violates **D18** and
+**D19**, and this HU has no wired `sdmmc` slot for a card to boot from, so the route cannot be made safe
+here. Building the media offline would be harmless but unusable without breaking those decisions, so we
+do not build it. Insurance instead: untouched stock recovery + OEM packages (any of the three, all signed
+by `cf2ab3…`), the 62.8 GB full-eMMC snapshot on the HDD archive, and the tracked GPT head/tail dumps for
+reconstructing the layout by hand.
+
+## D27 - upstream contributions are registered, not submitted (Nov 9, DECIDED)
+
+`docs/upstream.md` holds the candidate register plus the verified review/licensing rules
+(Lineage = Gerrit + charter, SELinux enforcing, blobs via extraction scripts, Apache Category A; AOSP =
+CLA + Gerrit, `external/*` fixed upstream first; Lineage wiki changes also go through Gerrit). No change
+is submitted until the unit boots and the real feature gaps are known, so we do not spend review goodwill
+on speculative patches. Two standing rules from that register: code that is **already** upstream in
+Lineage (`libwifi-hal-rtk` in `LineageOS/android_hardware_realtek`, already `compile_multilib: "both"`)
+should be depended on instead of vendored in our device tree, and our workstation's adb **public** key
+must leave the device tree before any bring-up recipe is published.

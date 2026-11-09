@@ -125,7 +125,10 @@ The first flash has no shell. Checked, not assumed:
   .usb_storage=true` is already set). So the report lands on the stick that carried `update.zip` even if
   neither adb nor serial is reachable - which is exactly what the owner asked for. SELinux stays
   permissive during bring-up (**D5**), hence the borrowed `u:r:shell:s0` label, same as `hu_insmod`.
-  `scripts/verify_hu_apps.sh` now checks the service definition, the trigger, and `ro.adb.secure=0`.
+  `scripts/verify_hu_apps.sh` now checks the service definition, the trigger, and that the workstation's
+  adb **public** key is staged at `/system/etc/hu_adb_key.pub` for `/data/adb/adb_keys` injection. It does
+  not check `ro.adb.secure`: that prop stays **1** (assigned by `build/make/core/main.mk`, see
+  `device.mk:95`), so authorization is granted by key rather than switched off.
 
 ## SD-card flashing (the Malaysk "SD_firmware_tool" idea) - what this uboot actually supports (Nov 8, measured)
 
@@ -154,6 +157,45 @@ Ranking stays: route 1 (testkey-signed zip) -> route 2 (adb root + dd) -> SD-bur
 unlocked *and* we build a parameter file with byte-identical partition sizes and no bootloader
 partitions -> mod ROM last. The SD/mod routes have no signature gate at all, which today is the only
 thing protecting us from a bad flash.
+
+
+## SD-card / `update.img` route - Nov 9 research verdict (offline, no device touched)
+
+The Nov 8 section above is the measurement. The Nov 9 web research (opened pages cited below) answers
+the mechanism question; the verdict is **not viable for this HU under D11/D18/D19**, and the reason is
+structural, not uncertain:
+
+| variant | works on RK3399 generally? | satisfies our constraints? | why |
+|---|---|---|---|
+| Rockchip `SD_Firmware_Tool` "Upgrade Firmware" card (flag 0) | documented for rk3399 | **no** | the card-carried recovery flashes a whole `update.img`; that code writes the **loader** and the **recovery** partition unconditionally, and rewrites the `parameter` partition when it differs from the device's. Needs a wired `sdmmc` slot - this HU has none |
+| same payload on a USB stick (`usbfwupdate` / `boot_from_udisk`) | exists in Rockchip u-boot code, **not** verified for HCT's build | **no** | loader + recovery are still written unconditionally. The parameter/GPT write *is* skipped on the USB path, so that half is constraint-friendly |
+| per-partition writes from a booted Android (our route 2) | yes | **yes** | only `super` + `boot` are written; no loader, no recovery, no partition table |
+
+* u-boot on this unit has no sdcard-burn code at all (zero `sdcard`/`sd_update`/`update.img` strings), and
+  Rockchip's SD boot needs a boot-mode trigger plus the `sdmmc` controller (RK3399: u-boot mmc1 = SD,
+  mmc0 = eMMC; the Linux kernel numbers them sdio=0/sdmmc=1/sdhci=2, which is why the eMMC shows up as
+  `mmcblk2`). Verified from mainline U-Boot board docs:
+  <https://docs.u-boot.org/en/latest/board/rockchip/rockchip.html> (RK3399, TF-A `PLAT=rk3399`, SD boot
+  `dd if=u-boot-rockchip.bin of=/dev/sda seek=64`, MaskROM fastboot `2207:330c`). Rockchip staging tree
+  <https://github.com/rockchip-linux/u-boot> is active (default `next-dev`).
+* If an `update.img` were ever built, the offline toolchain is Rockchip's own: `afptool` (packs the
+  `parameter` + image list into `package-file`) and `rkImageMaker` (adds the loader header to produce
+  `RKAndroid.bin`/`update.img`). Both ship as proprietary binaries inside Rockchip's flash tool suites
+  (`rkdeveloptool` is the open one: <https://github.com/rockchip-linux/rkdeveloptool>). The `parameter`
+  file is a plain text file that declares the whole partition table, and flashing it **recreates
+  partitions** - i.e. it rewrites the GPT, which **D19** forbids. We do hold a loader:
+  `RKLoader.bin` (465,230 B) is inside the Android 11 package.
+* The owner-side extras the HCT/Dasaita flow checks: the card's `MACHINE_MODEL` must equal
+  `ro.product.model`, and unless `USE_RSA_CHECK` is set the integrity check is only CRC32 (owner-documented
+  behaviour, not spec from us).
+
+**Decision (Nov 9): we do NOT build the emergency restore media.** It would be knowledge/insurance only -
+building it is harmless offline, but *using* it requires writing the loader and the recovery partition,
+which violates **D18**, and this board has no `sdmmc` slot to boot a card from. The brick insurance that
+does exist stays: the untouched stock recovery plus the OEM packages (`docs/findings.md`, "OEM reference
+packages on disk"), and the full-eMMC snapshot (`analysis/gpt/disk.img` on the HDD archive, 62.8 GB) with
+the tracked GPT head/tail dumps (`analysis/gpt/gpt_head.bin`, `gpt_tail.bin`) for reconstructing the
+partition table by hand if the layout is ever damaged.
 
 ## OEM reference packages on disk - what each one is (Nov 9, measured)
 
