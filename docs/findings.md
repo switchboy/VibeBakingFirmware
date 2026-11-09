@@ -484,3 +484,35 @@ Still unverified before any burn (**and the reason the physical card has not bee
    `RKLoader.bin` (chip tag must match - the `BOOT` header carries it; not yet decoded).
 4. The flag byte offset inside the IDB header for card type - the guide says "sector 64 + 616 bytes"; the
    built image must be inspected, not assumed.
+
+### What the toolchain actually produced (Nov 10, test build in `/var/tmp/rescue-card/`)
+
+A test `update.img` was built with the staged tools to see what the formats really are, using a compact SD
+parameter (`TYPE: GPT`, `CMDLINE: mtdparts=rk29xxnand:...` with hex sector counts), `RKLoader.bin` as the
+loader, and placeholder partition images:
+
+* `afptool -pack ./ Image/firmware.img` worked: it parses the parameter, lays each listed image at its
+  partition's `flash_address` (uboot at sector `0x2000`, trust `0x4000`, misc `0x6000`, boot `0x8000`,
+  rescue `0x28000`), refuses overlap, and appends a CRC. `Image/firmware.img` = 41,510,916 B.
+* `rkImageMaker -RK330C Image/MiniLoaderAll.bin Image/firmware.img update.img -os_type:androidos
+  -storage:SD` (ver 2.23) worked and reports `storage is sd`; output 41,976,280 B. Its header magic at
+  byte 0 is **`RKFW`** (the upgrade-package header), loader length 465,230 B, MD5 trailer.
+  `rkImageMaker -unpack` re-exports `boot.bin` (the loader) + `firmware.img`, and `afptool -unpack` lists
+  the images with their offsets - so the round trip is byte-faithful.
+* **But the format u-boot looks for on the card is not `RKFW`.** The uboot strings say
+  `Test if storage media have rockchip image`, `Boot Linux Image from rockchip image type`,
+  `%s: Failed to read data from IDB`, `Found IDB in SDcard`, `** No boot file defined **`, and it prints
+  `storagemedia=%s androidboot.storagemedia=%s` for the SD-boot case. Rockchip's SD-card flow puts an
+  **IDB header at sector 64** (the guide's `0xFCDC8C3B` start flag, plus the card-type flag byte 616 bytes
+  into that header), followed by the loader and the images the IDB describes - a layout produced by
+  Rockchip's Windows `SDCardTool`/`SD_Firmware_Tool`, not by `rkImageMaker`, and `programmer_image_tool`
+  only handles `SLC|SPINAND|SPINOR|EMMC`, not SD.
+
+So the pieces we have are: a verified rollback payload (`super-a10.img` + `boot-a10.img`), a valid
+`update.img` for those images (`RKFW`, storage=SD), the loader (`RKLoader.bin`, `BOOT` header magic), and
+the OEM `uboot.img`/`trust.img`. What is still missing is the **IDB card layout itself** - which sector the
+IDB starts on, its version/format, and where the boot-file pointer lives. Two ways to get it without
+guessing: read it off a card that is known to work (the owner's PX5 unlock card, if it still exists), or
+read it off the PX6's own eMMC once we have a shell (`dd if=/dev/block/mmcblk2 of=head.bin bs=512 count=256`
+shows the same structure at sector 64 on a working boot device). Either one settles the format; writing a
+card by hand before that is a guess, so no card has been written.
