@@ -168,7 +168,7 @@ Consequences now baked into the tree:
   against the unit's real LBAs (`analysis/hu_partition_offsets.txt`: super = 1,379,328-7,752,703).
   Our images total 2,056 MB, ~1.2 GB spare, so the current layout already carries Android 14.
 - The 8 GiB pair stayed as a *proposal* only. `scripts/repartition_gpt.sh` and `docs/repartition.md`
-  were removed on Nov 6 (**D19**): a GPT rewrite is the class of write **D18** forbids, and growing
+  were removed on Nov 6 (**D19**) - neither was ever written, so nothing implements a GPT rewrite here: a GPT rewrite is the class of write **D18** forbids, and growing
   super buys nothing for the first install.
 - If a layout change were ever made, `sgdisk` re-sorts entries by start sector, so `mmcblk2pN` numbers
   would change and every on-device step must use `/dev/block/by-name/*` instead of `mmcblk2pN`.
@@ -750,7 +750,7 @@ counts 4 unresolved blobs (the declared libomxvpu gap). The app layer itself is 
 (`analysis/app_layer_inventory.tsv`); the rest of the `system.img` delta is Lineage's own dexpreopt output
 that the Nov 6 pass did not carry. Nothing in `misc_info.txt` or the GPT changed (**D19**).
 
-**Gates** (all run on the build host Nov 8, one pass: `scripts/run_d24_gates.sh`, launched with
+**Gates** (all run on the build host Nov 8, one pass: `scripts/archive/run_d24_gates.sh`, launched with
 `nohup` over ssh - **not** systemd-run: a systemd unit's environment makes `build/envsetup.sh` fail with
 `TOP: unbound variable`, and the script must not `set -u` for the same reason):
 `bash scripts/deploy_device.sh ../lineage21s` exit 0 (it now also checks that every `apk:` in
@@ -773,7 +773,7 @@ line a comment *and swallows the continuation* - the four HU vendor copies (`fst
 `ueventd.rc`, `init/hu.rc`, `hu_insmod.sh`) silently left the copy list, and `vendor_conflicts.py`
 could not see it because it reads the file, not kati. Fixed by restoring the newline; the Nov 8
 `vendorimage` rebuild proves the four files land in `out/.../vendor/etc/` and inside `vendor.img`
-(`scripts/run_d24_vendor_fix.sh`). Lesson recorded: a product-config .mk edit must be checked with
+(`scripts/archive/run_d24_vendor_fix.sh`). Lesson recorded: a product-config .mk edit must be checked with
 `grep -n PRODUCT_COPY_FILES` on the *deployed* copy, and `verify_hu_apps.sh` only covers the system side.
 
 **What still breaks at first boot** (all of these are honest gaps, not guesses):
