@@ -69,15 +69,17 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   `vbmeta`, the loader and the GPT were never touched, so the OEM boot chain is intact (**D30**).
 * The payload passes every offline audit possible without a display (coherent `lpdump` layout with ext4
   slices matching an ext4 `fstab.rk30board`, boot header v2 with the OEM's load addresses, AVB not
-  enforced). Measured differences against the firmware that works (**D32**), ranked: our DTB **drops the
-  OEM's LVDS panel timings for `mtc,panel_index` 0x21..0x26** and retimes timing4/17/76 - that is the prime
-  suspect; our kernel is `4.19.193 (root@wuwqbook) #24`, **not** the shipped `4.19.111+ #190`, so **D3** is
-  not satisfied by the payload on the unit. `mali_kbase.ko` in our vendor slice reports `vermagic=4.4.167`
-  against that kernel, but the OEM vendor ships the same mismatched module against its own kernel and Mali
-  is built into both kernels, so it is a defect to clean up, not the cause. AVB/vbmeta and uboot/trust are
-  ruled out (orange state, `Not AVB images, AVB skip`, `androidboot.veritymode=disabled`, boot chain never
-  written), and partition layout/ext4-vs-fstab are ruled out.
-  **No second flash without a serial console reading first.**
+  enforced). The leading explanation is now **mixed firmware generations** (**D33**): our `boot.img` kernel
+  and DTB are byte-identical to the vendor **Android 11** package (`31dcf789…` / `530b8412…`), while the
+  unit's untouched `uboot`/`trust`/`dtbo` are the **Android 10** generation the unit last installed - the
+  vendor's own A11 upgrade rewrites `boot`, `trust`, `uboot`, `logo`, `dtbo` and the loader, so it never
+  mixes them (this is what XDA warns about for A10->A11). The A10 and A11 `dtbo` overlays are not even
+  equivalent: the A10 one disables `vbmeta` and `fstab` under `firmware/android`, the A11 one drops that
+  fragment. Secondary differences (**D32**): our DTB drops the OEM LVDS panel timings for
+  `mtc,panel_index` 0x21..0x26 and retimes timing4/17/76, and `mali_kbase.ko` reports `vermagic=4.4.167`
+  against the kernel (the OEM vendor ships the same bad module, Mali is built in, so that is cleanup, not
+  the cause). AVB/vbmeta and uboot/trust mismatch are ruled out; partition layout and ext4-vs-fstab are
+  ruled out. **No second flash without a serial console reading first.**
 * Rollback is now **blind** (**D29**, revises D26) and the payload for it is **built and verified**
   (**D31**): `super-a10.img` 3,263,168,512 B sha `30da961c…` + `boot-a10.img` 27,406,336 B sha
   `04a43ea9…`, rebuilt from `diatsia fw/update(1).zip` with `brotli` + `tools/reassemble.py` + `lpmake`

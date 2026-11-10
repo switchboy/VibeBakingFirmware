@@ -66,18 +66,21 @@ This file is the index plus the risk register, and it must not restate numbers -
    sets `persist.internet_adb_enable=1` -> port 5555 -> `adb connect 192.168.1.120:5555` -> `adb root` ->
    uid 0. It does not carry over to Android 14: the prop lives in `/data`, which Android 14 formats fresh,
    and Android 14 cannot recover Android 10's Wi-Fi credentials.
-3. **Next move - measure, don't re-flash (D32).** Get a serial console reading (`console=ttyFIQ0`,
-   115200 8N1, 3.3 V), in this order: (a) which DTB u-boot used - it prints either `Found DTB in <part>`
-   or the boot-image `second size`/`dtb size`/`dtb addr` line, and we never wrote `dtb`/`dtbo`; (b) kernel
-   log: does the panel/driver report a matching timing, does it fail on a panel index we removed (our DTB
-   has no LVDS timings for `mtc,panel_index` 0x21..0x26); (c) does init reach second stage, which services
-   crash-loop, what does SurfaceFlinger say. `mali_kbase.ko` will be rejected on vermagic (4.4.167 vs our
-   4.19.193 kernel) but that is not fatal - Mali is built into both kernels and the working OEM firmware
-   carries the same bad module. Fix order: restore the OEM panel-timing table in our DTB, then decide the
-   kernel question (our `4.19.193` vs shipped `4.19.111+`), then clean up the module. Conservative
-   alternative: ship OEM `boot-a10.img` (kernel 4.19.111+ + its DTB = a matched set) and change only
-   `super` - but first check whether Android 14 userspace tolerates that kernel, which we have not
-   measured. The composer question stays open (Android 14 may need AIDL `composer3`/`allocator`/`mapper`
+3. **Next move - measure, don't re-flash (D33).** Get a serial console reading (`console=ttyFIQ0`,
+   115200 8N1, 3.3 V), in this order: (a) which DTB u-boot used - it prints either `Found DTB in <part>` or
+   the boot-image `second size`/`dtb size`/`dtb addr` line, and whether the `dtbo` overlay applied
+   (`android_get_dtbo`, `%s: failed to read dtbo`); (b) kernel panel/timing messages - our DTB has no LVDS
+   timings for `mtc,panel_index` 0x21..0x26; (c) does init reach second stage, does its bpf/cgroup setup
+   survive, which services crash-loop, what does SurfaceFlinger say. The measured problem is a
+   **mixed-generation boot** (**D33**): vendor A11 kernel+DTB in `boot`, vendor A10-era `uboot`/`trust`/
+   `dtbo` in the untouched partitions. Two coherent paths: (1) flash `boot-a10.img` (A10 kernel 4.19.111+ +
+   A10 DTB, matched to the unit's chain) and keep our A14 `super` - no boot-chain write, but first confirm
+   Android 14 userspace survives on that kernel (string evidence: `bpf` 165, `psi` 72, `cgroup2`, `ringbuf`
+   52, `f2fs` 107, no `erofs`); (2) install the vendor A11 chain (`uboot`, `trust`, `dtbo`, `logo`, loader)
+   as the vendor's script does - riskier, it is the step that can brick an A10->A11 unit, and our rescue
+   media is unproven, so it is not allowed before serial plus a verified rescue card. `mali_kbase.ko`
+   vermagic will be rejected but is not fatal (Mali is built into both kernels; the OEM ships the same bad
+   module). The composer question stays open (Android 14 may need AIDL `composer3`/`allocator`/`mapper`
    wrappers around the OEM blobs rather than the declared HIDL `composer@2.1::IComposer/default`).
 4. **Rollback is blind (D29) and the payload is ready (D31).** Rebuilt from `diatsia fw/update(1).zip`:
    `super-a10.img` 3,263,168,512 B sha `30da961c…` and `boot-a10.img` 27,406,336 B sha `04a43ea9…`, in the

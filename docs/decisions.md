@@ -1136,7 +1136,10 @@ layout mismatch, uboot/trust mismatch). Checked against measurements on the payl
   and is **not** the differentiator; it is recorded as a defect worth cleaning up, not as the cause.
   Ranking after the correction: **the trimmed DTB panel-index table is the prime suspect** (it is the one
   measured difference between the working firmware and ours), the kernel build difference second, the
-  composer/HIDL question third (unmeasured).
+  composer/HIDL question third (unmeasured). **Superseded minutes later by D33**: both the kernel and the
+  DTB turned out to be the vendor *Android 11* pair sitting on an *Android 10* boot chain, so the
+  generation mismatch is ahead of the panel table - the panel-table trimming is a vendor A10->A11
+  difference, not our edit.
 * **Ruled out:** AVB/vbmeta (orange state, empty vbmeta props, `Not AVB images, AVB skip`, our cmdline says
   `androidboot.veritymode=disabled` where the OEM's says `enforcing`, and `vbmeta` was never written -
   **D18**); uboot/trust mismatch (boot chain untouched, our boot image is header v2 with identical load
@@ -1161,3 +1164,39 @@ shipped `4.19.111+`, both of which carry Mali built in; (3) clean up the `mali_k
 DTB = a matched set) and change only `super`. Whether Android 14 userspace tolerates the vendor 4.19.111+
 kernel is **not measured** and must be checked before choosing that option. Nothing is flashed before the
 console reading (**D30**).
+
+## D33 - the payload mixes firmware generations: A11 kernel+DTB on an A10 boot chain (Nov 10, DECIDED)
+
+The owner reported XDA's explicit warning against upgrading Android 10 -> 11 this way. Measured
+(`docs/findings.md`, "Payload provenance"), this is exactly what our payload does:
+
+* Our `boot.img` kernel payload and its DTB are **byte-identical to the vendor Android 11 package**
+  (`diatsia fw/update.zip`, 1.47 GB): kernel 30,455,816 B sha `31dcf789…`, DTB 157,962 B sha `530b8412…`.
+  They are **not** the Android 10 pair (kernel 25,671,688 sha `a514a3ff…`, DTB 152,425 sha `cd4eeb3d…`).
+  Only the ramdisk is ours (A14 first-stage init, 1,632,189 B vs vendor 838,018 B). So the kernel we
+  flashed is the vendor's **A11** build (`4.19.193 #24`), while the firmware the unit ran was Android 10
+  (`4.19.111+`).
+* The vendor's own A11 updater-script writes `boot`, `trust`, `uboot`, `logo`, `dtbo` and `RKLoader.bin` -
+  it never mixes generations. Those images differ between packages: `uboot` `2954bd15…` (A11) vs
+  `a28fd6a0…` (A10); `trust` `f95bd8f3…` vs `7f2c4e52…`; `dtbo` 607 B `ec0ae97c…` vs 803 B `28a07d49…`;
+  `logo` exists only in the A11 package.
+* The two `dtbo` overlays are not equivalent (`dtc`): the A10 overlay has 3 fragments (`chosen`,
+  `firmware_android` adding `vbmeta` **and** `fstab` children marked `status = "disabled"`, `reboot_mode`);
+  the A11 overlay has only 2 (`chosen`, `reboot_mode`) and drops the disable-`vbmeta`/`fstab` fragment.
+  Neither base DTB has those nodes on its own, so that behaviour is decided by which generation of `dtbo`
+  sits in the partition - and we never write `dtbo` (**D18**).
+* Because the unit last installed Android 10 firmware, its `uboot`/`trust`/`dtbo` are the A10 generation
+  while its kernel and base DTB are now the A11 generation. **That mixed-generation boot is now the leading
+  explanation for the black screen**, ahead of the DTB panel table (**D32**) and the composer question.
+
+**Decision.** Two coherent paths, ranked by brick risk:
+1. **Preferred, no boot-chain write**: flash `boot-a10.img` (vendor A10 kernel + vendor A10 DTB, matched to
+   the unit's A10-era `uboot`/`trust`/`dtbo`) together with our A14 `super`. Before choosing it, answer the
+   unmeasured question - does Android 14 userspace survive on `4.19.111+`? String evidence is favourable
+   (`bpf` 165 hits, `psi` 72, `cgroup2` present, `ringbuf` 52, `f2fs` 107, no `erofs`, ION/dmabuf present)
+   but not proof; the console decides.
+2. **Coherent but risky**: install the vendor A11 chain (`uboot`, `trust`, `dtbo`, `logo`, loader) as the A11
+   script does, then A14 super. This is what the vendor itself produces, but it writes the boot chain - the
+   step that can brick an A10->A11 unit - and the rescue media is still unproven (SD IDB layout unknown).
+   **Not allowed until the serial console and a verified rescue card exist.**
+Nothing is flashed before the console reading (**D30**), and the rollback payload (**D31**) is unchanged.

@@ -1,7 +1,7 @@
 # Measured findings — evidence, not decisions
 
 This file holds the measurement/evidence records that used to sit inside `docs/decisions.md`.
-Decisions stay in `docs/decisions.md` (D1-D32); pointers here point back. Numbers are what the
+Decisions stay in `docs/decisions.md` (D1-D33); pointers here point back. Numbers are what the
 build host / dumps / probes actually produced - do not edit a number here without re-measuring.
 
 ## Packaging pass Nov 8 - dist, super, the HU payload, and its offline verification
@@ -646,3 +646,68 @@ first:
    since kernel 4.19.111+, its modules and its DTB are a matched set. Open question for that option:
    whether Android 14 userspace tolerates the vendor 4.19.111+ kernel (not measured; do not assume).
 4. The `odm` slice being nearly empty is worth checking against the OEM's `/odm` content.
+
+## Payload provenance: our boot image is the vendor **Android 11** pair on an **Android 10** boot chain (Nov 10, measured)
+
+The owner pointed out that XDA warns explicitly against upgrading Android 10 -> 11 this way. That is now
+**measured, not a guess**. Byte comparison of the boot images (`sha256` over the kernel payload and the DTB
+blob inside `second`):
+
+| image | file size | kernel size | kernel sha (16) | second size | DTB size | DTB sha (16) |
+|---|---|---|---|---|---|---|
+| our A14 payload | 32,796,672 | 30,455,816 | `31dcf789066d05fe` | 544,768 | 157,962 | `530b84129eb0b140` |
+| vendor **A11** package (`diatsia fw/update.zip`, 1.47 GB) | 32,004,096 | 30,455,816 | `31dcf789066d05fe` | 544,768 | 157,962 | `530b84129eb0b140` |
+| vendor **A10** 2025 package (`update(1).zip`) | 27,406,336 | 25,671,688 | `a514a3ffb77ebc0d` | 924,672 | 152,425 | `cd4eeb3daeceb0e9` |
+
+So our `boot.img` is the vendor Android 11 kernel **and** the vendor Android 11 DTB, byte-identical
+(`ours == A11: True` for both kernel and DTB; `ours == A10: False`). The only part of our boot image that is
+ours is the ramdisk (A14 first-stage init, 1,632,189 B vs the vendor's 838,018 B). The `Linux version
+4.19.193 (root@wuwqbook) #24` string is the vendor's A11 build, not a foreign or hand-made kernel - so
+**D3** ("keep the shipped kernel") was satisfied in the sense "vendor kernel", but it is the **Android 11**
+generation kernel, while the firmware the unit was running before the flash was Android 10
+(`QQ2A.200305.004.A1 eng.hct2.20220412.155213`, kernel `4.19.111+`).
+
+### What the vendor's own A11 upgrade writes, and why mixing generations is wrong
+
+`META-INF/com/google/android/updater-script` of the A11 package (`Target: rockchip/rk3399/rk3399:11/
+RQ3A.210705.001/eng.hct2.20250401.153219:userdebug/release-keys`) writes, in order: dynamic partitions
+(`system_ext` included - the A11 op_list has 5 partitions), then **`boot.img`, `trust.img`, `uboot.img`,
+`logo.img`, `dtbo.img`**, plus `RKLoader.bin`. The A10 package's script does the same minus `logo.img`. The
+boot-chain images differ between the two generations:
+
+* `uboot.img`: A11 `2954bd15…` vs A10 `a28fd6a0…`
+* `trust.img`: A11 `f95bd8f3…` vs A10 `7f2c4e52…`
+* `dtbo.img`: A11 607 B `ec0ae97c…` vs A10-2025 803 B `28a07d49…` (both wrapped with a `d7b7ab1e` header,
+  overlay DTB at offset 64)
+* `logo.img`: only in the A11 package (385,024 B)
+
+Decompiled with `dtc`, the two overlays are **not equivalent**:
+
+* A10 overlay = 3 fragments: `target = <&chosen>` (`bootargs_ext = "androidboot.boot_devices=fe330000.sdhci"`),
+  `target = <&firmware_android>` which adds `vbmeta` **and** `fstab` children with `status = "disabled"`,
+  and `target = <&reboot_mode>`.
+* A11 overlay = 2 fragments: `chosen` (same `bootargs_ext`) and `reboot_mode`. The `firmware_android`
+  fragment that disables `vbmeta`/`fstab` is **gone**.
+* The A11 overlay carries `__fixups__` (`chosen`, `reboot_mode`) while the A10 one carries plain references.
+
+Neither base DTB contains `vbmeta`/`fstab` nodes of its own - they come only from the overlay. So the
+Android-version-dependent behaviour (whether `firmware/android/fstab` and `firmware/android/vbmeta` exist and
+whether they are disabled) is decided by **which generation `dtbo` is in the partition**, and we never write
+`dtbo` (**D18**). The unit last installed Android 10 firmware, so its `dtbo`, `uboot`, `trust` are the A10
+generation, while its kernel and base DTB are now the A11 generation. That is precisely the mixed state XDA
+warns about: the vendor never mixes them, its own upgrade replaces the chain.
+
+### Consequence for the next attempt (brick risk ranked)
+
+* **Lowest-risk coherent option**: write `boot-a10.img` (vendor A10 kernel `4.19.111+` + vendor A10 DTB, a
+  matched pair for the unit's A10-generation `uboot`/`trust`/`dtbo`) and keep our A14 `super`. Nothing else
+  is written, so the boot chain stays untouched (**D18**) and the rollback path is unchanged. Open question
+  that must be answered before choosing it: whether Android 14 userspace works on `4.19.111+` - string
+  evidence is favourable (`bpf` 165 hits, `psi` 72, `cgroup2` present, `ringbuf` 52, `f2fs` 107, no `erofs`,
+  ION/dmabuf present) but that is not proof; the console tells us whether init's bpf/cgroup setup survives.
+* **Coherent-but-risky option**: install the A11 chain too (`uboot`, `trust`, `dtbo`, `logo`, loader) as the
+  vendor's A11 script does, then A14 super. This is the state the vendor itself produces, but it writes the
+  boot chain - the step that can brick an A10->A11 unit - and our rescue media is still unproven (the SD IDB
+  layout is unknown). Not acceptable before the serial console and a verified rescue card exist.
+* **Current state** (A11 kernel/DTB + A14 super on an A10 chain) is a mixed-generation boot, which is now the
+  leading explanation for the black screen, ahead of the DTB table and the composer question.

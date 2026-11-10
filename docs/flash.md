@@ -156,17 +156,20 @@ The operator-relevant consequences:
   `/dev/kmsg`, not from TCP adb.
 * Nothing that could brick the unit was written (`uboot`, `trust`, `dtb`, `dtbo`, `recovery`, `vbmeta`,
   loader, GPT all untouched), so the boot chain is intact and the unit is recoverable by a blind path.
-* Do not flash a second payload without a serial console reading first (**D30**, defect list in **D32**).
-  Measured, ranked: our DTB drops the OEM LVDS panel timings `mtc,panel_index` 0x21..0x26 and retimes
-  timing4/17/76 - prime suspect, because it is the one measured difference between the firmware that works
-  and ours; the kernel we flashed is `4.19.193 #24`, not the shipped `4.19.111+ #190`. `mali_kbase.ko` in
-  our vendor slice reports `vermagic=4.4.167` against that kernel, but the OEM vendor ships the same
-  mismatched module against its own kernel and Mali is built into both kernels, so it is a cleanup item,
-  not the cause. AVB/vbmeta and uboot/trust are ruled out; partition layout and ext4-vs-fstab are ruled
-  out. On the console read in that order: which DTB u-boot used (`Found DTB in <part>` vs the boot-image
-  `dtb size`/`dtb addr` line), then panel/timing messages from the kernel, then init stage 2 and
-  SurfaceFlinger. The composer question (HIDL `composer@2.1` vs AIDL composer3) stays open until
-  `dmesg`/`logcat` says otherwise.
+* Do not flash a second payload without a serial console reading first (**D30**, defect list in **D32**,
+  generation mismatch in **D33**). Leading explanation, measured: our `boot.img` kernel and DTB are
+  byte-identical to the vendor **Android 11** package (`31dcf789…` / `530b8412…`) while the untouched
+  `uboot`/`trust`/`dtbo` hold the **Android 10** generation the unit last installed - the vendor's own A11
+  script writes `boot`, `trust`, `uboot`, `logo`, `dtbo` and the loader, so it never mixes generations. The
+  A10 `dtbo` overlay (803 B, `28a07d49…`) disables `vbmeta` and `fstab` under `firmware/android`; the A11
+  overlay (607 B, `ec0ae97c…`) lacks that fragment. Secondary: our DTB drops the OEM LVDS panel timings
+  `mtc,panel_index` 0x21..0x26 and retimes timing4/17/76. `mali_kbase.ko` (`vermagic=4.4.167`) is a cleanup
+  item, not the cause - the OEM ships the same module and Mali is built into both kernels. AVB/vbmeta,
+  uboot/trust mismatch, partition layout and ext4-vs-fstab are ruled out. Console reading order: which DTB
+  u-boot used (`Found DTB in <part>` vs `dtb size`/`dtb addr`), whether the `dtbo` overlay applied, then
+  kernel panel/timing messages, then init stage 2 and SurfaceFlinger. If a second payload is flashed, the
+  safe shape is `boot-a10.img` + our A14 `super` (no boot-chain write); writing the A11 chain is only
+  acceptable once serial and a verified rescue card exist.
 
 ## Getting into the recovery
 
