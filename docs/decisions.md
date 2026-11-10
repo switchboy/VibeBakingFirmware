@@ -1234,3 +1234,36 @@ the generation mismatch (**D33**), which remains a real second-order risk.
 5. Documentation correction: the kernel payload hashes recorded earlier tonight were computed from a wrong
    header offset (the layout is header 1660 B + contiguous sections). Correct values: ours/A11
    `ec3b6631…`, OEM A10 `59075004…`; DTB hashes unchanged. **D33**'s conclusions stand unchanged.
+
+## D35 - bench reanimation procedure (Nov 10, DECIDED)
+
+The owner takes the unit out of the car tomorrow, opens it, and runs it on a desk bench: a butchered
+harness with **yellow + red twisted together to a fused +12 V** (both constant and ACC, so the logic and
+memory rails both come up from one supply) and **black to the supply GND**; nothing else in the harness is
+connected. A **3.3 V** serial-to-USB fob on `console=ttyFIQ0`, 115200 8N1, gives the console that was
+missing on Nov 9; the fob goes on a USB port other than the one used for Rockchip USB writes so the log can
+be watched while writing. Written up standalone in `docs/reanimation.md` so it works without an assistant.
+
+Measured support for it, tonight:
+* Partition sector map (whole-disk 512 B LBAs), from the working firmware's `by-name` symlinks +
+  `/proc/partitions`: `uboot` 16384, `trust` 24576, `misc` 32768, `dtb` 40960, `dtbo` 49152,
+  `vbmeta` 57344, **`boot` 59392**, `recovery` 124928, `backup` 321536, `security` 550912, `cache` 559104,
+  `metadata` 1345536, `frp` 1378304, **`super` 1378328..7752703**, `userdata` 7752704..122683358. So the
+  only two ranges anyone may write are `boot` (59392..124927, 32 MiB) and `super` (1378328..7752703).
+  Sizes in sectors: `boot-a10k-a14rd.img` 55,237, `boot-a10.img` 53,528, `super-a10.img` 6,374,161.
+* Laptop tooling: `upgrade_tool` (`/tmp/opencode/rktools/upgrade_tool`) runs and reports 0 Rockchip USB
+  devices today; `rkdeveloptool`, `rkflashtool`, `picocom`, `minicom` are **absent**, `socat` is present -
+  hence `scripts/serial_console.sh` uses `stty` + `cat` (+ timestamps) and `socat` for interactive mode.
+  Both OEM packages carry `RKLoader.bin` (465,230 B), which is what `upgrade_tool DB` needs to reach
+  loader mode.
+* Now that the case is open, maskrom becomes the preferred write route (W1 in the guide): `LD` ->
+  `RCI` -> `DB RKLoader.bin` -> `PL` (must match the sector map) -> `WL` for partition writes only.
+  `UF`, `EF`, `GPT`, `WS` stay forbidden (**D18**, **D19**), and `boot`/`super` remain the only writable
+  partitions.
+* Reading order unchanged (**D34**): init's fstab messages first, then which DTB u-boot used, whether the
+  `dtbo` overlay applied, kernel panel/timing messages, init stage 2 + SurfaceFlinger. The kernel version
+  line in the log distinguishes the payload on the unit (`4.19.193 #24`) from the OEM Android 10 boot
+  (`4.19.111+ #190`).
+* Power caution recorded: the owner's brick is 12 V **2.5 A**; amplifier draw can exceed that, and a
+  brownout mid-write is the worst failure mode on this bench. Fuse the + lead, keep the load low, abort if
+  the supply falls below ~11 V. A 5 A supply is better if available.

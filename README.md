@@ -88,6 +88,10 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   A14 ramdisk + fstab). Flashing the OEM `boot-a10.img` unchanged would **not** work - its ramdisk fstab
   lists only `system/vendor/odm/product`, no `system_ext`. **No second flash without a serial console
   reading first.**
+* The unit goes on the desk bench next: harness yellow+red to a fused 12 V supply, black to supply GND,
+  a 3.3 V serial fob on `console=ttyFIQ0` at 115200 8N1. The standalone bench guide (materials, wiring,
+  partition sector map, serial reading order, decision tree, write routes via `upgrade_tool` maskrom or
+  TCP adb, troubleshooting) is `docs/reanimation.md`; capture with `scripts/serial_console.sh log <name>`.
 * Rollback is now **blind** (**D29**, revises D26) and the payload for it is **built and verified**
   (**D31**): `super-a10.img` 3,263,168,512 B sha `30da961c…` + `boot-a10.img` 27,406,336 B sha
   `04a43ea9…`, rebuilt from `diatsia fw/update(1).zip` with `brotli` + `tools/reassemble.py` + `lpmake`

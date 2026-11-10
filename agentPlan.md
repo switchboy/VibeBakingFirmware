@@ -52,7 +52,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D20-D23 | decided | vendor libs via Android 14's own `<name>.vendor` modules; WiFi HAL rebuilt in-tree (`libwifi-hal-rtk`); libdrm patched to export `drmModeAddFB2_ext`; `usb_dongle` rebuilt from published source, `libomxvpu` stays a declared gap |
 | D24 | implemented | HCT app layer staged from the reference payload, re-signed with our platform key |
 | D25 | decided | recovery cannot install our package (trusted cert `cf2ab3…` is HCT's own); route 1 = testkey-signed zip attempt, route 2 = raw image
-| D32-D34 | decided | measured defect list (Mali vermagic is cleanup, DTB panel-table trimming is a vendor A10->A11 delta); our boot image is the vendor **A11** kernel+DTB on an **A10** chain; and our payload had **no first-stage fstab** - fixed images built (`a14-fixed.img`, `boot-a10k-a14rd.img`), neither flashed |s via `adb root` dd, recovery untouched |
+| D32-D35 | decided | measured defect list (Mali vermagic is cleanup, DTB panel-table trimming is a vendor A10->A11 delta); our boot image is the vendor **A11** kernel+DTB on an **A10** chain; and our payload had **no first-stage fstab** - fixed images built (`a14-fixed.img`, `boot-a10k-a14rd.img`), neither flashed |s via `adb root` dd, recovery untouched |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 9/10)
@@ -89,7 +89,10 @@ This file is the index plus the risk register, and it must not restate numbers -
    media is unproven, so it is not allowed before serial plus a verified rescue card. `mali_kbase.ko`
    vermagic will be rejected but is not fatal (Mali is built into both kernels; the OEM ships the same bad
    module). The composer question stays open (Android 14 may need AIDL `composer3`/`allocator`/`mapper`
-   wrappers around the OEM blobs rather than the declared HIDL `composer@2.1::IComposer/default`).
+   wrappers around the OEM blobs rather than the declared HIDL `composer@2.1::IComposer/default`). The
+   bench procedure is written up standalone in `docs/reanimation.md` (harness yellow+red to fused 12 V,
+   black to GND, 3.3 V fob on `console=ttyFIQ0` 115200 8N1, partition sector map for `upgrade_tool WL`,
+   decision tree, troubleshooting); capture with `scripts/serial_console.sh log <name>`.
 4. **Rollback is blind (D29) and the payload is ready (D31).** Rebuilt from `diatsia fw/update(1).zip`:
    `super-a10.img` 3,263,168,512 B sha `30da961c…` and `boot-a10.img` 27,406,336 B sha `04a43ea9…`, in the
    NAS archive `…/aospbuild-archive/vibe-rescue/`, verified with `lpdump` + `debugfs`. Serial `dd` of those

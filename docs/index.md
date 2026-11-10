@@ -2,9 +2,10 @@
 
 | file | purpose | canonical for |
 |---|---|---|
-| `docs/decisions.md` | design decisions D1-D34 (incl. D28 bring-up access via `adbon`, D29 blind rollback, D30 the Nov 9 write outcome, D31 rebuilt rescue payload + SD boot card, D32 the measured defect list, D33 the mixed-generation boot, D34 the missing first-stage fstab), owner questions, pending Bluetooth route | every DECISION and its reasoning |
+| `docs/decisions.md` | design decisions D1-D35 (incl. D28 bring-up access via `adbon`, D29 blind rollback, D30 the Nov 9 write outcome, D31 rebuilt rescue payload + SD boot card, D32 the measured defect list, D33 the mixed-generation boot, D34 the missing first-stage fstab, D35 the bench reanimation procedure), owner questions, pending Bluetooth route | every DECISION and its reasoning |
 | `docs/findings.md` | measured evidence: packaging pass, offline payload audit, no-terminal diagnostics, SD/uboot + AVB measurements, OEM package identities, **the Nov 9/10 flash attempt log**, **the Nov 10 boot/super/DTB/module measurements and the reconciled outside diagnosis**, **the Nov 10 boot-image provenance (A11 kernel+DTB on an A10 chain)**, **the Nov 10 first-stage fstab finding + the two fixed boot images** | every measurement number and audit result |
 | `docs/flash.md` | operator procedure: stick layout, route 1 (signed zip via recovery), route 2 (raw images via TCP-adb root `dd`), first-boot probe routes, rollback (incl. the blind paths) | what to do in the car, and the shas to verify |
+| `docs/reanimation.md` | bench guide, standalone: harness power (yellow+red to fused 12 V, black to GND), UART pads + 3.3 V fob wiring, partition sector map, serial reading order, decision tree, write routes (`upgrade_tool` maskrom, TCP adb, SD card), troubleshooting | what to do on the desk bench when nobody is assisting |
 | `docs/build-host.md` | build-host (NAS) operations: space, packages, lunch, packaging order, failure post-mortems | how to rebuild anything |
 | `docs/head-unit-findings.md` | live-unit measurements (partition map, WiFi/BT chips, daemons, tool availability) | facts about the unit as it boots today |
 | `docs/firmware-analysis.md` | Phase 0 inventory of the OEM payload (security posture, boot chain, drivers) | what the shipped firmware actually is |
