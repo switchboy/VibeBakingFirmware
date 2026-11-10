@@ -69,13 +69,14 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   `vbmeta`, the loader and the GPT were never touched, so the OEM boot chain is intact (**D30**).
 * The payload passes every offline audit possible without a display (coherent `lpdump` layout with ext4
   slices matching an ext4 `fstab.rk30board`, boot header v2 with the OEM's load addresses, AVB not
-  enforced). Two measured defects explain the black screen (**D32**), and they are what the next attempt
-  fixes: the vendor slice's **`mali_kbase.ko` has `vermagic=4.4.167` while the kernel we flashed is
-  4.19.193**, so the GPU driver cannot load and GPU composition fails; and our DTB **drops the OEM's LVDS
-  panel timings for `mtc,panel_index` 0x21..0x26** and retimes three modes. AVB/vbmeta and uboot/trust are
+  enforced). Measured differences against the firmware that works (**D32**), ranked: our DTB **drops the
+  OEM's LVDS panel timings for `mtc,panel_index` 0x21..0x26** and retimes timing4/17/76 - that is the prime
+  suspect; our kernel is `4.19.193 (root@wuwqbook) #24`, **not** the shipped `4.19.111+ #190`, so **D3** is
+  not satisfied by the payload on the unit. `mali_kbase.ko` in our vendor slice reports `vermagic=4.4.167`
+  against that kernel, but the OEM vendor ships the same mismatched module against its own kernel and Mali
+  is built into both kernels, so it is a defect to clean up, not the cause. AVB/vbmeta and uboot/trust are
   ruled out (orange state, `Not AVB images, AVB skip`, `androidboot.veritymode=disabled`, boot chain never
-  written). Also measured: our kernel is `4.19.193 (root@wuwqbook) #24`, **not** the shipped
-  `4.19.111+ #190`, so **D3** is not satisfied by the payload on the unit.
+  written), and partition layout/ext4-vs-fstab are ruled out.
   **No second flash without a serial console reading first.**
 * Rollback is now **blind** (**D29**, revises D26) and the payload for it is **built and verified**
   (**D31**): `super-a10.img` 3,263,168,512 B sha `30da961c…` + `boot-a10.img` 27,406,336 B sha

@@ -69,11 +69,12 @@ This file is the index plus the risk register, and it must not restate numbers -
 3. **Next move - measure, don't re-flash (D32).** Get a serial console reading (`console=ttyFIQ0`,
    115200 8N1, 3.3 V), in this order: (a) which DTB u-boot used - it prints either `Found DTB in <part>`
    or the boot-image `second size`/`dtb size`/`dtb addr` line, and we never wrote `dtb`/`dtbo`; (b) kernel
-   log and `insmod` failures - expect `mali_kbase.ko` to be rejected (`vermagic=4.4.167` against our
-   4.19.193 kernel, while the other 16 modules match 4.19.193); (c) does init reach second stage, which
-   services crash-loop, what does SurfaceFlinger say. The two measured defects to fix, cheapest first:
-   a `mali_kbase.ko` built for the kernel we ship (or stop needing Mali), and the OEM panel-timing table
-   in our DTB (LVDS `mtc,panel_index` 0x21..0x26 are missing; timing4/17/76 were retimed). Conservative
+   log: does the panel/driver report a matching timing, does it fail on a panel index we removed (our DTB
+   has no LVDS timings for `mtc,panel_index` 0x21..0x26); (c) does init reach second stage, which services
+   crash-loop, what does SurfaceFlinger say. `mali_kbase.ko` will be rejected on vermagic (4.4.167 vs our
+   4.19.193 kernel) but that is not fatal - Mali is built into both kernels and the working OEM firmware
+   carries the same bad module. Fix order: restore the OEM panel-timing table in our DTB, then decide the
+   kernel question (our `4.19.193` vs shipped `4.19.111+`), then clean up the module. Conservative
    alternative: ship OEM `boot-a10.img` (kernel 4.19.111+ + its DTB = a matched set) and change only
    `super` - but first check whether Android 14 userspace tolerates that kernel, which we have not
    measured. The composer question stays open (Android 14 may need AIDL `composer3`/`allocator`/`mapper`

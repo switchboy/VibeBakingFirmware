@@ -578,11 +578,19 @@ OEM 1,870,336 B.
   for the wrong kernel. `debugfs` extraction of `/lib/modules` from the vendor slice gives 17 modules;
   vermagic per module: `8188eu/8188fu/8189fs/8723bu/8733bs/8821cs/8821cu/8822bu/8822cs/aic8800_bsp/
   aic8800_fdrv/goodix/sd_user_hid/usb_f_iap/usb_f_iap2/virtual_tp` all `vermagic=4.19.193` - matching the
-  kernel we flashed - but **`mali_kbase.ko` is `vermagic=4.4.167`** (1,045,008 B). `modules.load` lists
-  `mali_kbase.ko`, so init tries to load it and it cannot: an insmod against a 4.19.193 kernel with a
-  4.4.167 vermagic fails on symbol layout. Consequence (inference, not measured): no `/dev/mali`, so GPU
-  rendering in SurfaceFlinger and any HAL that talks to Mali fails - which is a black-screen path with the
-  panel otherwise powered.
+  kernel we flashed - but **`mali_kbase.ko` is `vermagic=4.4.167`** (1,045,008 B), and `modules.load` lists
+  it.
+  * **Corrected minutes later, same evening**: this mismatch is **not** the differentiator. The OEM's
+    Android 10 vendor image (`ref-a10/vendor.img`) ships the *same* `mali_kbase.ko` with
+    `vermagic=4.4.167` against its `4.19.111+` kernel, and both kernel Images contain Mali code built in
+    (25 `mali_kbase` strings in each; `midgard` hits 43 in ours, 27 in the OEM's). So the unit that works
+    today has an unloadable Mali module too - Mali comes from the kernel, not from the `.ko`. The module
+    mismatch is cosmetic; it cannot explain the black screen. Note the OEM vendor's module list is
+    completely different (`bcmdhd.ko`, `sprdwl_ng.ko` alongside the Realtek ones), which is the
+    **D21** WiFi question, not a boot failure.
+  * Ranking after that correction: the DTB panel-timing table (**the one measured difference between the
+    working firmware and ours**) is the prime suspect; the kernel build difference is second; the
+    composer/HIDL question is third and still unmeasured.
 * Unresolved, and only measurable with the console: **which DTB u-boot actually feeds the kernel**. This
   u-boot has both paths - `Found DTB in %s part` / `rk-kernel.dtb` (the `dtb` partition, which we never
   wrote, per **D18**, and whose content we cannot read because the eMMC dump is empty) and the boot-image

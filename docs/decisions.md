@@ -1066,11 +1066,14 @@ Full log: `docs/findings.md`, "Flash attempt Nov 9/10". The short version, as a 
   layout with ext4 slices matching an ext4 `fstab.rk30board`, AVB not enforced). ~~Prime suspect is the
   display stack: the vendor declares HIDL `composer@2.1::IComposer/default` plus OEM Midgard
   allocator/mapper blobs, and Android 14 may require AIDL composer3/allocator/mapper.~~
-  **Re-measured Nov 10 (**D32**): two concrete defects - `mali_kbase.ko` in our vendor slice is
-  `vermagic=4.4.167` against the `4.19.193` kernel we flashed, and our DTB drops the OEM LVDS panel
-  timings `mtc,panel_index` 0x21..0x26. The earlier "byte-comparable boot header" audit was weaker than
-  it sounded: Rockchip uses a different boot-header field order than AOSP, and the kernel payload is not
-  the shipped one. The composer question stays open. **The next attempt must not be flashed without a
+  **Re-measured Nov 10 (**D32**): the prime suspect is now the DTB - our DTB drops the OEM LVDS panel
+  timings `mtc,panel_index` 0x21..0x26 and retimes timing4/17/76, which is the one measured difference
+  between the firmware that works and ours. The kernel we flashed is also not the shipped one
+  (`4.19.193 #24` vs `4.19.111+ #190`). `mali_kbase.ko` in our vendor slice is `vermagic=4.4.167` against
+  a `4.19.193` kernel, but the OEM vendor ships the same mismatched module against its own kernel and
+  Mali is built into both kernels - so that is a defect to clean up, not the cause. The earlier
+  "byte-comparable boot header" audit was weaker than it sounded: Rockchip uses a different boot-header
+  field order than AOSP. The composer question stays open. **The next attempt must not be flashed without a
   serial console reading first** - guessing at a second write costs the unit.
 
 ## D31 - rescue payload rebuilt from the OEM package; the SD media becomes a boot card (Nov 9/10, IMPLEMENTED offline)
@@ -1124,11 +1127,16 @@ layout mismatch, uboot/trust mismatch). Checked against measurements on the payl
   timings for `mtc,panel_index` 0x21, 0x23, 0x24, 0x25, 0x26**, adds DSI-only timings 0x4f/0x52/0x53/0x54/
   0x55/0x60/0x62/0x64/0x77, and retimes timing4 (0x3567e00 -> 0x3473bc0), timing17 (0x5f5e100 -> 0x8d9ee20,
   porches changed, `dsi_clk_div4` removed) and timing76 (0x43b5fc0 -> 0x3938700).
-* **New, decisive, and not in the outside diagnosis:** the vendor slice's GPU module is built for the wrong
-  kernel. All 17 modules in `/lib/modules` report `vermagic=4.19.193` **except `mali_kbase.ko`, which
-  reports `vermagic=4.4.167`** (1,045,008 B), and `modules.load` lists it. It cannot load, so Mali is
-  absent; GPU composition in SurfaceFlinger and any Mali-dependent HAL then fail. This is now the prime
-  suspect for the black screen (revises **D30**), with the trimmed DTB panel table second.
+* **New, and not in the outside diagnosis - then corrected the same evening:** our vendor slice's GPU
+  module is built for the wrong kernel (`mali_kbase.ko` = `vermagic=4.4.167`, 1,045,008 B, listed in
+  `modules.load`, while the other 16 modules report `4.19.193`). But the OEM's Android 10 vendor ships the
+  *same* `4.4.167` `mali_kbase.ko` against its `4.19.111+` kernel, and both kernel Images have Mali built
+  in (25 `mali_kbase` strings each; `midgard` 43 vs 27 hits). The firmware that works today therefore also
+  has an unloadable Mali module - Mali comes from the kernel, not the `.ko`. So this mismatch is cosmetic
+  and is **not** the differentiator; it is recorded as a defect worth cleaning up, not as the cause.
+  Ranking after the correction: **the trimmed DTB panel-index table is the prime suspect** (it is the one
+  measured difference between the working firmware and ours), the kernel build difference second, the
+  composer/HIDL question third (unmeasured).
 * **Ruled out:** AVB/vbmeta (orange state, empty vbmeta props, `Not AVB images, AVB skip`, our cmdline says
   `androidboot.veritymode=disabled` where the OEM's says `enforcing`, and `vbmeta` was never written -
   **D18**); uboot/trust mismatch (boot chain untouched, our boot image is header v2 with identical load
@@ -1145,9 +1153,11 @@ layout mismatch, uboot/trust mismatch). Checked against measurements on the payl
   source settles it.
 * Oddity to check: our `odm` slice is 811,008 B containing only `/etc`; the OEM's odm was 539,951,104 B.
 
-**Decision:** the next attempt fixes the measured defects rather than guessing at theories - (1) a
-`mali_kbase.ko` built for the kernel we ship (or drop Mali from composition), (2) the OEM panel-timing
-table restored in our DTB, and, as the conservative alternative, ship the OEM `boot-a10.img`
-(kernel 4.19.111+ + its DTB, a matched set) and change only `super`. Whether Android 14 userspace tolerates
-the vendor 4.19.111+ kernel is **not measured** and must be checked before choosing that option. Nothing is
-flashed before the console reading (**D30**).
+**Decision:** the next attempt fixes the measured differences rather than guessing at theories - (1) restore
+the OEM panel-timing table in our DTB (the LVDS indices 0x21..0x26 and the original clocks), or prove from
+the console which index the unit asks for; (2) decide the kernel question - our `4.19.193` build versus the
+shipped `4.19.111+`, both of which carry Mali built in; (3) clean up the `mali_kbase.ko` vermagic mismatch
+(defect, not cause). As the conservative alternative, ship the OEM `boot-a10.img` (kernel 4.19.111+ + its
+DTB = a matched set) and change only `super`. Whether Android 14 userspace tolerates the vendor 4.19.111+
+kernel is **not measured** and must be checked before choosing that option. Nothing is flashed before the
+console reading (**D30**).
