@@ -42,7 +42,11 @@ never mounts `/system` - nothing starts. The fix images are built and verified (
   * Our fixed images: NAS `…/aospbuild-archive/vibe-fix/` -> `a14-fixed.img` (`f378d4fd…`),
     `boot-a10k-a14rd.img` (`455a9ac8…`), `fstab.rk30board` (`0682e0fc…`).
   * OEM loader: `RKLoader.bin` (465,230 B) inside both OEM packages (`diatsia fw/update.zip`,
-    `diatsia fw/update(1).zip`).
+    `diatsia fw/update(1).zip`). Extracted on the laptop to `/tmp/opencode/bench/RKLoader.bin` (from
+    `update.zip`, sha `4e6646c1…`) and `/tmp/opencode/bench/a10/RKLoader.bin` (from `update(1).zip`, sha
+    `847ebf39…`). The two are different builds. **Use the `a10` one** - this unit's boot chain is the
+    Android 10 generation it last installed, so that loader's DDR/PMIC init matches what the board boots
+    today. Keep the other as a fallback if the first is rejected.
 * Paper and pen. Photograph the harness and the board connectors **before** opening anything.
 
 ## 2. Bench power
@@ -157,7 +161,7 @@ only the OTG port shows up as a Rockchip device.
 cd /tmp/opencode/rktools
 sudo ./upgrade_tool LD        # expect 1 device (0 means maskrom was not reached)
 sudo ./upgrade_tool RCI       # chip id must read RK3399
-sudo ./upgrade_tool DB /path/to/RKLoader.bin   # download the OEM loader, device becomes "Loader"
+sudo ./upgrade_tool DB /tmp/opencode/bench/a10/RKLoader.bin   # OEM A10 loader; device becomes "Loader"
 sudo ./upgrade_tool PL        # partition list: boot must be at sector 59392, super at 1378328
 ```
 
