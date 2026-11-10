@@ -1062,11 +1062,15 @@ Full log: `docs/findings.md`, "Flash attempt Nov 9/10". The short version, as a 
   host`), and TCP adb died with it. Android 14 cannot recover Android 10's Wi-Fi credentials, and
   `persist.internet_adb_enable=1` lives in `/data`, so D28's transport does not carry over - a shell on
   first boot is not assumed, only checked.
-* The payload itself passed every offline audit that could be done without a display (boot header/layout
-  byte-comparable to the OEM Android 11 image, coherent `lpdump` layout with ext4 magics at the declared
-  offsets, Android 14-form `fstab.rk30board`, AVB not enforced). Prime suspect is the display stack: the
-  vendor declares HIDL `composer@2.1::IComposer/default` plus OEM Midgard allocator/mapper blobs, and
-  Android 14 may require AIDL composer3/allocator/mapper. **The next attempt must not be flashed without a
+* The payload itself passed every offline audit that could be done without a display (coherent `lpdump`
+  layout with ext4 slices matching an ext4 `fstab.rk30board`, AVB not enforced). ~~Prime suspect is the
+  display stack: the vendor declares HIDL `composer@2.1::IComposer/default` plus OEM Midgard
+  allocator/mapper blobs, and Android 14 may require AIDL composer3/allocator/mapper.~~
+  **Re-measured Nov 10 (**D32**): two concrete defects - `mali_kbase.ko` in our vendor slice is
+  `vermagic=4.4.167` against the `4.19.193` kernel we flashed, and our DTB drops the OEM LVDS panel
+  timings `mtc,panel_index` 0x21..0x26. The earlier "byte-comparable boot header" audit was weaker than
+  it sounded: Rockchip uses a different boot-header field order than AOSP, and the kernel payload is not
+  the shipped one. The composer question stays open. **The next attempt must not be flashed without a
   serial console reading first** - guessing at a second write costs the unit.
 
 ## D31 - rescue payload rebuilt from the OEM package; the SD media becomes a boot card (Nov 9/10, IMPLEMENTED offline)
@@ -1104,3 +1108,46 @@ measured on the desk setup: which slot is u-boot `mmc1`, whether BootROM accepts
 this u-boot's IDB parser accepts an image built with `rkImageMaker -storage:SD` + `RKLoader.bin`, and where
 the card-type flag byte actually lives in the header. See `docs/findings.md`,
 "Unbrick SD route - Nov 9/10".
+
+## D32 - the measured defect list for the Nov 9 payload; outside diagnosis reconciled (Nov 10, DECIDED)
+
+The owner asked an outside model for a diagnosis (kernel/DTB mismatch, missing vbmeta patch, dynamic-partition
+layout mismatch, uboot/trust mismatch). Checked against measurements on the payload that is on the unit now
+(`docs/findings.md`, "Reconciling the outside diagnosis (Gemini, Nov 10)"), the verdict is:
+
+* **Confirmed and sharper:** the kernel and DTB really do differ from what the unit shipped. Our boot image
+  carries `Linux version 4.19.193 (root@wuwqbook) #24`, the OEM carries `Linux version 4.19.111+
+  (root@meng_book2) #190, Jul 5 2024`; kernel payloads differ in size (30,455,816 vs 25,671,688) and sha
+  (`31dcf789…` vs `a514a3ff…`). So **D3** is not satisfied by the flashed payload. Our DTB keeps the board
+  identity (`compatible = "rockchip,rk3399-hct"`, active panel path `panel_in_dsi =
+  "/dsi@ff960000/panel@0/ports/port@0/endpoint"`, timing0 0x2349340 Hz) but **drops the OEM's LVDS panel
+  timings for `mtc,panel_index` 0x21, 0x23, 0x24, 0x25, 0x26**, adds DSI-only timings 0x4f/0x52/0x53/0x54/
+  0x55/0x60/0x62/0x64/0x77, and retimes timing4 (0x3567e00 -> 0x3473bc0), timing17 (0x5f5e100 -> 0x8d9ee20,
+  porches changed, `dsi_clk_div4` removed) and timing76 (0x43b5fc0 -> 0x3938700).
+* **New, decisive, and not in the outside diagnosis:** the vendor slice's GPU module is built for the wrong
+  kernel. All 17 modules in `/lib/modules` report `vermagic=4.19.193` **except `mali_kbase.ko`, which
+  reports `vermagic=4.4.167`** (1,045,008 B), and `modules.load` lists it. It cannot load, so Mali is
+  absent; GPU composition in SurfaceFlinger and any Mali-dependent HAL then fail. This is now the prime
+  suspect for the black screen (revises **D30**), with the trimmed DTB panel table second.
+* **Ruled out:** AVB/vbmeta (orange state, empty vbmeta props, `Not AVB images, AVB skip`, our cmdline says
+  `androidboot.veritymode=disabled` where the OEM's says `enforcing`, and `vbmeta` was never written -
+  **D18**); uboot/trust mismatch (boot chain untouched, our boot image is header v2 with identical load
+  addresses `0x10008000 / 0x11000000 / 0x10f00000 / 0x10000100` and header_size 2,048 as the OEM's, so
+  u-boot parses ours like theirs); dynamic-partition layout and fs-type mismatch (super metadata v10.0,
+  device size 3,263,168,512 = partition size exactly, group `hct_dynamic_partitions` max 3,258,974,208,
+  slices total 2,285,321,536 B, names `system/vendor/product/system_ext/odm`, every slice opens in
+  `debugfs` as ext4 and our `fstab.rk30board` declares ext4 for all five).
+* **Not testable offline:** SELinux/first-stage hang - bring-up is permissive (**D5**) and our first-stage
+  ramdisk decompresses (3,647,232 B cpio newc), so policy is not the blocker; the console decides.
+* **Open, console-only:** which DTB u-boot feeds the kernel. This u-boot has both paths (`Found DTB in %s
+  part` + `rk-kernel.dtb`, and the boot-image `second size`/`dtb size`/`dtb addr`), we never wrote `dtb`/
+  `dtbo`, and the partition's DTB content is unknowable (empty dump), so the serial line naming the DTB
+  source settles it.
+* Oddity to check: our `odm` slice is 811,008 B containing only `/etc`; the OEM's odm was 539,951,104 B.
+
+**Decision:** the next attempt fixes the measured defects rather than guessing at theories - (1) a
+`mali_kbase.ko` built for the kernel we ship (or drop Mali from composition), (2) the OEM panel-timing
+table restored in our DTB, and, as the conservative alternative, ship the OEM `boot-a10.img`
+(kernel 4.19.111+ + its DTB, a matched set) and change only `super`. Whether Android 14 userspace tolerates
+the vendor 4.19.111+ kernel is **not measured** and must be checked before choosing that option. Nothing is
+flashed before the console reading (**D30**).

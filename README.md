@@ -67,10 +67,15 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
 * Result: **black screen, no boot animation, no OEM logo**, WiFi gone, TCP adb dead, no recovery menu
   reachable by any button combo. The unit is *not* bricked - `uboot`, `trust`, `dtb`, `dtbo`, `recovery`,
   `vbmeta`, the loader and the GPT were never touched, so the OEM boot chain is intact (**D30**).
-* The payload itself passes every offline audit that is possible without a display (boot header/layout
-  comparable to the OEM Android 11 image, coherent `lpdump` layout with ext4 magics at the declared
-  offsets, Android 14-form `fstab.rk30board`, AVB unlocked/not enforced). Prime suspect is the display
-  stack: HIDL `composer@2.1::IComposer/default` + OEM Midgard allocator/mapper blobs under Android 14.
+* The payload passes every offline audit possible without a display (coherent `lpdump` layout with ext4
+  slices matching an ext4 `fstab.rk30board`, boot header v2 with the OEM's load addresses, AVB not
+  enforced). Two measured defects explain the black screen (**D32**), and they are what the next attempt
+  fixes: the vendor slice's **`mali_kbase.ko` has `vermagic=4.4.167` while the kernel we flashed is
+  4.19.193**, so the GPU driver cannot load and GPU composition fails; and our DTB **drops the OEM's LVDS
+  panel timings for `mtc,panel_index` 0x21..0x26** and retimes three modes. AVB/vbmeta and uboot/trust are
+  ruled out (orange state, `Not AVB images, AVB skip`, `androidboot.veritymode=disabled`, boot chain never
+  written). Also measured: our kernel is `4.19.193 (root@wuwqbook) #24`, **not** the shipped
+  `4.19.111+ #190`, so **D3** is not satisfied by the payload on the unit.
   **No second flash without a serial console reading first.**
 * Rollback is now **blind** (**D29**, revises D26) and the payload for it is **built and verified**
   (**D31**): `super-a10.img` 3,263,168,512 B sha `30da961c…` + `boot-a10.img` 27,406,336 B sha

@@ -66,12 +66,18 @@ This file is the index plus the risk register, and it must not restate numbers -
    sets `persist.internet_adb_enable=1` -> port 5555 -> `adb connect 192.168.1.120:5555` -> `adb root` ->
    uid 0. It does not carry over to Android 14: the prop lives in `/data`, which Android 14 formats fresh,
    and Android 14 cannot recover Android 10's Wi-Fi credentials.
-3. **Next move - measure, don't re-flash.** Get a serial console reading (`console=ttyFIQ0`, 115200 8N1,
-   3.3 V): does init reach second stage, which services crash-loop, what does SurfaceFlinger say? Only
-   then decide the composer question: Android 14 may need AIDL `composer3`/`allocator`/`mapper` wrappers
-   around the OEM Midgard blobs instead of the declared HIDL `composer@2.1::IComposer/default`. Also
-   check whether u-boot applies our boot image's `second` (recovery dtbo, hash `cb42e271…` vs OEM
-   `beaa3b8b…`).
+3. **Next move - measure, don't re-flash (D32).** Get a serial console reading (`console=ttyFIQ0`,
+   115200 8N1, 3.3 V), in this order: (a) which DTB u-boot used - it prints either `Found DTB in <part>`
+   or the boot-image `second size`/`dtb size`/`dtb addr` line, and we never wrote `dtb`/`dtbo`; (b) kernel
+   log and `insmod` failures - expect `mali_kbase.ko` to be rejected (`vermagic=4.4.167` against our
+   4.19.193 kernel, while the other 16 modules match 4.19.193); (c) does init reach second stage, which
+   services crash-loop, what does SurfaceFlinger say. The two measured defects to fix, cheapest first:
+   a `mali_kbase.ko` built for the kernel we ship (or stop needing Mali), and the OEM panel-timing table
+   in our DTB (LVDS `mtc,panel_index` 0x21..0x26 are missing; timing4/17/76 were retimed). Conservative
+   alternative: ship OEM `boot-a10.img` (kernel 4.19.111+ + its DTB = a matched set) and change only
+   `super` - but first check whether Android 14 userspace tolerates that kernel, which we have not
+   measured. The composer question stays open (Android 14 may need AIDL `composer3`/`allocator`/`mapper`
+   wrappers around the OEM blobs rather than the declared HIDL `composer@2.1::IComposer/default`).
 4. **Rollback is blind (D29) and the payload is ready (D31).** Rebuilt from `diatsia fw/update(1).zip`:
    `super-a10.img` 3,263,168,512 B sha `30da961c…` and `boot-a10.img` 27,406,336 B sha `04a43ea9…`, in the
    NAS archive `…/aospbuild-archive/vibe-rescue/`, verified with `lpdump` + `debugfs`. Serial `dd` of those

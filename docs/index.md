@@ -2,8 +2,8 @@
 
 | file | purpose | canonical for |
 |---|---|---|
-| `docs/decisions.md` | design decisions D1-D31 (incl. D28 bring-up access via `adbon`, D29 blind rollback, D30 the Nov 9 write outcome, D31 rebuilt rescue payload + SD boot card), owner questions, pending Bluetooth route | every DECISION and its reasoning |
-| `docs/findings.md` | measured evidence: packaging pass, offline payload audit, no-terminal diagnostics, SD/uboot + AVB measurements, OEM package identities, **the Nov 9/10 flash attempt log** | every measurement number and audit result |
+| `docs/decisions.md` | design decisions D1-D32 (incl. D28 bring-up access via `adbon`, D29 blind rollback, D30 the Nov 9 write outcome, D31 rebuilt rescue payload + SD boot card, D32 the measured defect list), owner questions, pending Bluetooth route | every DECISION and its reasoning |
+| `docs/findings.md` | measured evidence: packaging pass, offline payload audit, no-terminal diagnostics, SD/uboot + AVB measurements, OEM package identities, **the Nov 9/10 flash attempt log**, **the Nov 10 boot/super/DTB/module measurements and the reconciled outside diagnosis** | every measurement number and audit result |
 | `docs/flash.md` | operator procedure: stick layout, route 1 (signed zip via recovery), route 2 (raw images via TCP-adb root `dd`), first-boot probe routes, rollback (incl. the blind paths) | what to do in the car, and the shas to verify |
 | `docs/build-host.md` | build-host (NAS) operations: space, packages, lunch, packaging order, failure post-mortems | how to rebuild anything |
 | `docs/head-unit-findings.md` | live-unit measurements (partition map, WiFi/BT chips, daemons, tool availability) | facts about the unit as it boots today |

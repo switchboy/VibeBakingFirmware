@@ -1,7 +1,7 @@
 # Measured findings — evidence, not decisions
 
 This file holds the measurement/evidence records that used to sit inside `docs/decisions.md`.
-Decisions stay in `docs/decisions.md` (D1-D31); pointers here point back. Numbers are what the
+Decisions stay in `docs/decisions.md` (D1-D32); pointers here point back. Numbers are what the
 build host / dumps / probes actually produced - do not edit a number here without re-measuring.
 
 ## Packaging pass Nov 8 - dist, super, the HU payload, and its offline verification
@@ -516,3 +516,125 @@ guessing: read it off a card that is known to work (the owner's PX5 unlock card,
 read it off the PX6's own eMMC once we have a shell (`dd if=/dev/block/mmcblk2 of=head.bin bs=512 count=256`
 shows the same structure at sector 64 on a working boot device). Either one settles the format; writing a
 card by hand before that is a guess, so no card has been written.
+
+## Reconciling the outside diagnosis (Gemini, Nov 10) with our measurements
+
+The owner asked an outside model for a diagnosis. Its four candidates are checked below against what we
+measured offline on the payload we actually flashed (`out-hu/boot.img` sha `83fd2a15…`, `out-hu/super.img`)
+and against the OEM Android 10 boot image (`boot-a10.img` sha `04a43ea9…`). Verdict per claim.
+
+### Boot-image field order (a correction to my own reading)
+
+Both images carry `ANDROID!` + header v2. Rockchip's images use the field order
+`kernel_size, kernel_addr, ramdisk_size, ramdisk_addr, second_size, second_addr, tags_addr,
+header_size, header_version` — **not** the AOSP order (`kernel_size, ramdisk_size, kernel_addr, …`).
+My first parse of this evening read the AOSP order and printed nonsense (`hdr_size=284,164,096`,
+`page_size=2`, `header_version=0x1c0001aa`); re-read with the correct order both images decode cleanly:
+
+| field | ours (A14) | OEM A10-2025 |
+|---|---|---|
+| kernel_size | 30,455,816 | 25,671,688 |
+| kernel_addr | `0x10008000` | `0x10008000` |
+| ramdisk_size | 1,632,189 | 803,440 |
+| ramdisk_addr | `0x11000000` | `0x11000000` |
+| second_size | 544,768 | 924,672 |
+| second_addr | `0x10f00000` | `0x10f00000` |
+| tags_addr | `0x10000100` | `0x10000100` |
+| header_size | 2,048 | 2,048 |
+| header_version | 2 | 2 |
+
+Load addresses and header version are identical, so u-boot's `boot_android` parses our image exactly the
+way it parses the vendor's. Ramdisk payloads both decompress (`cpio newc`, `07070100`): ours 3,647,232 B,
+OEM 1,870,336 B.
+
+### Claim 1 "incompatible kernel & DTB" - **confirmed, and more specific than the claim**
+
+* The kernel we flashed is **not the shipped kernel**. Strings in the kernel payload:
+  ours `Linux version 4.19.193 (root@wuwqbook) … #24 SMP PREEMPT`, OEM `Linux version 4.19.111+
+  (root@meng_book2) … #190 SMP PREEMPT Fri Jul 5 14:39:56 CST 2024`. Payload shas differ
+  (`31dcf789…` vs `a514a3ff…`). So **D3** ("keep the shipped 4.19 kernel") is not satisfied by the payload
+  that is on the unit now - it carries a different 4.19 build from someone else's machine.
+* The DTB also differs: ours 157,962 B, OEM 152,425 B, both `compatible = "rockchip,rk3399-hct"` +
+  `"rockchip,rk3399"` and both with the board name `Rockchip RK3399 HCT Board`, so the board identity is
+  intact - but the vendor's **panel-timing table** was trimmed and edited. `diff` of the decompiled DTBs
+  (`dtc`, 5,091-line diff) shows, inside `panel@0`:
+  * removed LVDS timings `timing33/35/36/37/38` = `mtc,panel_index` **0x21, 0x23, 0x24, 0x25, 0x26**
+    (all `lvds-format = <0x00>`) - the OEM table has LVDS indices 0x00..0x26, ours stops at 0x20;
+  * added DSI-only timings 0x4f, 0x52, 0x53, 0x54 (twice), 0x55, 0x60, 0x62, 0x64, 0x77
+    (`panel_hv_mode`, `dsi,flags = <0x803>`, `dsi,lanes = <0x04>`);
+  * edited clocks: timing4 `0x3567e00 -> 0x3473bc0`, timing17 `0x5f5e100 -> 0x8d9ee20` plus its porch
+    values and the removal of `dsi_clk_div4`, timing76 `0x43b5fc0 -> 0x3938700`, and one 0x400x258
+    timing's `hfront-porch` 0x28 -> 0x3c.
+  * The **active panel path is unchanged**: both DTBs set
+    `panel_in_dsi = "/dsi@ff960000/panel@0/ports/port@0/endpoint"` and timing0 = 0x2349340 Hz
+    (`lvds-format = <0x00>`), `edp_timing0` = 0x8d9ee20 Hz. So this is not an LVDS-to-DSI swap; it is a
+    shortened panel-index lookup table plus retimed modes. If the HU's panel index is one of the removed
+    LVDS indices, the driver finds no matching timing and nothing scans out while the MCU keeps the
+    backlight lit - exactly the symptom the owner sees.
+  * Both kernels contain the vendor panel properties (`mtc,panel_index`, `dsi_clk_div4`, `lvds-format`,
+    `panel-init-sequence` all present as strings in both binaries), so the driver code is there; what
+    changed is the data it reads.
+* **The decisive new finding, which no outside model mentioned**: our vendor slice's GPU driver is built
+  for the wrong kernel. `debugfs` extraction of `/lib/modules` from the vendor slice gives 17 modules;
+  vermagic per module: `8188eu/8188fu/8189fs/8723bu/8733bs/8821cs/8821cu/8822bu/8822cs/aic8800_bsp/
+  aic8800_fdrv/goodix/sd_user_hid/usb_f_iap/usb_f_iap2/virtual_tp` all `vermagic=4.19.193` - matching the
+  kernel we flashed - but **`mali_kbase.ko` is `vermagic=4.4.167`** (1,045,008 B). `modules.load` lists
+  `mali_kbase.ko`, so init tries to load it and it cannot: an insmod against a 4.19.193 kernel with a
+  4.4.167 vermagic fails on symbol layout. Consequence (inference, not measured): no `/dev/mali`, so GPU
+  rendering in SurfaceFlinger and any HAL that talks to Mali fails - which is a black-screen path with the
+  panel otherwise powered.
+* Unresolved, and only measurable with the console: **which DTB u-boot actually feeds the kernel**. This
+  u-boot has both paths - `Found DTB in %s part` / `rk-kernel.dtb` (the `dtb` partition, which we never
+  wrote, per **D18**, and whose content we cannot read because the eMMC dump is empty) and the boot-image
+  path (`%ssecond size`, `%sdtb size`, `%sdtb addr`). u-boot prints one of these lines over serial; that
+  single line tells us whether our DTB ran or the vendor's.
+
+### Claim 2 "AVB / vbmeta mismatch" - **ruled out** (already measured, and the claim contradicts the payload)
+
+`ro.boot.verifiedbootstate=orange`, `ro.boot.vbmeta.device_state`/`avb_version`/`digest` empty, u-boot
+carries `Not AVB images, AVB skip`, and our own cmdline says `androidboot.veritymode=disabled` where the
+OEM's says `androidboot.veritymode=enforcing`. We never wrote `vbmeta` (part of the untouched chain,
+**D18**). Nothing in this boot path verifies or halts on signatures, so a "missing patched vbmeta" cannot
+cause the hang.
+
+### Claim 3 "partition layout / dynamic-partition mismatch, EROFS vs EXT4" - **ruled out**, with one real oddity
+
+`lpdump` on the flashed super (after `simg2img`, 3,263,168,512 B): metadata v10.0, max 65,536 B, used 668 B,
+2 slots, device size **3,263,168,512** = the exact `super` partition size from the Nov 4 probe, group
+`hct_dynamic_partitions` max **3,258,974,208** (same max the OEM Android 10 op_list declares), slices at
+512-byte-sector offsets 2048 / 1980416 / 2822144 / 3715072 / 4466688 totalling 2,285,321,536 B - inside the
+group, inside the device. Partition names `system, vendor, product, system_ext, odm`; our
+`fstab.rk30board` lists all five as `ext4 ro,barrier=1 wait,logical,first_stage_mount`, plus
+`/metadata`, `/cache`, `userdata` (f2fs). Filesystem type check: every slice opens in `debugfs` and
+`ls /` returns real content (`system` has `acct/apex/bin/bootstrap-apex/bugrepo…`, `vendor` has
+`build.prop`, `firmware`, `lib/modules`, `product` has `app/fonts/lib64`, `system_ext` has
+`framework/lib`) - so they are ext4 and the fstab agrees; there is **no EROFS/EXT4 mismatch** (my first
+magic check read offset 1080 instead of 1024 and was wrong; `debugfs` opening is the proof).
+* Real oddity worth noting: `odm` is only **811,008 B** and contains just `/etc` (4,052 B). The OEM's odm
+  was 539,951,104 B. Nothing fails to mount, but any OEM content the HCT apps expect under `/odm` is gone.
+
+### Claim 4 "uboot/trust mismatch for Android 14" - **ruled out**
+
+Our payload never wrote `uboot`, `trust`, `dtbo`, `dtb`, `vbmeta`, `misc`, `security`, the loader or the GPT
+(**D18**/**D19**), so the boot chain is exactly what the vendor shipped. Android does not require a newer
+u-boot: our boot image is header v2 with the same load addresses and page size as the OEM's, and AVB is
+skipped. Gemini's premise "Android 14 builds expect an updated U-Boot/Trust stage" does not apply here.
+
+### Claim 5 "SELinux / first-stage init hang" - plausible, not testable offline
+
+Bring-up deliberately runs **permissive** SELinux (**D5**), so policy denials cannot block first stage, and
+our first-stage ramdisk decompresses fine. Missing drivers, not policy, is the measured defect. This claim
+needs the console to confirm or eliminate.
+
+### What this changes for the next attempt
+
+Per **D30**, nothing is flashed again before the console reading. The measured defect list, cheapest fix
+first:
+1. `mali_kbase.ko` vermagic mismatch (4.4.167 blob inside a 4.19.193 vendor image) - replace it with a
+   module built for the kernel we ship, or stop needing Mali at all.
+2. Our DTB's trimmed panel-index table (LVDS indices 0x21..0x26 missing) and retimed modes - restore the
+   OEM table, or prove from the console which index the unit asks for.
+3. Whether to ship the OEM kernel+DTB (`boot-a10.img`) and change only `super` - the conservative option,
+   since kernel 4.19.111+, its modules and its DTB are a matched set. Open question for that option:
+   whether Android 14 userspace tolerates the vendor 4.19.111+ kernel (not measured; do not assume).
+4. The `odm` slice being nearly empty is worth checking against the OEM's `/odm` content.

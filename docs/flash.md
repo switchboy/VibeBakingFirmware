@@ -156,9 +156,15 @@ The operator-relevant consequences:
   `/dev/kmsg`, not from TCP adb.
 * Nothing that could brick the unit was written (`uboot`, `trust`, `dtb`, `dtbo`, `recovery`, `vbmeta`,
   loader, GPT all untouched), so the boot chain is intact and the unit is recoverable by a blind path.
-* Do not flash a second payload without a serial console reading first (**D30**). The prime suspect is the
-  display stack (HIDL `composer@2.1` + OEM Midgard allocator/mapper under Android 14), which is a guess
-  until `dmesg`/`logcat` says otherwise.
+* Do not flash a second payload without a serial console reading first (**D30**, defect list in **D32**).
+  Two defects are now measured rather than guessed: `mali_kbase.ko` in the flashed vendor slice reports
+  `vermagic=4.4.167` while the kernel in our `boot.img` is `4.19.193` (the other 16 modules match 4.19.193,
+  and `modules.load` lists Mali first among the drivers), and our DTB drops the OEM LVDS panel timings
+  `mtc,panel_index` 0x21..0x26 while retiming timing4/17/76. AVB/vbmeta and uboot/trust are ruled out;
+  partition layout and ext4-vs-fstab are ruled out. On the console read in that order: which DTB u-boot
+  used (`Found DTB in <part>` vs the boot-image `dtb size`/`dtb addr` line), then `insmod` rejections, then
+  init stage 2 and SurfaceFlinger. The composer question (HIDL `composer@2.1` vs AIDL composer3) stays
+  open until `dmesg`/`logcat` says otherwise.
 
 ## Getting into the recovery
 
