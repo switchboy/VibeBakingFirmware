@@ -51,7 +51,8 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D18-D19 | decided | stock-package transport (now superseded by D25 for the transport itself); never resize, never write the GPT |
 | D20-D23 | decided | vendor libs via Android 14's own `<name>.vendor` modules; WiFi HAL rebuilt in-tree (`libwifi-hal-rtk`); libdrm patched to export `drmModeAddFB2_ext`; `usb_dongle` rebuilt from published source, `libomxvpu` stays a declared gap |
 | D24 | implemented | HCT app layer staged from the reference payload, re-signed with our platform key |
-| D25 | decided | recovery cannot install our package (trusted cert `cf2ab3…` is HCT's own); route 1 = testkey-signed zip attempt, route 2 = raw images via `adb root` dd, recovery untouched |
+| D25 | decided | recovery cannot install our package (trusted cert `cf2ab3…` is HCT's own); route 1 = testkey-signed zip attempt, route 2 = raw image
+| D32-D34 | decided | measured defect list (Mali vermagic is cleanup, DTB panel-table trimming is a vendor A10->A11 delta); our boot image is the vendor **A11** kernel+DTB on an **A10** chain; and our payload had **no first-stage fstab** - fixed images built (`a14-fixed.img`, `boot-a10k-a14rd.img`), neither flashed |s via `adb root` dd, recovery untouched |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 9/10)
@@ -66,17 +67,24 @@ This file is the index plus the risk register, and it must not restate numbers -
    sets `persist.internet_adb_enable=1` -> port 5555 -> `adb connect 192.168.1.120:5555` -> `adb root` ->
    uid 0. It does not carry over to Android 14: the prop lives in `/data`, which Android 14 formats fresh,
    and Android 14 cannot recover Android 10's Wi-Fi credentials.
-3. **Next move - measure, don't re-flash (D33).** Get a serial console reading (`console=ttyFIQ0`,
-   115200 8N1, 3.3 V), in this order: (a) which DTB u-boot used - it prints either `Found DTB in <part>` or
-   the boot-image `second size`/`dtb size`/`dtb addr` line, and whether the `dtbo` overlay applied
-   (`android_get_dtbo`, `%s: failed to read dtbo`); (b) kernel panel/timing messages - our DTB has no LVDS
-   timings for `mtc,panel_index` 0x21..0x26; (c) does init reach second stage, does its bpf/cgroup setup
-   survive, which services crash-loop, what does SurfaceFlinger say. The measured problem is a
+3. **Next move - measure, don't re-flash (D34, D33).** Get a serial console reading (`console=ttyFIQ0`,
+   115200 8N1, 3.3 V), in this order: (a) init's fstab messages first, because the measured defect is that
+   our payload has **no first-stage fstab** (`First stage mount skipped (missing/incompatible/empty fstab in
+   device tree)`, `failed to read default fstab for first stage mount`); (b) which DTB u-boot used - it
+   prints either `Found DTB in <part>` or the boot-image `second size`/`dtb size`/`dtb addr` line, and
+   whether the `dtbo` overlay applied (`android_get_dtbo`, `%s: failed to read dtbo`); (c) kernel
+   panel/timing messages; (d) does init reach second stage, does its bpf/cgroup setup survive, which
+   services crash-loop, what does SurfaceFlinger say. Second-order risk, still real, is the
    **mixed-generation boot** (**D33**): vendor A11 kernel+DTB in `boot`, vendor A10-era `uboot`/`trust`/
-   `dtbo` in the untouched partitions. Two coherent paths: (1) flash `boot-a10.img` (A10 kernel 4.19.111+ +
-   A10 DTB, matched to the unit's chain) and keep our A14 `super` - no boot-chain write, but first confirm
-   Android 14 userspace survives on that kernel (string evidence: `bpf` 165, `psi` 72, `cgroup2`, `ringbuf`
-   52, `f2fs` 107, no `erofs`); (2) install the vendor A11 chain (`uboot`, `trust`, `dtbo`, `logo`, loader)
+   `dtbo` in the untouched partitions. Two coherent shapes, both built in NAS `/var/tmp/a14repack/` and
+   **neither flashed**: (1) `boot-a10k-a14rd.img` (28,231,292 B, `455a9ac8…`) = OEM A10 kernel
+   (`4.19.111+`, payload sha `59075004…`) + OEM A10 `second` carrying the A10 DTB (`cd4eeb3d…`) + our A14
+   ramdisk with `/first_stage_ramdisk/fstab.rk30board`, paired with our A14 `super`, no boot-chain write -
+   pending the unmeasured question whether Android 14 userspace survives on that kernel (string evidence:
+   `bpf` 165, `psi` 72, `cgroup2`, `ringbuf` 52, `f2fs` 107, no `erofs`). Flashing the OEM `boot-a10.img`
+   unchanged is **not** a path: its ramdisk fstab lists only `system/vendor/odm/product`, no `system_ext`.
+   (2) `a14-fixed.img` (32,796,672 B, `f378d4fd…`) = our current payload plus that fstab, so the A11 kernel
+   and the generation mix stay. (3) install the vendor A11 chain (`uboot`, `trust`, `dtbo`, `logo`, loader)
    as the vendor's script does - riskier, it is the step that can brick an A10->A11 unit, and our rescue
    media is unproven, so it is not allowed before serial plus a verified rescue card. `mali_kbase.ko`
    vermagic will be rejected but is not fatal (Mali is built into both kernels; the OEM ships the same bad

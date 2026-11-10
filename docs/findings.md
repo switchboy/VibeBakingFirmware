@@ -1,7 +1,7 @@
 # Measured findings — evidence, not decisions
 
 This file holds the measurement/evidence records that used to sit inside `docs/decisions.md`.
-Decisions stay in `docs/decisions.md` (D1-D33); pointers here point back. Numbers are what the
+Decisions stay in `docs/decisions.md` (D1-D34); pointers here point back. Numbers are what the
 build host / dumps / probes actually produced - do not edit a number here without re-measuring.
 
 ## Packaging pass Nov 8 - dist, super, the HU payload, and its offline verification
@@ -552,7 +552,7 @@ OEM 1,870,336 B.
 * The kernel we flashed is **not the shipped kernel**. Strings in the kernel payload:
   ours `Linux version 4.19.193 (root@wuwqbook) … #24 SMP PREEMPT`, OEM `Linux version 4.19.111+
   (root@meng_book2) … #190 SMP PREEMPT Fri Jul 5 14:39:56 CST 2024`. Payload shas differ
-  (`31dcf789…` vs `a514a3ff…`). So **D3** ("keep the shipped 4.19 kernel") is not satisfied by the payload
+  (`ec3b6631…` vs `59075004…`). So **D3** ("keep the shipped 4.19 kernel") is not satisfied by the payload
   that is on the unit now - it carries a different 4.19 build from someone else's machine.
 * The DTB also differs: ours 157,962 B, OEM 152,425 B, both `compatible = "rockchip,rk3399-hct"` +
   `"rockchip,rk3399"` and both with the board name `Rockchip RK3399 HCT Board`, so the board identity is
@@ -655,9 +655,9 @@ blob inside `second`):
 
 | image | file size | kernel size | kernel sha (16) | second size | DTB size | DTB sha (16) |
 |---|---|---|---|---|---|---|
-| our A14 payload | 32,796,672 | 30,455,816 | `31dcf789066d05fe` | 544,768 | 157,962 | `530b84129eb0b140` |
-| vendor **A11** package (`diatsia fw/update.zip`, 1.47 GB) | 32,004,096 | 30,455,816 | `31dcf789066d05fe` | 544,768 | 157,962 | `530b84129eb0b140` |
-| vendor **A10** 2025 package (`update(1).zip`) | 27,406,336 | 25,671,688 | `a514a3ffb77ebc0d` | 924,672 | 152,425 | `cd4eeb3daeceb0e9` |
+| our A14 payload | 32,796,672 | 30,455,816 | `ec3b663149a1d1a5` | 544,768 | 157,962 | `530b84129eb0b140` |
+| vendor **A11** package (`diatsia fw/update.zip`, 1.47 GB) | 32,004,096 | 30,455,816 | `ec3b663149a1d1a5` | 544,768 | 157,962 | `530b84129eb0b140` |
+| vendor **A10** 2025 package (`update(1).zip`) | 27,406,336 | 25,671,688 | `590750047e47ce5f` | 924,672 | 152,425 | `cd4eeb3daeceb0e9` |
 
 So our `boot.img` is the vendor Android 11 kernel **and** the vendor Android 11 DTB, byte-identical
 (`ours == A11: True` for both kernel and DTB; `ours == A10: False`). The only part of our boot image that is
@@ -711,3 +711,94 @@ warns about: the vendor never mixes them, its own upgrade replaces the chain.
   layout is unknown). Not acceptable before the serial console and a verified rescue card exist.
 * **Current state** (A11 kernel/DTB + A14 super on an A10 chain) is a mixed-generation boot, which is now the
   leading explanation for the black screen, ahead of the DTB table and the composer question.
+
+## First-stage fstab: our payload had no fstab source at all (Nov 10, measured)
+
+This is a defect in **our own payload**, not in the vendor's firmware, and by itself it explains a black
+screen with no WiFi and no adb.
+
+**What Android 14 init looks for.** Strings in our ramdisk's `init` (3,644,288 B, ARM aarch64 static):
+`/first_stage_ramdisk/fstab.` , `/first_stage_ramdisk/system/etc/fstab.` , `/fstab.` ,
+`/system/etc/fstab.` , `/odm/etc/fstab.` , `/vendor/etc/fstab.` , `/proc/device-tree/firmware/android/`,
+`android,fstab`, `fstab/compatible`, `fstab/status`, `fstab_suffix`, `hardware`, plus the failure messages
+`First stage mount skipped (missing/incompatible/empty fstab in device tree)`,
+`failed to read default fstab for first stage mount`, `Cannot read default fstab`. The Android 10 init in
+the OEM boot image only has `/fstab.` (no `first_stage_ramdisk` path) - Android 12+ moved the first-stage
+fstab into that directory.
+
+**Our ramdisk has no fstab anywhere.** Extracted tree (uncompressed 3,647,232 B): `init`, `dev`
+(`console`, `null`, `urandom`), `debug_ramdisk`, `metadata`, `mnt`, `proc`, `second_stage_resources`,
+`sys`, `system/etc/ramdisk/build.prop` - and no `first_stage_ramdisk/` directory, no `fstab*` file
+(`find -name "*fstab*"` prints nothing).
+
+**The DTB cannot supply one either.** Our DTB is the vendor A11 DTB (`530b8412…`) and has no
+`firmware/android/fstab` node (`grep -c fstab ours.dts` = 0, likewise `oem.dts` = 0). The unit's untouched
+`dtbo` partition holds the A10 overlay (803 B, `28a07d49…`), whose `firmware_android` fragment adds `vbmeta`
+and `fstab` children with `status = "disabled"` - init logs `dt_fstab: Skip disabled entry` and reports the
+device-tree fstab as missing/incompatible, then falls back to the file paths above, which do not exist. So
+first-stage mount has **no** fstab source: `/system` is never mounted, second-stage init cannot read
+`/system/etc/init/hw/init.rc`, nothing (SurfaceFlinger, WiFi, adbd) ever runs.
+
+**The OEM A10 boot image is not a drop-in replacement.** Its ramdisk has `/fstab.rk30board` (Android 10
+root path) with 12 entries, of which the logical ones are **`system`, `vendor`, `odm`, `product` - only 4,
+no `system_ext`**. Android 14 requires `/system_ext`, so pairing OEM `boot-a10.img` as-is with our A14
+`super` cannot mount `/system_ext`: the naive Path 1 is infeasible.
+
+**Which filename init needs.** Our cmdline contains `androidboot.hardware=rk30board`, so the fallback file
+must be `fstab.rk30board`. Our vendor slice `/etc/fstab.rk30board` has 5 logical ext4 first-stage entries
+(`system/vendor/product/system_ext/odm`, all `wait,logical,first_stage_mount`) plus
+`/dev/block/by-name/metadata` (`wait,formattable,first_stage_mount`), cache/boot/recovery/misc and
+`userdata` (f2fs, keyed). init resolves logical partitions through `/dev/block/by-name` and
+`/dev/block/bootdevice/by-name` and `androidboot.boot_devices` - measured cmdline key parity across our
+image and both OEM images: `androidboot.baseband/console/hardware/selinux/verifiedbootstate/veritymode/
+wificountrycode`; neither OEM cmdline passes `boot_devices`, it comes from the `dtbo` overlay's
+`bootargs_ext = "androidboot.boot_devices=fe330000.sdhci"`.
+
+### Boot-image layout measured (authoritative, via AOSP `unpack_bootimg`)
+
+Header is **1660 B**, then sections **contiguous**: header -> kernel -> ramdisk -> second -> tail padding to
+`pagesize` (2048). So the kernel payload starts at offset 1660, and `dtb_size`/`dtb_addr` sit at header
+offsets 1648/1652 (`dtb_addr` is 64-bit, `0x11f00000`).
+
+* OEM **A10** boot declares `dtb size: 0` and carries its DTB **inside `second`** (152,425 B at +5,900 of
+  the `second` region).
+* OEM **A11** boot declares `dtb size: 157,962` and carries a DTB both inside `second` (+4,031) and in the
+  tail `dtb` section. Our payload mirrors A11 (`second` + tail, DTB `530b8412…` twice).
+* Both vendor kernel payloads contain an **embedded initramfs** (`070701` newc magic inside the kernel
+  region: A10 at 18,141,388, A11 at 22,715,372), and both boot ramdisks start with 2,428 zero bytes before
+  the gzip stream - the OEM boot path tolerates that prefix, so the patched images keep it verbatim.
+
+**Hash correction:** the kernel payload hashes recorded earlier tonight (`31dcf789…`, `a514a3ff…`) were
+computed from a wrong header offset. Re-measured at offset 1660 over the kernel payload:
+ours/A11 `ec3b663149a1d1a5` (30,455,816 B), OEM A10 `590750047e47ce5f` (25,671,688 B); the DTB hashes
+(`530b8412…`, `cd4eeb3d…`) are unchanged because DTB extraction is offset-independent. The equality
+conclusions of **D33** stand: ours == vendor A11 kernel and DTB, ours != vendor A10.
+
+### Two candidate boot images built - neither flashed
+
+In NAS `/var/tmp/a14repack/`:
+
+| file | size | sha256 | shape |
+|---|---|---|---|
+| `a14-fixed.img` | 32,796,672 | `f378d4fd…` | our current payload + `/first_stage_ramdisk/fstab.rk30board` (added with `repack_bootimg --local --ramdisk_add vfstab.txt:first_stage_ramdisk/fstab.rk30board`, ramdisk 1,632,189 -> 1,631,944). Still the vendor **A11** kernel/DTB, so the generation mix stays. |
+| `boot-a10k-a14rd.img` | 28,231,292 | `455a9ac8…` | generation-coherent: OEM **A10** kernel payload (`59075004…`) + OEM **A10** `second` 924,672 B (`ddc00a09…`, DTB inside = `cd4eeb3d…`) + our A14 ramdisk with the fstab (`146ac4e3…`) + our cmdline; header v2, `kernel_addr 0x10008000`, `ramdisk_addr 0x11000000`, `second_addr 0x10f00000`, `tags_addr 0x10000100`, `dtb_size 0` (like OEM A10), page 2048. |
+
+Verified on the build host with `unpack_bootimg`: header fields as tabulated above, and the extracted
+ramdisk contains `init` **and** `first_stage_ramdisk/fstab.rk30board`. Both images pair with our existing
+A14 `super` (sha `2045af9c…`) and write **no** boot-chain partition (**D18**).
+
+`mkbootimg --header_version 2` refuses `--dtb`-less builds ("DTB image must not be empty") and no longer
+accepts `--os-version`/`--os-patch-level`, which is why the coherent image was assembled byte-wise from the
+OEM A10 sections rather than with `mkbootimg`.
+
+### Reproducing them
+
+`scripts/rebuild_boot_with_fstab.sh` builds both images on the NAS build host
+(`SRC_BOOT=<our boot.img> OEM_A10_BOOT=<OEM A10 boot.img> FSTAB=<fstab.rk30board> OUT=<dir>`); it
+repacks the fstab into our image, assembles the coherent image byte-wise, verifies both with
+`unpack_bootimg` + a cpio extract, and prints shas. A clean rerun into a fresh directory produced the
+same two images byte-for-byte (`f378d4fd…`, `455a9ac8…`). The fstab itself is 3,138 B, sha
+`0682e0fc4b317c8a3dd65eb3f68ca8098eaf8bb4907a7da4860456f1a9d84109`. Both images and the fstab are archived
+in `…/aospbuild-archive/vibe-fix/`. Step 2 reads the ramdisk from step 1's output, so the coherent image
+inherits the fstab - running it against the unfixed image yields a coherent image *without* fstab (caught
+on the first run).

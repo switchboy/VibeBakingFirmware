@@ -67,19 +67,27 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
 * Result: **black screen, no boot animation, no OEM logo**, WiFi gone, TCP adb dead, no recovery menu
   reachable by any button combo. The unit is *not* bricked - `uboot`, `trust`, `dtb`, `dtbo`, `recovery`,
   `vbmeta`, the loader and the GPT were never touched, so the OEM boot chain is intact (**D30**).
-* The payload passes every offline audit possible without a display (coherent `lpdump` layout with ext4
-  slices matching an ext4 `fstab.rk30board`, boot header v2 with the OEM's load addresses, AVB not
-  enforced). The leading explanation is now **mixed firmware generations** (**D33**): our `boot.img` kernel
-  and DTB are byte-identical to the vendor **Android 11** package (`31dcf789…` / `530b8412…`), while the
-  unit's untouched `uboot`/`trust`/`dtbo` are the **Android 10** generation the unit last installed - the
-  vendor's own A11 upgrade rewrites `boot`, `trust`, `uboot`, `logo`, `dtbo` and the loader, so it never
-  mixes them (this is what XDA warns about for A10->A11). The A10 and A11 `dtbo` overlays are not even
-  equivalent: the A10 one disables `vbmeta` and `fstab` under `firmware/android`, the A11 one drops that
-  fragment. Secondary differences (**D32**): our DTB drops the OEM LVDS panel timings for
-  `mtc,panel_index` 0x21..0x26 and retimes timing4/17/76, and `mali_kbase.ko` reports `vermagic=4.4.167`
-  against the kernel (the OEM vendor ships the same bad module, Mali is built in, so that is cleanup, not
-  the cause). AVB/vbmeta and uboot/trust mismatch are ruled out; partition layout and ext4-vs-fstab are
-  ruled out. **No second flash without a serial console reading first.**
+* The cause is measured (**D34**): our payload has **no first-stage fstab anywhere**, so Android 14 init
+  cannot mount `/system` at all and nothing ever starts. Android 12+ reads the first-stage fstab from the
+  devicetree (`/proc/device-tree/firmware/android/fstab`) or from the ramdisk at
+  `/first_stage_ramdisk/fstab.<hardware>`; our DTB (the vendor A11 DTB) has no `fstab` node, the unit's
+  untouched A10-era `dtbo` adds `vbmeta`/`fstab` children with `status = "disabled"`, and our ramdisk has
+  neither that directory nor any `fstab*` file. That alone explains black screen + no WiFi + dead adb.
+* Second-order risk (**D33**), still real: our `boot.img` kernel and DTB are byte-identical to the vendor
+  **Android 11** package (`ec3b6631…` / `530b8412…`) while the untouched `uboot`/`trust`/`dtbo` are the
+  **Android 10** generation the unit last installed - the vendor's own A11 upgrade rewrites `boot`, `trust`,
+  `uboot`, `logo`, `dtbo` and the loader, so it never mixes them (what XDA warns about for A10->A11). The A10
+  overlay disables `vbmeta`/`fstab` under `firmware/android`; the A11 overlay drops that fragment.
+* Other measured differences (**D32**) are cleanup, not the cause: `mali_kbase.ko` reports
+  `vermagic=4.4.167` (the OEM vendor ships the same bad module and Mali is built into both kernels), and the
+  DTB panel-timing changes we found are a *vendor* A10->A11 difference, not our edit. AVB/vbmeta,
+  uboot/trust mismatch, partition layout and ext4-vs-fstab are ruled out.
+* Two fixed boot images are **built and verified but not flashed**: `a14-fixed.img` (32,796,672 B,
+  `f378d4fd…`, our payload + `/first_stage_ramdisk/fstab.rk30board`) and the generation-coherent
+  `boot-a10k-a14rd.img` (28,231,292 B, `455a9ac8…`: OEM A10 kernel + OEM A10 `second` with the A10 DTB + our
+  A14 ramdisk + fstab). Flashing the OEM `boot-a10.img` unchanged would **not** work - its ramdisk fstab
+  lists only `system/vendor/odm/product`, no `system_ext`. **No second flash without a serial console
+  reading first.**
 * Rollback is now **blind** (**D29**, revises D26) and the payload for it is **built and verified**
   (**D31**): `super-a10.img` 3,263,168,512 B sha `30da961c…` + `boot-a10.img` 27,406,336 B sha
   `04a43ea9…`, rebuilt from `diatsia fw/update(1).zip` with `brotli` + `tools/reassemble.py` + `lpmake`

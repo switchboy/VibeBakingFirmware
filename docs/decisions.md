@@ -1121,7 +1121,7 @@ layout mismatch, uboot/trust mismatch). Checked against measurements on the payl
 * **Confirmed and sharper:** the kernel and DTB really do differ from what the unit shipped. Our boot image
   carries `Linux version 4.19.193 (root@wuwqbook) #24`, the OEM carries `Linux version 4.19.111+
   (root@meng_book2) #190, Jul 5 2024`; kernel payloads differ in size (30,455,816 vs 25,671,688) and sha
-  (`31dcf789…` vs `a514a3ff…`). So **D3** is not satisfied by the flashed payload. Our DTB keeps the board
+  (`ec3b6631…` vs `59075004…`). So **D3** is not satisfied by the flashed payload. Our DTB keeps the board
   identity (`compatible = "rockchip,rk3399-hct"`, active panel path `panel_in_dsi =
   "/dsi@ff960000/panel@0/ports/port@0/endpoint"`, timing0 0x2349340 Hz) but **drops the OEM's LVDS panel
   timings for `mtc,panel_index` 0x21, 0x23, 0x24, 0x25, 0x26**, adds DSI-only timings 0x4f/0x52/0x53/0x54/
@@ -1171,8 +1171,8 @@ The owner reported XDA's explicit warning against upgrading Android 10 -> 11 thi
 (`docs/findings.md`, "Payload provenance"), this is exactly what our payload does:
 
 * Our `boot.img` kernel payload and its DTB are **byte-identical to the vendor Android 11 package**
-  (`diatsia fw/update.zip`, 1.47 GB): kernel 30,455,816 B sha `31dcf789…`, DTB 157,962 B sha `530b8412…`.
-  They are **not** the Android 10 pair (kernel 25,671,688 sha `a514a3ff…`, DTB 152,425 sha `cd4eeb3d…`).
+  (`diatsia fw/update.zip`, 1.47 GB): kernel 30,455,816 B sha `ec3b6631…`, DTB 157,962 B sha `530b8412…`.
+  They are **not** the Android 10 pair (kernel 25,671,688 sha `59075004…`, DTB 152,425 sha `cd4eeb3d…`).
   Only the ramdisk is ours (A14 first-stage init, 1,632,189 B vs vendor 838,018 B). So the kernel we
   flashed is the vendor's **A11** build (`4.19.193 #24`), while the firmware the unit ran was Android 10
   (`4.19.111+`).
@@ -1200,3 +1200,37 @@ The owner reported XDA's explicit warning against upgrading Android 10 -> 11 thi
    step that can brick an A10->A11 unit - and the rescue media is still unproven (SD IDB layout unknown).
    **Not allowed until the serial console and a verified rescue card exist.**
 Nothing is flashed before the console reading (**D30**), and the rollback payload (**D31**) is unchanged.
+
+## D34 - the payload has no first-stage fstab; that alone explains the black screen (Nov 10, DECIDED)
+
+Measured (`docs/findings.md`, "First-stage fstab"): Android 14 first-stage init reads its fstab from the
+devicetree (`/proc/device-tree/firmware/android/fstab`, compatible `android,fstab`) or from the ramdisk at
+`/first_stage_ramdisk/fstab.<hardware>` (Android 12+ path; Android 10 used `/fstab.<hardware>`). Our payload
+has **neither**: our DTB (the vendor A11 DTB) has no `fstab` node, the unit's untouched A10-era `dtbo` adds
+`vbmeta`/`fstab` children marked `status = "disabled"` (so init skips the DT fstab), and our ramdisk contains
+no fstab file and no `first_stage_ramdisk/` directory at all. With `androidboot.hardware=rk30board` in the
+cmdline, init therefore fails with `failed to read default fstab for first stage mount`, `/system` is never
+mounted, second-stage init never runs, and nothing - display, WiFi, adbd - ever starts. That is a defect in
+**our** payload and is now the **primary** explanation for the observed no-logo/no-Wifi/no-adb state, ahead of
+the generation mismatch (**D33**), which remains a real second-order risk.
+
+**Decision.**
+1. Fix = put `/first_stage_ramdisk/fstab.rk30board` into the boot ramdisk, containing our vendor fstab's 5
+   logical ext4 entries (`system/vendor/product/system_ext/odm`, all `wait,logical,first_stage_mount`) plus
+   `metadata`. Two images are built and verified with `unpack_bootimg`, and **neither is flashed** (**D30**):
+   `a14-fixed.img` (32,796,672 B, `f378d4fd…`) = our current payload plus that file, still the vendor A11
+   kernel/DTB; `boot-a10k-a14rd.img` (28,231,292 B, `455a9ac8…`) = the generation-coherent shape (OEM A10
+   kernel `59075004…` + OEM A10 `second` 924,672 B carrying the A10 DTB `cd4eeb3d…`, `dtb_size 0`, our A14
+   ramdisk `146ac4e3…` + fstab, our cmdline, OEM load addresses, header v2).
+2. The naive Path 1 - flashing the OEM `boot-a10.img` unchanged with our A14 `super` - is **infeasible**: its
+   ramdisk fstab lists only `system/vendor/odm/product`, no `system_ext`, which Android 14 needs. So Path 1
+   is now `boot-a10k-a14rd.img`, not `boot-a10.img`.
+3. Neither image writes a boot-chain partition (**D18**) and both pair with the A14 `super` already on the
+   unit (`2045af9c…`), so the blind rollback path (**D29**, **D31**) is unchanged.
+4. The console reading (**D30**) now has a specific thing to confirm: init's fstab messages
+   (`First stage mount skipped (missing/incompatible/empty fstab in device tree)`,
+   `failed to read default fstab for first stage mount`). If they appear, the fix is confirmed before any
+   write; the preferred shape stays `boot-a10k-a14rd.img` + our A14 `super`.
+5. Documentation correction: the kernel payload hashes recorded earlier tonight were computed from a wrong
+   header offset (the layout is header 1660 B + contiguous sections). Correct values: ours/A11
+   `ec3b6631…`, OEM A10 `59075004…`; DTB hashes unchanged. **D33**'s conclusions stand unchanged.

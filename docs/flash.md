@@ -156,20 +156,25 @@ The operator-relevant consequences:
   `/dev/kmsg`, not from TCP adb.
 * Nothing that could brick the unit was written (`uboot`, `trust`, `dtb`, `dtbo`, `recovery`, `vbmeta`,
   loader, GPT all untouched), so the boot chain is intact and the unit is recoverable by a blind path.
-* Do not flash a second payload without a serial console reading first (**D30**, defect list in **D32**,
-  generation mismatch in **D33**). Leading explanation, measured: our `boot.img` kernel and DTB are
-  byte-identical to the vendor **Android 11** package (`31dcf789…` / `530b8412…`) while the untouched
-  `uboot`/`trust`/`dtbo` hold the **Android 10** generation the unit last installed - the vendor's own A11
-  script writes `boot`, `trust`, `uboot`, `logo`, `dtbo` and the loader, so it never mixes generations. The
-  A10 `dtbo` overlay (803 B, `28a07d49…`) disables `vbmeta` and `fstab` under `firmware/android`; the A11
-  overlay (607 B, `ec0ae97c…`) lacks that fragment. Secondary: our DTB drops the OEM LVDS panel timings
-  `mtc,panel_index` 0x21..0x26 and retimes timing4/17/76. `mali_kbase.ko` (`vermagic=4.4.167`) is a cleanup
-  item, not the cause - the OEM ships the same module and Mali is built into both kernels. AVB/vbmeta,
-  uboot/trust mismatch, partition layout and ext4-vs-fstab are ruled out. Console reading order: which DTB
-  u-boot used (`Found DTB in <part>` vs `dtb size`/`dtb addr`), whether the `dtbo` overlay applied, then
-  kernel panel/timing messages, then init stage 2 and SurfaceFlinger. If a second payload is flashed, the
-  safe shape is `boot-a10.img` + our A14 `super` (no boot-chain write); writing the A11 chain is only
-  acceptable once serial and a verified rescue card exist.
+* Do not flash a second payload without a serial console reading first (**D30**; defect list **D32**,
+  generation mismatch **D33**, missing first-stage fstab **D34**). Primary cause, measured: our payload has
+  **no fstab source** for first-stage mount - Android 14 init wants `/proc/device-tree/firmware/android/fstab`
+  or `/first_stage_ramdisk/fstab.rk30board` (it matches `androidboot.hardware=rk30board`), our DTB has no
+  `fstab` node, the untouched A10 `dtbo` overlay (803 B, `28a07d49…`) adds `vbmeta`/`fstab` children marked
+  `status = "disabled"`, and our ramdisk contains no `first_stage_ramdisk/` and no `fstab*` file. So
+  `failed to read default fstab for first stage mount` -> `/system` never mounted -> no display, no WiFi, no
+  adbd. Second-order: our kernel/DTB are the vendor **A11** pair (`ec3b6631…` / `530b8412…`) on the unit's
+  **A10**-era chain (the vendor's A11 script also writes `boot`, `trust`, `uboot`, `logo`, `dtbo` and the
+  loader; the A11 overlay `607 B` `ec0ae97c…` lacks the disable-`vbmeta`/`fstab` fragment). `mali_kbase.ko`
+  (`vermagic=4.4.167`) is cleanup, not the cause; AVB/vbmeta, uboot/trust mismatch, partition layout and
+  ext4-vs-fstab are ruled out. Console reading order: init's fstab messages first
+  (`First stage mount skipped (missing/incompatible/empty fstab in device tree)`,
+  `failed to read default fstab for first stage mount`), then which DTB u-boot used (`Found DTB in <part>` vs
+  `dtb size`/`dtb addr`), whether the `dtbo` overlay applied, then kernel panel/timing messages, then init
+  stage 2 and SurfaceFlinger. If a second payload is flashed, the safe shape is
+  **`boot-a10k-a14rd.img` (28,231,292 B, `455a9ac8…`) + our A14 `super`** - no boot-chain write. Do **not**
+  flash the OEM `boot-a10.img` unchanged: its ramdisk fstab has no `system_ext`, which Android 14 needs.
+  Writing the A11 chain is only acceptable once serial and a verified rescue card exist.
 
 ## Getting into the recovery
 
