@@ -62,11 +62,22 @@ rollback is never overwritten), `scripts/rebuild_boot_with_fstab.sh` (`OUT` now 
 | location | before | after |
 |---|---|---|
 | workstation `/` (nvme0n1p5) | 0 free (100%) | ~14 GiB free (96%) |
-| workstation `/tmp` (tmpfs = RAM) | 13 GiB used (81%) | see `cold-move-tmpfs.log` for the final line |
+| workstation `/tmp` (tmpfs = RAM) | 13 GiB used (81%) | **84 MiB used (1%)** - every image, research dir and one-off dump moved |
 | NAS `/` (sda2) | 22 GiB free | ~24 GiB free |
 | NAS `SSData` (sda4, build tree) | 797 MiB free | 797 MiB free - unchanged: its occupants are inputs |
-| NAS DataPool (cold storage) | 908 GiB free | ~892 GiB free (it absorbed the moves) |
+| NAS DataPool (cold storage) | 908 GiB free | ~892 GiB free (it absorbed ~15 GiB of moves) |
+
+What stayed in `/tmp/opencode` on purpose: the ssh wrappers (`omv.sh`, `askpass.sh`, `askpass_lap.sh`),
+the WiFi/HAL build scripts (`build_wifi_stack*.sh`, `build_rtk_hal.sh`), the probe scripts, and the
+`a14_libwifi_hal_Android.bp` / `a14-otacerts.zip` working copies. Those are still in use tomorrow; only
+images, source clones and dumps were moved.
+
+Directory verification is a single ssh call comparing `find . -type f -printf '%P %s\n' | LC_ALL=C sort`
+lists, which is why `rkresearch` (36,565 files) could be proven identical on the NAS before removing it
+from RAM. Two quoting/ordering bugs were found doing this: `sort` order differs between the workstation's
+Dutch locale and the NAS's C locale, and rsyncing a *renamed* target without a trailing slash on the
+source produced `rkresearch-nov11/rkresearch/...`, so the lists never matched.
 
 `SSData` remaining at 100% is the one thing still worth fixing before the next build: `lpmake` and
 `repack_bootimg` need scratch space, which is why scratch now lives on the repo volume
-(`/run/media/Daan/Opslagmonster/`, 472 GiB free) instead.
+(`/run/media/Daan/Opslagmonster/`, ~450 GiB free) instead.

@@ -1234,26 +1234,90 @@ earlier image's tail in the partition):
   `openssl dgst -verify`. `scripts/find_zip_digest_scope.py` now collects BIT STRINGs as well and tries
   each 256-byte candidate against every byte range.
 * `signapk.jar` fails on both JDKs (workstation OpenJDK 27 and the tree's prebuilt jdk17) with a
-  conscrypt native-library error, so signing has to be done by hand: openssl `smime -sign` gives
-  attached content and `sha1WithRSAEncryption`, which is the wrong shape; the digest byte-range that
-  recovery hashes is still unverified. `scripts/find_zip_digest_scope.py` decides it empirically against
-  the OEM zip (extract the 256-byte RSA block + signer public key, then `openssl dgst -verify` over the
-  candidate ranges: whole file, minus EOCD, minus EOCD+comment, minus comment, EOCD-with-clen-0).
-* Blocked at the end of the evening: the workstation shell tool returns empty output for every command
-  (`echo` included). `/` is 100% used (262 GiB of 279 GiB, ~2.5 GiB free) and `/tmp` is 81% used
-  (13 GiB of 16 GiB), which is the likely cause. Nothing was committed after `059f1cd`, and the unit
-  went offline (battery low, powered off) before the second super push.
+  conscrypt native-library error, and openssl `smime -sign` gives attached content plus
+  `sha1WithRSAEncryption`, which is the wrong shape. So `scripts/sign_update_zip.py` assembles the
+  PKCS#7 by hand in the measured shape (detached `pkcs7-data`, sha256, one cert, one SignerInfo with the
+  cert's issuer-and-serial, `RSA(PKCS#1 v1.5 DigestInfo(sha256(<scope>)))`) and appends the comment the
+  same way SignApk does.
+* Which byte range recovery hashes is **not** reproducible offline, measured with
+  `scripts/recover_zip_digest.py` (it RSA-publics the signature and strips PKCS#1 v1.5, so it recovers
+  the digest the signer actually hashed rather than guessing ranges). Provenance is proven first: the
+  certificate is self-signed and its own signature unpads to `sha256(tbs)` = `8e3715d963965e41...`,
+  so the modulus (256 B, exponent 3) and the unpadding code are correct.
+  * `diatsia fw/update(1).zip` (1,285,817,036 B, sha256 `31bb492ab6036dd1...`): recovered digest
+    `e3e49511d33715d8b39393f44e65c59a9b0fdc2da61ef25e7fa70dc721fb9886`.
+  * The NAS archive copy `update.zip` (1,203,718,969 B, sha256 `dd3e2ac0610bb64f...`) is a DIFFERENT
+    file, and its recovered digest `b14a9e21f053c03f...` is different too.
+  * Neither digest matches any of: whole file, minus EOCD(22), minus EOCD+comment, minus comment,
+    content+EOCD(comment_len=0), content only, concatenated entry contents. Both copies are signed by
+    the same cert (`cf2ab3818595c4ed`), so the packages were signed over bytes that these copies no
+    longer are - consistent with both having been modified after signing (downloads/repacking), and
+    consistent with recovery accepting them anyway.
+  * Consequence: recovery's content digest cannot be settled from these files, so
+    `scripts/sign_update_zip.py` takes `--scope` as a documented guess (default
+    `content-plus-EOCD-clen0`, the commentless archive that SignApk hashes while streaming). That guess
+    is safe, because recovery verifies a package BEFORE running its updater-script: a wrong scope means
+    the install is refused with nothing written. The adb-root installer stays the primary route; the
+    recovery zip stays the fallback.
+  * `scripts/find_zip_digest_scope.py` was the earlier attempt and is kept as the negative result: it
+    collected only OCTET STRINGs, so it grabbed the certificate's key instead of SignerInfo's signature
+    and reported `Verification failure` for every range.
+* Our hand-built PKCS#7 now parses the way the OEM's does. Measured Nov 12 on the smoke zip and on the
+  shipped fallback zip, `openssl pkcs7 -print` gives `type: pkcs7-signedData`, `version: 1`,
+  `md_algs: algorithm: sha256 (2.16.840.1.101.3.4.2.1)`, `contents: type: pkcs7-data` with
+  `d.data: <ABSENT>` (detached), one certificate (der-sha `a40da80a59d170ca`), and a SignerInfo whose
+  children match the OEM's node-for-node: `INTEGER 01`, the issuer Name SEQUENCE, the serial INTEGER, a
+  sha256 AlgorithmIdentifier, an rsaEncryption AlgorithmIdentifier, then the 256-byte OCTET STRING
+  signature. The script's self-check RSA-publics our own signature and recovers `sha256(<scope>)`, the
+  same route `recover_zip_digest.py` proved correct on this kind of certificate.
+* Getting there took five fixes, each measured rather than assumed:
+  * the hardcoded OID hex decoded as `1.2.840.113549.1.5.5.3.4.5.5`, not sha256 - OIDs are now computed
+    from their arcs (sha256 = `2.16.840.1.101.3.4.2.1`, rsaEncryption = `1.2.840.113549.1.1.1`);
+  * the legacy SignerInfo holds **issuer + serial**, not issuer + subject (that is CMS), wrapped in its
+    own SEQUENCE, and each child must be a complete DER node - slicing the value without its tag/length
+    header made openssl report `Field=issuer_and_serial, Type=PKCS7_ISSUER_AND_SERIAL, wrong tag`;
+  * long-form DER length wrote `tag, 0x80|n, length` and dropped the body, giving a 64-byte PKCS#7 that
+    claimed to hold a 1,196-byte certificate;
+  * the EOCD's comment length sits at `+20`, not `+16` (`+16` is the central-directory offset), so every
+    signed zip looked commentless to our own reader; `rfind('PK\x05\x06')` can also land inside the
+    PKCS#7 bytes, so the scan walks backwards until the declared length accounts for the tail exactly;
+  * `openssl pkeyutl -rawin` hashes the padded block again, so signing uses `openssl dgst -sha256 -sign`,
+    which is exactly `RSA(DigestInfo(sha256(content)))`.
+* The evening's blocker (empty shell output, root filesystem at 0 bytes free, `/tmp` 81% used) was cleared
+  during the night: `/` now has ~14 GiB free and tmpfs is at 84 MiB used. The shell tool still returns
+  empty stdout for every command, so commands redirect to files under `/run/media/Daan/Opslagmonster/`
+  and the results are read back - that is the working pattern, not a bug to chase.
+* `a14-work/a14chk/sha256.txt` was stale: it listed `a14-fixed.img` as `933e2ecc...` and `raw-super.img`
+  as `0ed0d341...`, both pre-patch images. Re-measured Nov 12 and rewritten to name the files that are
+  actually pushed - `raw-super.img` `d4b4990931cc...`, `a14-boot-fixed.img` `933e2ecc4237...`,
+  `a14-fixed.img` `f378d4fd1342...`, `boot-a10k-a14rd.img` `455a9ac8e461...` - and `sha256sum -c` passes
+  (exit status 0; the Dutch locale prints `goed`, not `OK`). The old file is kept as `sha256.txt.stale.bak`.
 
 ## Queued for the morning (nothing written to the unit since the stock restore)
 
-1. Free space first: the root filesystem is full and it is blocking both builds and this shell.
-2. Re-run `scripts/find_zip_digest_scope.py` to settle the zip digest scope, then rebuild `update.zip`
-   in the legacy SignApk comment format, signed with `testkey` detached/sha256.
-3. Push `super-a14.img` (`d4b4990931cc`) and `boot-a14.img` (`933e2ecc4237`) again - the unit rebooted
+Done during the night, so these no longer need doing: freeing the root filesystem (now ~14 GiB free,
+tmpfs 486 MiB used), housekeeping to NAS cold storage, committing the dual-cert slice / `make_f2fs.oem` /
+installer files (`f332cd2`) and the housekeeping + signing scripts (`d17185a`), and probing the zip
+digest (result: not reproducible offline - see the `recover_zip_digest.py` bullet above).
+
+Still queued:
+
+1. Push `super-a14.img` (`d4b4990931cc`) and `boot-a14.img` (`933e2ecc4237`) again - the unit rebooted
    stock, `/data/local/tmp/a14` was wiped by the rollback, and the second super push never completed.
-4. Commit: the dual-cert system slice, `make_f2fs.oem` injection, `scripts/recovery_updater.script`,
-   `scripts/find_zip_digest_scope.py`, `device/rk3399-px6-hct4/init/hu-adb.rc` + `device.mk` copy line.
-5. Housekeeping: move old builds and one-off scratch to NAS cold storage (see `docs/housekeeping.md`).
+   They live in `/run/media/Daan/Opslagmonster/a14-work/a14chk/` now, and `scripts/stage_a14_payload.sh`
+   defaults to those paths.
+2. The recovery fallback package is built and signed: `scripts/build_recovery_fallback_zip.sh` produces
+   `/run/media/Daan/Opslagmonster/a14-work/huzip-card/update.zip` (4,315 B, sha256 `5a6bc296c67128d6…`)
+   containing only `updater-script` + notes - recovery dd's the images straight from the card root, so the
+   3.2 GiB payload is never unpacked on the unit. Card root layout: `update.zip`, `super-a14.img`
+   (= `raw-super.img`), `boot-a14.img` (= `a14-boot-fixed.img`). The hashed byte range is still a
+   documented guess, and that is safe: recovery verifies before running the updater-script, so a wrong
+   scope means "install refused", nothing written. Primary install route stays
+   `scripts/install_a14_from_adb_root.sh` under `setsid` with `WIPE=1`.
+3. Measure zLink against the firmware actually on the unit (see the zLink section below): our vendor
+   slice is staged from the A11 dump, and zLink only started working after the newest diatsia firmware.
+4. `SSData` is still at 100% (797 MiB free) - the only filesystem still blocking builds. Scratch now
+   lives on the repo volume, but anything that needs the tree's own `out/` may still fail there.
 
 ## zLink started working on the restored stock firmware - Nov 11 evening
 

@@ -73,7 +73,10 @@ case "$STAGE" in
       rd="$d"
       del=""
       if [ "$d" = rkresearch ]; then rd="rkresearch-nov11"; del="--delete"; fi
-      rsync -a --no-progress $del -e "$RS" "/tmp/opencode/$d" "root@192.168.1.29:$COLD/workstation-tmpfs/$rd/" 2>&1 | tail -2 | tee -a "$LOG"
+      # The trailing slash on the source copies the directory's CONTENTS into $rd/, otherwise a renamed
+      # target like rkresearch-nov11 ends up holding rkresearch-nov11/rkresearch/... and the lists never
+      # match the local paths.
+      rsync -a --no-progress $del -e "$RS" "/tmp/opencode/$d/" "root@192.168.1.29:$COLD/workstation-tmpfs/$rd/" 2>&1 | tail -2 | tee -a "$LOG"
       # One ssh call, then compare the sorted name+size lists. Per-file ssh calls would take thousands
       # of round trips and thousands of log lines for a source tree like u-boot. The workstation sorts
       # under the Dutch locale and the NAS under C, so force C on both sides or the lists never match.

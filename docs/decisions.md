@@ -1389,3 +1389,13 @@ state, `adb root` over TCP pulls a known-good restore set to the NAS archive: `u
 first 8 MB. That backup, not the factory card, is the rollback for the next Android 14 attempt - and the
 next attempt writes only `boot` + `super` (D18/D19). Nothing is written to the unit until that backup is
 verified by hash.
+
+**D41 - the recovery fallback package carries no payload: it dd's the images straight off the card.**
+`scripts/build_recovery_fallback_zip.sh` builds a 4,315-byte zip holding only `updater-script` and notes,
+signed with the testkey. Embedding the 3.2 GiB `super` would need room on the unit to unpack it, and
+recovery has none, so the images sit next to the zip in the card root (`super-a14.img`, `boot-a14.img`)
+and the updater-script reads them from `/external_sd` with `dd`. Same scope guarantees as before: recovery
+verifies the package before running the script, so a wrong digest range refuses the install and writes
+nothing (D18/D19 unchanged - only `boot` + `super` are written, no chain, no GPT). The detached adb-root
+installer (`scripts/install_a14_from_adb_root.sh`, `WIPE=1`) remains the primary route; this zip is the
+fallback for when adb is not reachable.
