@@ -1121,3 +1121,41 @@ at `/srv/50911774-.../aospbuild-archive/hu-stock-backup/`: all 14 `OK`.
   (`mali_kbase`), 2 x `4.19.101`. Our A14 vendor slice = **16 x `4.19.193`** + 1 x `4.4.167`. So the OEM
   modules are built for the shipped kernel, and our modules are built for the A11 kernel we flashed. This is
   the one new risk in the second attempt if the A10 kernel boot image is chosen.
+
+## Kernel/module story confirmed: prebuilt vendor kernel, no legacy-kernel patch tree - Nov 11
+
+Checked what the build actually uses, because "are we on a legacy-kernel LineageOS branch?" needs a real
+answer. Measured:
+
+* Build tree on the NAS: `/srv/dev-disk-by-label-SSData/aospbuild/lineage21s` - a LineageOS 21 tree. It has
+  our device tree `device/rockchip/rk3399` (AndroidProducts.mk, lineage_rk3399.mk, hu_apps.mk,
+  fstab.rk30board, prebuilt, hu_system). `kernel/` holds only `configs`, `prebuilts`, `tests` - no kernel
+  source, and no legacy-kernel patch directory anywhere in the tree. `.repo/manifest.xml` has no realtek or
+  kernel project entry.
+* `device/rk3399-px6-hct4/BoardConfig.mk:65`: `TARGET_PREBUILT_KERNEL := vendor/hct4/prebuilt/kernel_a11`
+  - the vendor **A11** kernel binary (`4.19.193 #24`). We ship a binary kernel, we never build one (D3), so
+  there is nothing to patch and no legacy-kernel branch involved. Android 14's minimum kernel is 4.14, so a
+  vendor 4.19 kernel is in range without extra patches; the requirement is instead that userspace, HALs and
+  `.ko` files match the kernel we ship.
+* WiFi split (D21): the HAL glue is ours (`device/rk3399-px6-hct4/wifi_hal`, `libwifi-hal-rtk`,
+  `BOARD_WLAN_DEVICE := realtek`, `WIFI_DRIVER_MODULE_NAME := "8188eu"`,
+  `WIFI_DRIVER_MODULE_PATH := "/vendor/lib/modules/8188eu.ko"`). The **kernel driver** is not in our tree -
+  the `.ko` files are vendor binaries. Our A14 vendor slice carries 16 modules at `vermagic=4.19.193` +
+  `mali_kbase.ko` `4.4.167`, which match `kernel_a11`; that is why attempt 1's modules were coherent and why
+  only switching to the A10 kernel image creates a mismatch.
+* The community org the owner pointed at exists but does not fit this device:
+  `github.com/lineageos-on-rockchip` targets the RK3326 LeapPad Academy (UYT4) on **LineageOS 18.1**
+  (Android 11), kernel 4.19.193, branches named `lineage-18.1`. Its repos are
+  `android_device_rockchip_rk3326-common`, `android_device_vtech_uyt4`, `android_device_vtech_uyt4-kernel`
+  (prebuilts), `android_kernel_rockchip_rk3326`, `android_hardware_rockchip`, `u-boot`,
+  `twrp_device_vtech_uyt4`. There is **no RK3399 device tree** there, and its profile README states the repos
+  are experimental and that "how to build" inquiries are reported and ignored. Useful analogy only: it shows
+  the same shape we use (device tree + kernel prebuilts repo + vendor dump), not a tree we can build from.
+* Module payload for the A10-kernel variant is now staged: `adb pull /vendor/lib/modules` gave 21 `.ko`
+  (111,163,391 B) into `/var/tmp/hu-stock-backup/vendor-modules/modules/`. Vermagics: most `4.19.111`
+  (`8188eu`, `8188fu`, `8189fs`, `8723bu`, `8733bs`, `8821cs`, `8821cu`, `8822bu`, `8822cs`, `aic8800_*`,
+  `goodix`, `sd_user_hid`, `usb_f_iap`, `usb_f_iap2`, `virtual_tp`), `sprdwl_ng`/`bcmdhd` at `4.19.101`,
+  `mali_kbase` at `4.4.167`. Dropping these into our A14 vendor partition makes `boot-a10k-a14rd.img`
+  (kernel `4.19.111+`) coherent without building anything.
+* Rebuilding a driver is possible if we ever need it: the running unit exposes `/proc/config.gz` (34,030 B),
+  so the exact config of the shipped `4.19.111+ #190` kernel is available for out-of-tree builds.
