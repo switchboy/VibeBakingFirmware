@@ -33,9 +33,24 @@ odm        /odm         ext4  ro,barrier=1      wait,logical,first_stage_mount
 /dev/block/by-name/recovery /recovery emmc defaults defaults
 /dev/block/by-name/misc     /misc     emmc defaults defaults
 
-# userdata (mmcblk2p15). checkpoint=enable gives the non-A/B OTA a rollback path; casefold+quota
-# are formatted fresh after the M2b repartition, so existing fs features are not a constraint.
-/dev/block/by-name/userdata /data     f2fs  noatime,nosuid,nodev wait,check,quota,casefold,fileencryption=aes-256-xts:aes-256-cts,keydirectory=/metadata/vold/metadata_encryption,reservedsize=128M,checkpoint=enable
+# userdata (mmcblk2p15). The flags below are the ones the shipped vendor kernel can actually
+# mount, read from /proc/config.gz of the running unit (Nov 11): CONFIG_F2FS_FS=y,
+# CONFIG_F2FS_FS_ENCRYPTION=y (the *legacy* f2fs crypto API, not blk-crypto inline encryption),
+# CONFIG_QUOTA=y, and **no CONFIG_F2FS_CASEFOLD**, no checkpoint support.
+#
+# So Android 14's usual f2fs options are dropped here:
+#   casefold          -> kernel has no CONFIG_F2FS_CASEFOLD, mount would fail
+#   checkpoint=enable -> kernel has no checkpoint support; we ship no non-A/B OTA yet
+#   fileencryption=aes-256-xts:aes-256-cts -> needs blk-crypto inline encryption, absent here
+#   quota, reservedsize -> format-time options; /data is formatted by us over adb (D10), not by
+#                          init, and our Android 14 slices carry no make_f2fs/mkfs binaries
+# Encryption is left off for bring-up: /data mounts plain, encryption can return once WiFi,
+# screen and sound are verified. The mnt_flags are copied verbatim from the OEM Android 10 fstab
+# (/vendor/etc/fstab.rk30board on the live unit), which mounts f2fs on this exact kernel.
+#
+# `check` is dropped on purpose: Android 14 looks for fsck.f2fs in /vendor/bin and this vendor
+# slice does not carry it. The partition is formatted fresh, so there is nothing to check.
+/dev/block/by-name/userdata /data     f2fs  noatime,nosuid,nodev,discard,reserve_root=32768,resgid=1065,fsync_mode=nobarrier wait,formattable
 
 # USB sticks on the onboard hub (0424:2514) are picked up by StorageManager's uevent listener on
 # Android 14; no fstab entry is needed. The DAB tuner dongle (16c0:05dc) is not a block device and

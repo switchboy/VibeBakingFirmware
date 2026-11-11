@@ -1,0 +1,16 @@
+# Bring-up aid, installed as /vendor/etc/init/hu-adb.rc (init loads /vendor/etc/init/*.rc).
+#
+# TCP adb on the bench is how every sanity check is read (WiFi, touch, buttons, CANBUS, audio).
+# On stock Android 10 the factory-settings dialog turns it on with the password `adbon`, which
+# sets persist.internet_adb_enable - but persistent properties live in
+# /data/property/persistent_properties, which D10 wipes. After the wipe nothing would set the
+# property again, so the boot itself has to request adb.
+#
+# persist.adb.tcp.port is what AOSP's own adbd reads to open the TCP transport (the OEM's
+# internet_adb_enable trigger lives in the OEM vendor init rc, which our slices do not carry).
+# 5555 keeps the same connect string used all week: adb connect 192.168.1.120:5555.
+#
+# D5 keeps SELinux permissive during bring-up, so init writing this vendor property is allowed.
+# Remove this file once the build ships a real adb policy instead of a bring-up trigger.
+on early-init
+    setprop persist.adb.tcp.port 5555

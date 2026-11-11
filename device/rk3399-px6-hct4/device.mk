@@ -40,6 +40,7 @@ PRODUCT_COPY_FILES += \
     device/rockchip/rk3399/fstab.rk30board:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.rk30board \
     device/rockchip/rk3399/configs/ueventd.rk30board.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
     device/rockchip/rk3399/configs/init.hu.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hu.rc \
+    device/rockchip/rk3399/init/hu-adb.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hu-adb.rc \
     device/rockchip/rk3399/configs/hu_insmod.sh:$(TARGET_COPY_OUT_VENDOR)/etc/hu_insmod.sh
 
 # ---- recovery -----------------------------------------------------------------
