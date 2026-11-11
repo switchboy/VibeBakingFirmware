@@ -1101,3 +1101,23 @@ Backup note (D40): `scripts/pull_stock_backup.sh` pulls disk head (8 MB), backup
 misc/dtb/dtbo/vbmeta/boot/recovery/security/metadata/frp/super with a sha256 manifest, and refuses to run if
 adb is not root or the build is not stock A10. It reads partitions while Android is running, so `super` is a
 live-mounted snapshot - good enough as a rollback, and the recovery route can take a second copy later.
+
+## Stock backup verified on the NAS; dtb partition empty; module vermagics measured - Nov 11
+
+`scripts/pull_stock_backup.sh` pulled 3.3 GB / 14 files and the manifest now uses relative paths so it
+verifies anywhere (`cd "$OUT" && sha256sum ./*.bin`). Verified on the workstation and again on the NAS copy
+at `/srv/50911774-.../aospbuild-archive/hu-stock-backup/`: all 14 `OK`.
+
+* Chain partitions match the staged OEM images exactly: `uboot.bin a28fd6a0`, `trust.bin 7f2c4e52`; image
+  prefixes inside the padded partition slices are `boot.bin 04a43ea9` (SAME), `dtbo.bin 28a07d49` (SAME).
+* `dtb.bin` is entirely zero - 0 non-zero bytes, no FDT magic anywhere in the 4 MiB partition. The board DTB
+  is only ever read from `boot`'s second stage, which confirms D38.
+* `vbmeta.bin` is an `AVB0` v1 structure but its digest does not match our staged `vbmeta.img`
+  (`d2e19797` vs `ad7facb2`). It does not gate boot: `ro.boot.avb_version=` empty,
+  `ro.boot.verifiedbootstate=orange`, so AVB is not enforcing on this unit.
+* `misc.bin` still contains `boot-recovery` / `recovery` / `--wipe_all` even though the unit booted fine to
+  the setup screen - vendor u-boot does not act on it here. Worth zeroing at the next write for cleanliness.
+* Module vermagics: stock OEM A10 vendor (from `super.bin`) = **18 x `4.19.111`**, 2 x `4.4.167`
+  (`mali_kbase`), 2 x `4.19.101`. Our A14 vendor slice = **16 x `4.19.193`** + 1 x `4.4.167`. So the OEM
+  modules are built for the shipped kernel, and our modules are built for the A11 kernel we flashed. This is
+  the one new risk in the second attempt if the A10 kernel boot image is chosen.

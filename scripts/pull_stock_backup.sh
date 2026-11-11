@@ -44,6 +44,6 @@ adb shell "blkid; cat /proc/cmdline" > "$OUT/blkid-and-boot-cmdline.txt" 2>/dev/
 adb shell "getprop | grep -E 'internet_adb|avb|vbmeta|boot_devices'" > "$OUT/props.txt" 2>/dev/null || true
 adb shell ls -l /dev/block/by-name > "$OUT/by-name.txt" 2>/dev/null || true
 
-sha256sum "$OUT"/*.bin > "$OUT/MANIFEST.sha256"
-echo "manifest: $OUT/MANIFEST.sha256 ($(wc -l < "$OUT/MANIFEST.sha256") files)"
+cd "$OUT" && sha256sum ./*.bin > MANIFEST.sha256
+echo "manifest: $OUT/MANIFEST.sha256 ($(wc -l < "$OUT/MANIFEST.sha256") files, relative paths so it verifies anywhere)"
 echo "total: $(du -sh "$OUT" | cut -f1)"
