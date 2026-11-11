@@ -8,11 +8,13 @@
 #     default superimg /run/media/Daan/Opslagmonster/a14-work/a14chk/raw-super.img
 #                      (our A14 logical super container, sha d4b4990931cc..., 3,263,168,512 B)
 #
-# The payload lands in /data/local/tmp/a14 on the running stock Android 10, sha-verified against the local
-# files. The actual partitions are written later from the recovery environment (bootSD), where super is not
-# mounted by Android - that is the safe moment to dd (D30: read the console output of the session first).
-# The files live under $WORK (the repo volume, 472 GiB free) because the workstation's root filesystem is
-# full; scripts/cold_storage_move.sh STAGE=payload moved them there and re-verified both hashes.
+# The payload lands in /data/local/tmp/a14 on the running stock Android 10, under the names the installer
+# expects (boot-a14.img, super-a14.img), with a sha256.txt manifest built from those names. Partition
+# writes happen either from that staged copy under adb root (scripts/install_a14_from_adb_root.sh, the
+# primary route) or from the card in the recovery environment (bootSD + update.zip built by
+# scripts/build_recovery_fallback_zip.sh) - recovery is where super is not mounted by Android.
+# The files live under $WORK (the repo volume, ~450 GiB free) because the workstation's root filesystem
+# is full; scripts/cold_storage_move.sh STAGE=payload moved them there and re-verified both hashes.
 set -euo pipefail
 
 WORK=${WORK:-/run/media/Daan/Opslagmonster/a14-work}
@@ -26,20 +28,36 @@ SUPER_SIZE=$(stat -c %s "$SUPERIMG")
 PART_SIZE=$(adb shell blockdev --getsize64 /dev/block/by-name/super 2>/dev/null | tr -d '\r')
 [ "$SUPER_SIZE" -le "$PART_SIZE" ] || { echo "abort: super payload $SUPER_SIZE B exceeds partition $PART_SIZE B"; exit 1; }
 
+# The installer (scripts/install_a14_from_adb_root.sh) looks for boot-a14.img / super-a14.img and a
+# sha256.txt manifest of "<hash> <name>". So the files are pushed under those names, and the manifest it
+# verifies is built here from the pushed names - the local filenames would make it abort.
+BOOT_NAME=${BOOT_NAME:-boot-a14.img}
+SUPER_NAME=${SUPER_NAME:-super-a14.img}
 adb shell "mkdir -p /data/local/tmp/a14"
-for f in "$BOOTIMG" "$SUPERIMG"; do
-  base=$(basename "$f")
-  echo "pushing $base ($(stat -c %s "$f") B)"
-  adb push "$f" "/data/local/tmp/a14/$base" >/dev/null
-  want=$(sha256sum "$f" | cut -c1-12)
-  got=$(adb shell "sha256sum /data/local/tmp/a14/$base" 2>/dev/null | cut -c1-12)
-  [ "$want" = "$got" ] || { echo "abort: $base on unit hashes $got, local is $want"; exit 1; }
-  echo "  ok $base $want"
+MANIFEST="$WORK/staged-sha256.txt"
+: > "$MANIFEST"
+for pair in "$BOOTIMG:$BOOT_NAME" "$SUPERIMG:$SUPER_NAME"; do
+  f=${pair%%:*}; name=${pair##*:}
+  echo "pushing $name from $(basename "$f") ($(stat -c %s "$f") B)"
+  adb push "$f" "/data/local/tmp/a14/$name" >/dev/null
+  want=$(sha256sum "$f" | cut -d' ' -f1)
+  got=$(adb shell "sha256sum /data/local/tmp/a14/$name" 2>/dev/null | tr -d '\r' | cut -d' ' -f1)
+  [ "$want" = "$got" ] || { echo "abort: $name on unit hashes $got, local is $want"; exit 1; }
+  echo "  ok $name $want"
+  printf '%s  %s\n' "$want" "$name" >> "$MANIFEST"
 done
+adb push "$MANIFEST" /data/local/tmp/a14/sha256.txt >/dev/null
+# The manifest is read back on the unit: the installer's check is only as good as this file. Both reads
+# are informational - stock A10's sha256sum may not support -c, so never let them abort a good staging.
+adb shell "sha256sum -c /data/local/tmp/a14/sha256.txt" 2>&1 | tr -d '\r' | head -4 || true
+adb shell "cat /data/local/tmp/a14/sha256.txt" 2>&1 | tr -d '\r' | head -4 || true
 
-echo "staged in /data/local/tmp/a14. Partition writes, from the recovery environment (bootSD), are:"
-echo "  dd if=/data/local/tmp/a14/boot-a10k-a14rd.img of=/dev/block/by-name/boot bs=4096"
-echo "  dd if=/data/local/tmp/a14/raw-super.img       of=/dev/block/by-name/super bs=4096 conv=fsync"
-echo "and nothing else - no uboot/trust/dtb/dtbo/vbmeta/security/GPT writes (D18, D19)."
+echo "staged in /data/local/tmp/a14: boot-a14.img, super-a14.img, sha256.txt."
+echo "Install (primary route, detached so adbd's death cannot abort the wipe):"
+echo "  adb shell sh /data/local/tmp/a14/install_a14_from_adb_root.sh   # WIPE=0 first pass, then:"
+echo "  adb shell setsid -f sh -c '...see the WIPE=0 output the script prints...'"
+echo "Fallback (recovery, bootSD card): update.zip built by scripts/build_recovery_fallback_zip.sh, with"
+echo "super-a14.img and boot-a14.img next to it in the card root."
+echo "And nothing else - no uboot/trust/dtb/dtbo/vbmeta/security/GPT writes (D18, D19)."
 echo "Rollback if it does not boot: the stock backup pulled by scripts/pull_stock_backup.sh, or re-run the"
 echo "bootSD recovery with diatsia fw/update(1).zip."

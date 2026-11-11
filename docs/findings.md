@@ -1292,6 +1292,13 @@ earlier image's tail in the partition):
   actually pushed - `raw-super.img` `d4b4990931cc...`, `a14-boot-fixed.img` `933e2ecc4237...`,
   `a14-fixed.img` `f378d4fd1342...`, `boot-a10k-a14rd.img` `455a9ac8e461...` - and `sha256sum -c` passes
   (exit status 0; the Dutch locale prints `goed`, not `OK`). The old file is kept as `sha256.txt.stale.bak`.
+* Name mismatch between the two staging scripts, fixed Nov 12: `scripts/stage_a14_payload.sh` pushed the
+  local filenames (`a14-boot-fixed.img`, `raw-super.img`) and wrote no manifest, while
+  `scripts/install_a14_from_adb_root.sh` requires `$SRC/boot-a14.img`, `$SRC/super-a14.img` and a
+  `<hash> <name>` `sha256.txt` - tomorrow it would have aborted with "no sha256.txt". The staging script
+  now pushes under the installer's names, builds the manifest from those names, pushes it, and reads it
+  back on the unit (the two read-back checks are `|| true`, because stock A10's `sha256sum` may not
+  support `-c` and an informational failure must never abort a good staging).
 
 ## Queued for the morning (nothing written to the unit since the stock restore)
 
