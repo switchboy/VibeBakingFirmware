@@ -936,3 +936,23 @@ device write counter (`/sys/block/sda/stat` field 6) had only ~817 MiB reached t
 already reporting pieces "ok", and device reads were ~8.5 MiB - i.e. the verification was reading cache, not
 the card. The script now runs `sync; echo 3 > /proc/sys/vm/drop_caches` before the verification loop and uses
 `conv=fsync` on each write, so every sha comparison is read from media.
+
+## Rescue SD card built and verified on media, Nov 11
+
+Built on the laptop (`/dev/sda`, 7580 MiB, RM=1, vendor "Generic- SD/MMC", usb, 15,523,840 sectors) with
+`scripts/write_rescue_sd.sh`, detached as systemd unit `sdburn`. `fdisk -l` lists all 15 partitions with the
+unit's offsets (uboot 16384, trust 24576, misc 32768, dtb 40960, dtbo 49152, vbmeta 57344, boot 59392,
+recovery 124928, backup 321536, security 550912, cache 559104, metadata 1345536, frp 1378304,
+super 1378328..7752703, userdata 7752704..15523806).
+
+Cold verification (`sync; echo 3 > /proc/sys/vm/drop_caches`, then `dd bs=4096` with `skip = sector/8` and
+truncated to the file's exact byte length) - every piece matches its payload sha on the card:
+idbloader.bin `a6e6502d` @64, uboot.img `a28fd6a0` @16384, trust.img `7f2c4e52` @24576, dtb.dtb
+`cd4eeb3d` @40960, dtbo.img `28a07d49` @49152, vbmeta.img `ad7facb2` @57344, boot-a10.img `04a43ea9` @59392,
+super-a10.img `30da961c` @1378328.
+
+Correction to the paragraph above about the device counters: `/sys/block/sda/stat` fields are
+"reads completed, reads merged, sectors read, ms reading, writes completed, writes merged, **sectors
+written**, ms writing, ...". Field 6 is writes *merged*, not sectors; sectors written is field 7, which was
+24,204,752 sectors (12.4 GB) across all runs. The card was never under-written - the apparent "817 MiB"
+reading was this field mix-up, not a missing write.
