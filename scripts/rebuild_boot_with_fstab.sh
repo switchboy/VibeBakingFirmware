@@ -30,7 +30,9 @@ set -u
 SRC_BOOT=${SRC_BOOT:?set SRC_BOOT to our Android 14 boot.img}
 OEM_A10_BOOT=${OEM_A10_BOOT:?set OEM_A10_BOOT to the OEM Android 10 boot.img}
 FSTAB=${FSTAB:?set FSTAB to a fstab.rk30board file}
-OUT=${OUT:-/var/tmp/a14repack}
+# Scratch lives on the repo volume, not /var/tmp: the workstation's root filesystem is full and the NAS
+# SSData volume is at 100% too, which is what made lpmake fail with "Disk quota exceeded".
+OUT=${OUT:-/run/media/Daan/Opslagmonster/a14-work/a14repack}
 HOST_BIN=${HOST_BIN:-/srv/dev-disk-by-label-SSData/aospbuild/lineage21s/out/host/linux-x86/bin}
 HDR=1660
 

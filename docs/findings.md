@@ -1221,12 +1221,18 @@ earlier image's tail in the partition):
   and why recovery would need our `make_f2fs.oem` rather than `/vendor/bin`.
 * Signing format is legacy SignApk: the zip comment is
   `"signed by SignApk"` + NUL + PKCS#7 + `signature_start` (u16) + `0xff 0xff` + `total_size` (u16),
-  measured from `diatsia fw/update(1).zip`: comment 1,573 B, PKCS#7 at offset 18, length 1,555 B,
-  `total_size = 1,573`, `signature_start = 1,555`. The PKCS#7 is **detached** (encapContentInfo absent),
+  measured from `diatsia fw/update(1).zip`: comment 1,573 B, `total_size` field 1,573, message
+  `"signed by SignApk"` is **17** bytes (so the PKCS#7 starts at offset 18), PKCS#7 length 1,549 B,
+  `signature_start` = 1,555 = pkcs7 length + 6. The PKCS#7 is **detached** (`d.data: <ABSENT>`),
   `md_algs = sha256`, signer cert der-sha `cf2ab3818595c4ed` (HCT's cert, present in stock
-  `otacerts.zip`). So our package must be signed with `testkey` (der-sha `a40da80a59d170ca`, present in
-  our dual store), detached, sha256 - NOT with `platform` (der-sha `c8a2e9bccf597c2f`, which is not in
-  any cert store we ship).
+  `otacerts.zip`; its subject is the cloned `CN=Android` cert, serial `92A528C773D7A141`).
+  `openssl asn1parse -i` on the extracted PKCS#7 (1,549 B) shows the SignerInfo has **no signed
+  attributes** (version 1, no context-[0] node), digest `sha256`, `rsaEncryption`, and the signature is
+  a **BIT STRING** at offset 822 (`hl=4 l=257`: one unused-bits byte + 256 value bytes). The 256-byte
+  OCTET STRING at offset 1289 is inside the certificate (its public key), not a signature - that is why
+  an earlier probe "extracted the signature" from an OCTET STRING and every candidate range then failed
+  `openssl dgst -verify`. `scripts/find_zip_digest_scope.py` now collects BIT STRINGs as well and tries
+  each 256-byte candidate against every byte range.
 * `signapk.jar` fails on both JDKs (workstation OpenJDK 27 and the tree's prebuilt jdk17) with a
   conscrypt native-library error, so signing has to be done by hand: openssl `smime -sign` gives
   attached content and `sha1WithRSAEncryption`, which is the wrong shape; the digest byte-range that

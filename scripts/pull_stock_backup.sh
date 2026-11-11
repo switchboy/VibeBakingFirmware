@@ -2,13 +2,16 @@
 # Pull a byte-exact backup of the working stock eMMC over TCP adb (D40). READ-ONLY on the unit: it only
 # reads partitions. The backup is what makes the next Android 14 attempt reversible.
 #
-#   scripts/pull_stock_backup.sh [outdir]        default /var/tmp/hu-stock-backup
+#   scripts/pull_stock_backup.sh [outdir]        default /run/media/Daan/Opslagmonster/a14-work/hu-stock-backup-refresh
 #
 # Requires adb connected (adb connect <hu-ip>:5555, then adb root). Refuses if adb is not root or if the
 # build is not the stock OEM A10 build, so it cannot silently "back up" a bricked state.
+# A fresh directory is used by default so tonight's verified rollback (a14-work/hu-stock-backup, whose
+# MANIFEST.sha256 verifies) is never overwritten by a re-pull.
 set -euo pipefail
 
-OUT="${1:-/var/tmp/hu-stock-backup}"
+WORK=${WORK:-/run/media/Daan/Opslagmonster/a14-work}
+OUT="${1:-$WORK/hu-stock-backup-refresh}"
 DISK=/dev/block/mmcblk2
 mkdir -p "$OUT"
 

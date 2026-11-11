@@ -3,16 +3,21 @@
 # This script only PUSHES files and verifies hashes. It writes nothing to the unit's partitions.
 #
 #   scripts/stage_a14_payload.sh [bootimg] [superimg]
-#     default bootimg  /var/tmp/a14chk/boot-a10k-a14rd.img   (A10 kernel + A14 first-stage ramdisk, 455a9ac8...)
-#     default superimg /var/tmp/a14chk/raw-super.img         (our A14 logical super container, 036c7b1c...)
+#     default bootimg  /run/media/Daan/Opslagmonster/a14-work/a14chk/a14-boot-fixed.img
+#                      (A10 kernel + A14 first-stage ramdisk, sha 933e2ecc4237..., 32,796,672 B)
+#     default superimg /run/media/Daan/Opslagmonster/a14-work/a14chk/raw-super.img
+#                      (our A14 logical super container, sha d4b4990931cc..., 3,263,168,512 B)
 #
 # The payload lands in /data/local/tmp/a14 on the running stock Android 10, sha-verified against the local
 # files. The actual partitions are written later from the recovery environment (bootSD), where super is not
 # mounted by Android - that is the safe moment to dd (D30: read the console output of the session first).
+# The files live under $WORK (the repo volume, 472 GiB free) because the workstation's root filesystem is
+# full; scripts/cold_storage_move.sh STAGE=payload moved them there and re-verified both hashes.
 set -euo pipefail
 
-BOOTIMG="${1:-/var/tmp/a14chk/boot-a10k-a14rd.img}"
-SUPERIMG="${2:-/var/tmp/a14chk/raw-super.img}"
+WORK=${WORK:-/run/media/Daan/Opslagmonster/a14-work}
+BOOTIMG="${1:-$WORK/a14chk/a14-boot-fixed.img}"
+SUPERIMG="${2:-$WORK/a14chk/raw-super.img}"
 
 adb get-state >/dev/null || { echo "abort: no adb device"; exit 1; }
 adb shell id 2>/dev/null | grep -q 'uid=0' || { echo "abort: adb shell is not root - run adb root first"; exit 1; }
