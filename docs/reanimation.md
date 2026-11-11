@@ -276,13 +276,34 @@ scripts/flash_from_android.sh             # writes our payload; read its safety 
 
 Remember Android's mksh does 32-bit arithmetic and `dd skip=/count=` are counted in units of `bs=`.
 
-### W3 - SD boot card
+### W3 - SD boot card (unblocked Nov 11: the layout is measured, see D37)
 
-Blocked until the IDB layout is known (u-boot probes for an IDB header; our `update.img` is RKFW with
-`-storage:SD` and round-trips fine, but the card layout u-boot wants is unmeasured). To measure it: dump
-the first sectors of a card that is known to boot a Rockchip device
-(`dd if=/dev/sdX bs=512 count=256 of=idb-sample.bin`). Until then, do not burn a card and expect it to
-work.
+The owner's factory PX6 firmware settled the layout: ID block loader at **sector 64**, partitions at the
+same offsets the eMMC uses, and a **GPT on the card** with the Rockchip partition names (vendor u-boot logs
+`Found IDB in SDcard`, tests `mmc dev 1` first via `rkimg_bootdev`, and resolves partitions with
+`alloc_read_gpt_entries` / `part_get_info_efi`). Vendor u-boot also prints `Forbid to flash mmc 1(sdcard)`,
+so a card in the slot cannot be overwritten by a stray fastboot write.
+
+Build it on the **laptop** (never the workstation - its `/dev/sda` is the 7.3 T archive array):
+
+```sh
+sudo bash ~/sdrescue/write_rescue_sd.sh /dev/sda ~/sdrescue
+```
+
+It gates the device (removable, vendor "Generic- SD/MMC", 7-8 GB, usb, nothing mounted, no system
+mountpoint), zeroes the first and last 8 MiB, `sgdisk --zap-all`, writes the 15-partition GPT, then
+`dd bs=4096` each piece at its sector (idb@64, uboot@16384, trust@24576, dtb@40960, dtbo@49152,
+vbmeta@57344, boot@59392, super@1378328), `sync`, and verifies every piece by reading it back and comparing
+shas. `bs=4096` is byte-exact because every start sector is a multiple of 8; `bs=512` measured ~270 KB/s on
+this reader (queue `nr_requests=2`) which would take hours for `super`. Expect ~11 min to write `super`
+(~5 MB/s) and ~2.5 min to read it back (~21 MB/s). Run it detached (`systemd-run --unit=sdburn ...`) so a
+dropped ssh connection cannot kill it mid-write, and read `~/sdrescue/burn.log` afterwards.
+
+Contents: OEM Android 10 chain + `boot-a10.img` (`04a43ea9...`) + `super-a10.img` (`30da961c...`). Booting
+from the card gives a working Android 10 without touching eMMC, which is the unbrick path: then `adbon` ->
+TCP adb -> `adb root` -> write only `boot`/`super` on eMMC (**D18**, **D19**). For an Android 14 boot from
+the card instead, swap `boot-a10.img` for `boot-a10k-a14rd.img` (`455a9ac8...`) and `super-a10.img` for our
+A14 super - same offsets, same script.
 
 ### W4 - dd from a serial shell
 
