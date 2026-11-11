@@ -1031,3 +1031,29 @@ boot-chain rewrite: `boot` is where the board DTB lives.
 The OEM packages cannot be burned by SD_Firmware_Tool: `diatsia fw/update(1).zip` and `update.zip` are
 recovery-style update packages (META-INF updater-script, dynamic_partitions_op_list, *.new.dat.br, plus
 RKLoader.bin/boot.img/dtbo.img), not RKFW `update.img` containers.
+
+## Recovery IS reachable via an SD-boot card, and the OEM package restores the unit's own chain - Nov 11
+
+The owner built a bootSD that lands in a real recovery environment (contradicts the earlier assumption that
+the recovery menu is unreachable, D29/D25: the recovery *image* is reachable by SD boot even though the
+on-unit menu never appears). Reading `diatsia fw/update(1).zip` before flashing it:
+
+* It is an A10 OEM OTA package: `post-build=rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.20250401.152740:userdebug/release-keys`,
+  `pre-device=rk3399`, `ota-type=BLOCK`, signed by SignApk (OEM key).
+* updater-script patches the logical partitions product/vendor/system/odm, then writes
+  `boot.img`, `trust.img`, `uboot.img`, `dtbo.img` to `/dev/block/by-name/*` and calls
+  `write_raw_loader_image()` on `RKLoader.bin`. So the package rewrites the boot chain as well as boot -
+  these are the unit's own OEM bytes, verified below, so it is an OEM restore, not one of our builds.
+* `dynamic_partitions_op_list` starts with `remove_all_groups`, then re-creates the A10 group with
+  `resize product/vendor/system/odm ... from 0` and group max 3,258,974,208 B. That wipes our Android 14
+  `super` (including system_ext) - intended as the rollback; the A14 payload goes back afterwards.
+* Every image in the package matches our staged OEM copies byte-for-byte: trust `7f2c4e52` (4,194,304 B),
+  uboot `a28fd6a0` (4,194,304 B), boot `04a43ea9` (27,406,336 B), dtbo `28a07d49` (803 B),
+  RKLoader `847ebf39` (465,230 B) - the same A10 loader used for bench writes.
+* The package's boot.img carries the unit's own board DTB: totalsize 152,425 B, sha `cd4eeb3d`,
+  model "Rockchip RK3399 HCT  Board", compatible `rockchip,rk3399-hct`, `rockchip,rk3399`. So flashing it
+  replaces the factory firmware's variant DTB (`9ffc8492`, missing `display-timings-dsi`/`mtc-radio`) with
+  the unit's own - the credible fix for the dark screen (D38).
+* Our Android 14 boot images also carry an HCT DTB: `boot-a10k-a14rd.img` uses the OEM DTB `cd4eeb3d`
+  (152,425 B), `a14-fixed.img` and `a11-boot.img` use `530b8412` (157,962 B, our edited copy). So the A14
+  re-application does not need a DTB write either - `boot` carries it.

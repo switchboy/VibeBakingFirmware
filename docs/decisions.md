@@ -1370,3 +1370,14 @@ DTB is 152,425 B, sha `cd4eeb3d`. Because the DTB is embedded in `boot`, flashin
 protected chain (uboot/trust/dtb/dtbo/vbmeta/security/GPT stay untouched). This write needs real access
 (serial console per D30, or maskrom per W1) and the factory card kept as the safety net, so it waits until
 probe pins or an OTG port exist.
+
+**D39 - recovery is reachable through an SD-boot card (Nov 11, owner measured).** The owner built a bootSD
+that enters a working recovery environment, so the recovery route is open even though the on-unit recovery
+menu never appears. The OEM package `diatsia fw/update(1).zip` is the rollback to the unit's own firmware: it
+patches product/vendor/system/odm, writes boot/trust/uboot/dtbo and rewrites the raw loader. Those chain
+images are byte-identical to our staged OEM copies (trust `7f2c4e52`, uboot `a28fd6a0`, boot `04a43ea9`,
+dtbo `28a07d49`, RKLoader `847ebf39`), so this counts as an OEM restore of the unit's own chain - D18/D19
+still forbid writing a chain built by us. It also runs `remove_all_groups`, which deletes our Android 14
+logical partitions; that is the intended rollback, and the A14 payload is re-applied afterwards as
+`boot` + `super` only. Nothing else changes: the factory card and the bootSD stay the safety nets, and a
+deep power cycle is required after the flash.
