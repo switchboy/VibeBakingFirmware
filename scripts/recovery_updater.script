@@ -1,0 +1,22 @@
+# Edify updater-script for the PX6 Android 14 install, run by the stock recovery from the SD card.
+#
+# Recovery is the right place to write: the framework is stopped, the logical partitions are mounted
+# read-only at worst, and nothing here can be killed halfway through by a dying adbd. The zip's signature
+# is checked against /system/etc/security/otacerts.zip, which our own system slice now carries with BOTH
+# certificates (HCT's cf2ab3818595c4ed so update(1).zip remains a valid rollback, and our testkey
+# a40da80a59d170ca so this package is accepted). No binary patching of the recovery binary is needed.
+#
+# Order matters: super is written first, and every binary called afterwards (dd, make_f2fs) is then read
+# out of the *new* system image - recovery resolves /bin through "symlink /system/bin /bin", so Android 14
+# must ship the mkfs binary itself. Our slice carries Android 14's own make_f2fs (201,496 B, a newer
+# f2fs-tools that can write features this 4.19 kernel cannot mount), so the stock Android 10 binary is
+# injected alongside it as make_f2fs.oem and used here - it is the one proven on this kernel.
+#
+# /data is wiped with a plain f2fs format (D10): Android 10 put software encryption on it and Android 14
+# mounts plain f2fs here. /metadata keeps its ext4 content (no metadata encryption in this bring-up).
+run_program("/system/bin/dd", "if=/external_sd/super-a14.img", "of=/dev/block/by-name/super", "bs=4096", "conv=fsync");
+run_program("/system/bin/dd", "if=/external_sd/boot-a14.img", "of=/dev/block/by-name/boot", "bs=4096", "conv=fsync");
+run_program("/system/bin/dd", "if=/dev/block/by-name/boot", "bs=4096", "count=8000", "of=/cache/boot-after.bin", "conv=fsync");
+run_program("/system/bin/dd", "if=/dev/block/by-name/super", "bs=1M", "count=256", "of=/cache/super-head.bin", "conv=fsync");
+run_program("/system/bin/make_f2fs.oem", "-f", "/dev/block/by-name/userdata");
+run_program("/system/bin/sh", "-c", "sync; umount /data 2>/dev/null");

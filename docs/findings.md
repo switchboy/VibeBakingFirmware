@@ -1192,3 +1192,72 @@ Measured consequences and decisions:
   write boot+super, verify readback, `stop`, unmount `/data`, format fresh plain f2fs, reboot. It must run
   under `setsid` because `stop` stops class main, which contains adbd, so the adb session dies mid-script
   and an adb-child shell would be killed before the reboot.
+
+## Late Nov 11 - recovery route, make_f2fs.oem, signing format, and the shell/disk stall
+
+Measured after the stock restore (adb came back, `/data` came back wiped: 1.4 GiB used of 54 GiB, boot
+partition prefix `1f48dc302392` because the rollback's `boot.img` is only 27,406,336 B and left our
+earlier image's tail in the partition):
+
+* Payload re-staged on the workstation: `boot-a14.img` `933e2ecc42375a...` (32,796,672 B) and
+  `super-a14.img` `d4b4990931cc...` (3,263,168,512 B). Both pushed to `/data/local/tmp/a14/` and
+  sha-verified on the unit (`933e2ecc...`, `58991d74...` - the super was pushed twice, the second push
+  failed because the unit went offline with the battery low, so `d4b4990931cc` still needs pushing).
+* `raw-super.img` carries, in order: patched fstab, `hu-adb.rc`, dual-cert `otacerts.zip`, and the
+  stock mkfs binaries as `/system/bin/make_f2fs.oem` (49,544 B) + `/system/bin/fsck.f2fs.oem`
+  (153,872 B). Verified by extracting the system extent (block 2048) back out of the super:
+  `make_f2fs.oem` is byte-identical to the stock binary, and `otacerts.zip` lists both pem entries.
+  Our slice's own `/system/bin/make_f2fs` is Android 14's build (201,496 B) - newer f2fs-tools can
+  write features this 4.19 kernel cannot mount, which is why the stock binary is used for the wipe.
+* `/bin` in these system-as-root images is a symlink, so debugfs writes must target `/system/bin/...`
+  ("write: Ext2 inode is not a directory" otherwise).
+* Recovery image measured properly: `recovery.bin` (33,554,432 B) is header v2 with kernel + a real
+  ramdisk of 12,519,199 B + second 924,672 B, `dtb_size = 0`, cmdline `console=ttyFIQ0 ...
+  androidboot.selinux=permissive`. Its ramdisk has NO `/res/keys`; `init.rc` does
+  `symlink /system/bin /bin`, defines `service recovery /system/bin/recovery` and a disabled
+  `service adbd /system/bin/adbd --root_seclabel=u:r:su:s0`, and starts adbd only via
+  `on property:sys.usb.config=adb`. So recovery's binaries and its cert store both come from the
+  mounted system partition - which is why the dual-cert store in OUR system slice is the right place,
+  and why recovery would need our `make_f2fs.oem` rather than `/vendor/bin`.
+* Signing format is legacy SignApk: the zip comment is
+  `"signed by SignApk"` + NUL + PKCS#7 + `signature_start` (u16) + `0xff 0xff` + `total_size` (u16),
+  measured from `diatsia fw/update(1).zip`: comment 1,573 B, PKCS#7 at offset 18, length 1,555 B,
+  `total_size = 1,573`, `signature_start = 1,555`. The PKCS#7 is **detached** (encapContentInfo absent),
+  `md_algs = sha256`, signer cert der-sha `cf2ab3818595c4ed` (HCT's cert, present in stock
+  `otacerts.zip`). So our package must be signed with `testkey` (der-sha `a40da80a59d170ca`, present in
+  our dual store), detached, sha256 - NOT with `platform` (der-sha `c8a2e9bccf597c2f`, which is not in
+  any cert store we ship).
+* `signapk.jar` fails on both JDKs (workstation OpenJDK 27 and the tree's prebuilt jdk17) with a
+  conscrypt native-library error, so signing has to be done by hand: openssl `smime -sign` gives
+  attached content and `sha1WithRSAEncryption`, which is the wrong shape; the digest byte-range that
+  recovery hashes is still unverified. `scripts/find_zip_digest_scope.py` decides it empirically against
+  the OEM zip (extract the 256-byte RSA block + signer public key, then `openssl dgst -verify` over the
+  candidate ranges: whole file, minus EOCD, minus EOCD+comment, minus comment, EOCD-with-clen-0).
+* Blocked at the end of the evening: the workstation shell tool returns empty output for every command
+  (`echo` included). `/` is 100% used (262 GiB of 279 GiB, ~2.5 GiB free) and `/tmp` is 81% used
+  (13 GiB of 16 GiB), which is the likely cause. Nothing was committed after `059f1cd`, and the unit
+  went offline (battery low, powered off) before the second super push.
+
+## Queued for the morning (nothing written to the unit since the stock restore)
+
+1. Free space first: the root filesystem is full and it is blocking both builds and this shell.
+2. Re-run `scripts/find_zip_digest_scope.py` to settle the zip digest scope, then rebuild `update.zip`
+   in the legacy SignApk comment format, signed with `testkey` detached/sha256.
+3. Push `super-a14.img` (`d4b4990931cc`) and `boot-a14.img` (`933e2ecc4237`) again - the unit rebooted
+   stock, `/data/local/tmp/a14` was wiped by the rollback, and the second super push never completed.
+4. Commit: the dual-cert system slice, `make_f2fs.oem` injection, `scripts/recovery_updater.script`,
+   `scripts/find_zip_digest_scope.py`, `device/rk3399-px6-hct4/init/hu-adb.rc` + `device.mk` copy line.
+5. Housekeeping: move old builds and one-off scratch to NAS cold storage (see `docs/housekeeping.md`).
+
+## zLink started working on the restored stock firmware - Nov 11 evening
+
+Owner report: after reflashing the newest `diatsia` firmware via the recovery SD card, zLink works again
+where it previously did not, and the guess is that it now matches the MCU better. Worth treating as a
+vendor-blob constraint, not a coincidence: our vendor slice is staged from the older A11 dump
+(`ref-a10/` + D15), so whatever changed in this firmware's zLink/MCU path may not be in our payload.
+Two things to measure in the morning, both offline against the running stock image:
+* which binaries own zLink (`/system/app`, `/system/lib|lib64`, `/vendor/lib/hw`) and their sizes/hashes;
+* compare them against our staged vendor slice, so the A14 vendor slice can be re-staged from the
+  firmware that is actually on the unit now rather than the A11 dump.
+The MCU side is already known-good on stock (`persist.product.mcuversion=MTCE_HXD_V3.56_1`,
+`mtc-car`/`mtc-av`/`mtc-cvbs`/`mtc-cvbs2`/`mtc-dab`, `ttyS0/1/4`), so zLink is a userspace/blobs question.
