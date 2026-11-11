@@ -1,7 +1,7 @@
 # Measured findings — evidence, not decisions
 
 This file holds the measurement/evidence records that used to sit inside `docs/decisions.md`.
-Decisions stay in `docs/decisions.md` (D1-D35); pointers here point back. Numbers are what the
+Decisions stay in `docs/decisions.md` (D1-D36); pointers here point back. Numbers are what the
 build host / dumps / probes actually produced - do not edit a number here without re-measuring.
 
 ## Packaging pass Nov 8 - dist, super, the HU payload, and its offline verification
@@ -812,3 +812,33 @@ minimum for the bench: a **12 V / 10 A (120 W)** supply, an ATX PSU's +12 V rail
 black to start; yellow = +12 V, black = GND; some PSUs need a small load on 5 V/3.3 V to start), or a car
 battery with a charger. Inline fuse **10 A**, leads >= 1.5 mm^2, crimped terminals. A brief rail dip at
 power-on is normal; it must recover to >= 12 V. Procedure lives in `docs/reanimation.md` §2.
+
+## Connectors inside the case, owner observed Nov 11
+
+Opened the unit: the **debug UART header is unpopulated** (plated through-holes, no header fitted), and
+there is a connector on the PX6 board that looks like **HDMI**. The holes are still usable electrically, so
+serial is reachable with press-fit Dupont/probe pins or a wire soldered to the pad ring.
+
+What the DTB says about that connector (identical node set in our payload's DTB and the OEM's):
+
+* `hdmi: hdmi@ff940000`, `compatible = "rockchip,rk3399-dw-hdmi"`, `status = "okay"`, `reg-io-width = 4`,
+  clocks `iahb/isfr/vpll/grf/cec`; its port `hdmi_in` has `hdmi_in_vopb` **disabled** and `hdmi_in_vopl`
+  enabled -> the HDMI output is wired to **VOP Lite** (`vop@ff8f0000`, status okay; `vop@ff900000` big is
+  also okay). Node also carries `mtc,not_for_pcb_test = "2x"`.
+* HDMI **input** hardware is present too: `tc358749x: tc358749x@0f` on `i2c@ff140000` (`compatible =
+  "toshiba,tc358749"`, address 0x0f, `clocks = refclk`, `reset-gpios` from phandle 0x4d bank 0x0b),
+  **`status = "disabled"`**, `mtc,for_board = "2x"`, `mtc,not_for_board = "21"`, endpoint `hdmiin_out0` ->
+  remote-endpoint phandle 0x4e, `data-lanes = <1 2 3 4>`, `link-frequencies = <0x11b3dc40>`. A second
+  variant `tc358749x_v3@0f` sits on `i2c@ff3d0000` (alias `hdmiin_out0_v3`).
+* AV-in composite path is separate and enabled: `adv7181` under `isp_sensor` (`status = "okay"`,
+  `i2c_add = <0x42>`, interfaces `cvbs_ntsc` / `cvbs_pal`) - CVBS, not HDMI.
+* The primary display stays DSI: `dsi@ff960000` `status = "okay"`, `mtc,not_for_board = "11,22,24"`, panel
+  endpoint `panel_in_dsi` (as measured before).
+* MTC board-variant markers (`mtc,for_board`, `mtc,not_for_board`, `mtc,not_for_pcb_test`) select which
+  nodes the OEM enables for which board revision, so a DT `status` alone does not tell you what the socket
+  physically does. Settle it by experiment: plug a monitor (output test) or a source (input test), and meter
+  the pins with nothing plugged (steady 5 V on one pin = bus power being supplied = source/output; TMDS
+  pairs idling ~2.9-3.3 V also indicate an output; all near 0 V and no 5 V = sink/input).
+* Both kernels carry the drivers for either path: strings `rockchip,rk3399-dw-hdmi` (1 hit), `tc358749`
+  (2), `rockchip,rk3399-vop-big` / `rockchip,rk3399-vop-lit` (2 each), plus HDMI PHY compatibles for
+  rk3228/rk3328/rk3288/rk3368 - so a monitor experiment needs no firmware change and writes nothing.

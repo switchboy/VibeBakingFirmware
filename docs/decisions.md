@@ -1274,3 +1274,32 @@ does not power the unit on, and the 2.5 A brick is below the amp bank's inrush. 
 rail, 120 W wall adapter, or a car battery; inline fuse 10 A (not 5 A, it would blow at inrush), leads
 >= 1.5 mm^2, speaker leads left open for the first boots. Nothing else in D35 changes: still boot/super
 only, still no write before a serial reading (**D30**).
+
+## D36 - bench access revised: unpopulated debug header + an HDMI-looking connector (Nov 11, DECIDED)
+
+The owner opened the unit and found the debug UART header **unpopulated**, plus a connector on the PX6
+board that looks like **HDMI**. Measured consequences (`docs/findings.md`, "Connectors inside the case"):
+
+1. **Serial is still reachable.** The holes are plated through-holes: press-fit male Dupont pins or
+   spring-loaded probe pins, or one wire soldered to the pad ring. Identify with a meter (GND = continuity
+   to harness black, TX = idle ~3.3 V pulsing at power-on). There are two UARTs on this board - the console
+   (uart2, `ttyFIQ0`) and the MCU uart - so readable boot text vs binary chatter tells you which row you
+   found. Plan B (the FAT-stick report from `hu_probe.sh`) only works if init reaches second stage, so it
+   can confirm a boot but must not be used to decide a write.
+2. **The connector is probably HDMI, and the DTB supports both directions.** `hdmi@ff940000`
+   (`rockchip,rk3399-dw-hdmi`) is `status = "okay"` with its input endpoint from **VOP Lite** enabled and
+   VOP Big disabled, so an HDMI **output** path exists in the DTB. `tc358749x@0f` on `i2c@ff140000`
+   (`toshiba,tc358749`, an HDMI receiver) is `status = "disabled"` with `mtc,for_board = "2x"`,
+   `mtc,not_for_board = "21"`, so an HDMI **input** path exists in hardware but is off in this DTB as
+   built. The MTC board-variant markers decide what the OEM enables at runtime, so the DTB alone cannot
+   name the socket: settle it by experiment (monitor test = output; source test = input; metering pins with
+   nothing plugged: steady 5 V or TMDS pairs idling ~2.9-3.3 V = output).
+3. **A monitor is a legitimate bring-up display.** Both kernels carry `dw-hdmi`, `tc358749`,
+   `rk3399-vop-big` and `rk3399-vop-lit`, so plugging a monitor needs no firmware change and writes
+   nothing. If a monitor shows the animation while the DSI panel stays dark, init and SurfaceFlinger are
+   alive and the defect is the panel/timing path - that changes the plan completely, so record it either
+   way on the first power-on.
+4. **Write routes unchanged.** Maskrom via `upgrade_tool` stays the preferred route (**D35**); if the
+   HDMI-looking socket is not USB, then the USB-stick socket is the one to test for OTG/maskrom. Still no
+   write before a serial reading (**D30**), and still only `boot` + `super` are writable (**D18**, **D19**).
+   The monitor test is read-only, so it may run before the console reading; the *decision* may not.

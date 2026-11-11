@@ -110,6 +110,58 @@ It sets the port raw, tees to a file, and timestamps every line. Ctrl-C stops it
 Put the fob on a USB port that is **not** the one you use for Rockchip USB writes, so you can watch the
 log while writing.
 
+### 3b. If the debug header is unpopulated (Nov 11: it is)
+
+The header holes are plated through-holes, so the pads are still there - you do not need a populated
+header:
+
+* Use **male Dupont pins or spring-loaded probe pins** pushed into the holes (press-fit, gentle), or solder
+  one short wire to the pad ring around each hole. Photograph the row and tape-label each wire as you go.
+* Do not bridge adjacent holes while probing, and do not solder anything you cannot remove again.
+* Identify the pins with a meter: **GND** = continuity to the harness black; **TX** = idle ~3.3 V and
+  pulses at power-on; **RX** = the remaining pad in the row.
+* There are two UARTs on this board: the **console** (uart2, `ttyFIQ0`) and the **MCU uart** (the hct/mcu
+  chip). If what you see looks like binary/protocol chatter rather than readable boot text, you are on the
+  MCU uart - move to the console row.
+* If serial cannot be had at all, plan B is the stick-report route: our payload's
+  `/system/bin/hu_probe.sh` writes a report to a FAT USB stick inserted in the stick port - but that only
+  works if init reaches second stage, so it tells you less than the console. Do not use it to decide a
+  write; use it to confirm a boot.
+
+### 3c. The connector that looks like HDMI
+
+Measured in the DTB (both our payload's DTB and the OEM's carry the same nodes):
+
+* `hdmi@ff940000`, `compatible = "rockchip,rk3399-dw-hdmi"`, **`status = "okay"`**, with the endpoint from
+  **VOP Lite enabled** and the VOP Big endpoint disabled. So there is a real HDMI **output** path in this
+  board's DTB. It also carries `mtc,not_for_pcb_test = "2x"`, an MTC board-variant selector.
+* A real HDMI **input** path also exists: `tc358749x@0f` on `i2c@ff140000` (`compatible =
+  "toshiba,tc358749"`, an HDMI receiver feeding the VOP over parallel data lanes), with
+  **`status = "disabled"`**, `mtc,for_board = "2x"`, `mtc,not_for_board = "21"`. A second variant
+  `tc358749x_v3@0f` sits on `i2c@ff3d0000`. Both kernels contain the `tc358749` driver.
+* The AV-in composite path is separate: `adv7181` under `isp_sensor` (`status = "okay"`, interfaces
+  `cvbs_ntsc`/`cvbs_pal`) - that is CVBS/composite, not HDMI.
+
+Which socket you are looking at is a hardware question, not a DTB question - the `mtc,for_board` /
+`mtc,not_for_board` / `mtc,not_for_pcb_test` markers decide at runtime which nodes the OEM enables, so a
+"okay"/"disabled" status alone does not prove what the socket does. Settle it empirically:
+
+1. **Monitor test (is it an output?):** with the unit powered, plug a HDMI-capable monitor or a TV in and
+   power the unit on. If the monitor shows a logo, boot animation, or anything at all, the socket is an
+   output and you have a **second display to watch bring-up on** - valuable, because the panel path is DSI
+   (`dsi@ff960000`, `status = "okay"`) and the panel may stay dark while everything above it is alive.
+   Nothing is written by this test.
+2. **Source test (is it an input?):** plug a known HDMI source (a laptop, a phone) into the socket and see
+   whether the unit's own screen shows that video. If it does, the socket is an input for AV-in / a CarPlay
+   dongle and should be left alone during bring-up.
+3. With the unit powered and **nothing** plugged, meter each pin against PCB GND: a steady 5 V on one pin
+   means the socket is supplying bus power (source = output); TMDS pairs idling at ~2.9-3.3 V also point to
+   an output. All pins near 0 V with no 5 V points to a sink (input). Do not short pins while probing.
+
+Both kernels carry the drivers needed for either path (`rockchip,rk3399-dw-hdmi`, `tc358749`,
+`rockchip,rk3399-vop-big`, `rockchip,rk3399-vop-lit`), so a monitor experiment is safe and informative
+without touching the firmware.
+
 ## 4. Partition sector map (whole-disk LBA, 512-byte sectors)
 
 Measured from the working firmware's `/dev/block/by-name/` symlinks plus `/proc/partitions`:
@@ -154,6 +206,10 @@ Look for these, in order. Write down what you see.
 4. **init stage 2.** `init: starting service ...`, SurfaceFlinger, HAL start/crash-loop messages. If you
    get here, the fstab problem is behind you and the graphics/blob question is the next one.
 5. **Anything else:** panic/oops (copy the exact block), watchdog reset, crash loop.
+
+If the HDMI socket turned out to be an output (§3c), watch the monitor too: a monitor showing the boot
+animation while the panel stays dark means init and SurfaceFlinger are alive and the problem is the panel /
+timing path, not the OS. That distinction changes the whole plan, so record it.
 
 ## 6. Decision tree
 
