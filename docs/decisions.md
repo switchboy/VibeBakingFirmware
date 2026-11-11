@@ -1353,3 +1353,20 @@ the unit is stock Android 10 again, the Android 14 payload is re-applied as **`b
 the verified images (`boot-a10k-a14rd.img` `455a9ac8...` or `a14-fixed.img` `f378d4fd...`, plus our A14
 `super`) - never a chain write. The tool-written card will be handed to the laptop after the unbrick so its
 first sectors and RKAF parameter can be dumped and mirrored (see the D37 amendment above).
+
+**Amendment Nov 11 (measured on the tool card).** The tool-written card is a *flasher* card: the GPT is real
+(and Windows hides it because the MBR carries a genuine NTFS record), the firmware container is stored as a
+file in the NTFS region, `super` on the card is erased, and the card's chain images are SD-boot variants that
+differ from the container's own chain images. Its primary GPT puts `super` at 1379328 (matching the factory
+parameter block) while its backup GPT says 1378328 (matching the eMMC map) - u-boot reads the primary table,
+so any card we build must use the primary table's offsets and keep the backup consistent. Payload scope is
+unchanged: card media only, no eMMC write from our own builds (D18/D19).
+
+**D38 - the unit's own board DTB lives in the `boot` partition's second stage.** Measured Nov 11: the
+flashed factory firmware's DTB is `rockchip,rk3399-hct` but a different HCT variant (130,833 B, sha `9ffc8492`)
+that lacks `display-timings-dsi` and `mtc-radio_v0/1/2` and adds the six physical key nodes. The unit's OEM
+DTB is 152,425 B, sha `cd4eeb3d`. Because the DTB is embedded in `boot`, flashing the OEM `boot.img`
+(`04a43ea9...`, 27,406,336 B) restores the unit's own display/board description without touching the
+protected chain (uboot/trust/dtb/dtbo/vbmeta/security/GPT stay untouched). This write needs real access
+(serial console per D30, or maskrom per W1) and the factory card kept as the safety net, so it waits until
+probe pins or an OTG port exist.

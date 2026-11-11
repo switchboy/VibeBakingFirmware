@@ -977,3 +977,57 @@ Two layout facts from the same experiment:
 * The unit boots from the SD slot that Windows sees as the card-reader path, which confirms the SD slot
   (`sdhci@fe330000`, the controller named by `androidboot.boot_devices` in the dtbo overlay) is a real boot
   path on this board.
+
+## What the tool-written card actually contains - Nov 11 (dumped, sha `1225bccd`, 7,948,206,080 B)
+
+Parsed with `scripts/parse_sd_layout.py`. Earlier conclusions were partly my own parser bugs (GPT entry
+fields are type@0 uuid@16 first@32 last@40 attrs@48 name@56; a binary DTB stores property values as raw
+NUL-separated strings, not quoted DTS; the FDT magic is `d00dfeed`, not the legacy `d0020700`).
+
+* The card DOES have a real GPT (main @LBA1 + backup @last LBA, 128 entries of 128 B) with the unit's own
+  offsets: uboot 16384, trust 24576, misc 32768, dtb 40960, dtbo 49152, vbmeta 57344, boot 59392,
+  recovery 124928, backup 321536, security 550912, cache 559104, metadata 1345536, frp 1378304,
+  userdata 7752704. Windows saw "nothing" because the MBR carries a genuine NTFS record (type 0x07,
+  start 329728, size 15,192,064 sectors) - an MBR disk with a real partition masks the GPT from Windows.
+  Our card had no MBR record, so Windows parsed our GPT and showed ~10 unformatted partitions.
+* Main and backup GPT DISAGREE: main lists `frp` 1378304..1379327 and `super` 1379328..7752703, backup lists
+  frp 1378304..1378327 and super 1378328..7752703. The main table matches the factory parameter block
+  (super @1379328); the backup matches the eMMC map we measured. u-boot reads the main table.
+* `super` on the card is erased (0xFF at both 1378328 and 1379328), and the container is stored as a FILE
+  inside that NTFS region - the stray `RKAF` hits at sectors 350004 / 614403 / 630689 are the container's
+  own parameter chunks (`RKAF` + "RK3399" + package-file/bootloader/parameter/trust/uboot/misc/boot...).
+  So the card is a flasher card, not a full-system boot card.
+* Partition images sit verbatim at their GPT LBAs: boot @59392 begins with `ANDROID!`. The card's boot
+  partition's first 27,131,904 B hash `59310ba4...` = the container's `boot-factory.img` byte-for-byte.
+  My earlier "every piece DIFFERS from our payload" was padding past the image length, not a content diff.
+* The card's chain images DIFFER from the container's own chain images (card uboot `e287939a` vs container
+  `8407e60d`, card trust `5699a86b` vs staged OEM `7f2c4e52`): the tool writes an SD-boot-specific chain on
+  the card and puts the container's chain into the eMMC. Nothing at sector 64 carries a `BOOT` loader magic
+  in the first 8 MB (only `RSAK` at bytes 151560 / 231712 / 260352); `SDBoot.bin` in the tool bundle starts
+  with `BOOT` (`42 4f 4f 54`) and is 152,366 B, rk32xx_loader and our A10 RKLoader.bin also start with BOOT.
+* Card misc partition holds the AOSP recovery trigger: `boot-recovery`, `recovery`, `--wipe_all`. Card
+  security partition holds HCT lock-state records (`A54E481B8B69424182B83ACF16E99E2A/.01000000/lock_state`).
+* Boot image header fields in these Rockchip images are BYTE counts, not 512-byte page counts: boot
+  kernel 25,421,832 B, ramdisk 803,440 B, second 925,696 B; recovery's +16 field = 12,515,795 B, which is
+  exactly the container's recovery ramdisk size we measured earlier. Kernel loads at 0x10008000, ramdisk at
+  0x11000000, console `console=ttyFIQ0`, cmdline `androidboot.baseband=N/A androidboot.wificountrycode=US`.
+
+## The flashed firmware is an HCT board firmware, but NOT the unit's own DTB - Nov 11
+
+`scripts/find_dtb.py` on the container's boot image: the factory firmware's embedded DTB is
+`rockchip,rk3399-hct` + `rockchip,rk3399`, totalsize 130,833 B, sha `9ffc8492` - it IS an HCT firmware.
+But the unit's own OEM DTB (from `diatsia fw` boot second stage, +2048) is 152,425 B, sha `cd4eeb3d`,
+model "Rockchip RK3399 HCT  Board". Diffing the two with dtc (148 vs 154 nodes):
+
+* only in the OEM DTB: `display-timings-dsi`, `mtc-radio_v0`, `mtc-radio_v1`, `mtc-radio_v2`, `opp-1512000000`
+* only in the factory DTB: `back-key`, `camera-key`, `home-key`, `menu-key`, `vol-up-key`, `vol-down-key`,
+  and five extra opp-frequency nodes
+
+So the factory firmware has the physical buttons the OEM DTB lacks, and lacks the DSI display timings and
+the mtc-radio nodes the OEM DTB has. That is a credible cause for "booting but screen totally dark", and it
+means the OEM boot image (which carries the unit's own DTB in its second stage) is the targeted fix - not a
+boot-chain rewrite: `boot` is where the board DTB lives.
+
+The OEM packages cannot be burned by SD_Firmware_Tool: `diatsia fw/update(1).zip` and `update.zip` are
+recovery-style update packages (META-INF updater-script, dynamic_partitions_op_list, *.new.dat.br, plus
+RKLoader.bin/boot.img/dtbo.img), not RKFW `update.img` containers.
