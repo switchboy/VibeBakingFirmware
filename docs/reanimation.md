@@ -310,30 +310,39 @@ A14 super - same offsets, same script.
 Only if init actually gives you a root shell on the console (needs `/dev/block/by-name/` to exist). With
 the current payload it will not.
 
-## 8. Getting Android 10 back (the "reanimate" step)
+### W5 - dd from the bootSD recovery environment (proven Nov 11, the route to use)
 
-1. Write `super-a10.img` + `boot-a10.img` (W1 or W2). Verify shas before writing, read back after.
-2. Power cycle, watch serial. Expected: OEM kernel `4.19.111+ #190`, logical partitions created, init
-   stage 2, boot animation, WiFi.
-3. Type `adbon` in the factory-settings dialog -> `adb connect 192.168.1.120:5555` -> `adb root`. Now you
-   have uid 0 and a real terminal again.
-4. Copy anything you still want from the unit (`/data/local/tmp/hu14-backup/` if it survived, `/dev/kmsg`
-   dumps, build logs) before touching it again.
-5. From here the Android 14 attempt is a **boot-only** write: `boot-a10k-a14rd.img` (28,231,292 B) into
-   the boot partition, our `super.img` into super. Nothing else.
+The bootSD lands the unit in a working recovery with its own adbd, so you get a root shell without serial,
+without maskrom and without `adbon`. Recovery does not mount `super`, which is the safe moment to dd. The
+session's adbd output is the console reading D30 asks for; capture it to a file. Everything measured on
+Nov 11 (unbrick, chain restore, rollback) went through this route.
+
+## 8. Getting Android 10 back (done Nov 11 - the route that worked)
+
+1. Boot the bootSD card so the unit lands in a real recovery environment (the on-unit recovery menu never
+   appears, but the recovery *image* is reachable by SD boot - D39).
+2. Flash `diatsia fw/update(1).zip`. It passes OEM key verification, patches product/vendor/system/odm
+   unconditionally (all `patch.dat` are empty), then writes boot/trust/uboot/dtbo and rewrites the raw
+   loader. Let it finish - an interrupted write inside the super group is the worst state this unit has.
+3. Deep power cycle (minutes, not seconds), power on with the card out. Expect OEM kernel `4.19.111+ #190`
+   and the setup screen. That is what happened on Nov 11.
+4. Type `adbon` in the factory-settings dialog -> `adb connect 192.168.1.120:5555` -> `adb root` (uid 0).
+5. Take the stock backup BEFORE anything else is written: `scripts/pull_stock_backup.sh` (D40). Verify the
+   sha manifest and copy it to the NAS archive. This backup, not the factory card, is the rollback.
 
 ## 9. The Android 14 attempt, step by step
 
-1. Serial capture running, supply metered.
-2. Write our `super.img` (NAS build host `/srv/.../aospbuild-archive/` or `out-hu/`) to super, then
-   `boot-a10k-a14rd.img` to boot. Verify shas.
-3. Power cycle. Read the log: expect kernel `4.19.111+` (the A10 kernel our coherent boot carries), then
-   `Created logical partition` for all five partitions. If it stops at the fstab messages, the fix did not
-   land - do not flash again, re-measure.
-4. If init reaches stage 2, watch which services crash-loop and take `logcat`/`dmesg` over adb if adb is
-   alive.
-5. If the screen stays black but init stage 2 runs, that is the display/composer question - collect the
-   SurfaceFlinger lines, do not flash again.
+1. Stage the payload with `scripts/stage_a14_payload.sh`: it pushes `boot-a10k-a14rd.img` (28,231,292 B,
+   sha `455a9ac8`, A10 kernel + our A14 first-stage ramdisk) and our A14 `raw-super.img` into
+   `/data/local/tmp/a14` and sha-checks both on the unit. It writes no partitions.
+2. Boot the bootSD into recovery again, so Android does not have `super` mounted, and dd only those two
+   partitions: `boot` and `super`. Never `uboot`/`trust`/`dtb`/`dtbo`/`vbmeta`/`security`/GPT (D18, D19).
+   Recovery adbd is the console reading D30 asks for; capture its output to a file.
+3. Deep power cycle, power on with the card out. Expect kernel `4.19.111+`, `Created logical partition` for
+   all five A14 partitions, then init stage 2. If it stops at the fstab messages the fix did not land - do
+   not flash again, re-measure.
+4. Rollback is either `scripts/restore_stock_backup.sh` (from the D40 backup) or re-running the bootSD
+   recovery flash with `update(1).zip`. Both were proven working on Nov 11.
 
 ## 10. Troubleshooting
 
