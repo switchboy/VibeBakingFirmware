@@ -13,7 +13,7 @@
 # writes happen either from that staged copy under adb root (scripts/install_a14_from_adb_root.sh, the
 # primary route) or from the card in the recovery environment (bootSD + update.zip built by
 # scripts/build_recovery_fallback_zip.sh) - recovery is where super is not mounted by Android.
-# The files live under $WORK (the repo volume, ~450 GiB free) because the workstation's root filesystem
+# The files live under $WORK (the repo volume, 442 GiB free) because the workstation's root filesystem
 # is full; scripts/cold_storage_move.sh STAGE=payload moved them there and re-verified both hashes.
 set -euo pipefail
 

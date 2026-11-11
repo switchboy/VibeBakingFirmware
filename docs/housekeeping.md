@@ -80,4 +80,4 @@ source produced `rkresearch-nov11/rkresearch/...`, so the lists never matched.
 
 `SSData` remaining at 100% is the one thing still worth fixing before the next build: `lpmake` and
 `repack_bootimg` need scratch space, which is why scratch now lives on the repo volume
-(`/run/media/Daan/Opslagmonster/`, ~450 GiB free) instead.
+(`/run/media/Daan/Opslagmonster/`, 442 GiB free) instead.
