@@ -26,8 +26,19 @@ never mounts `/system` - nothing starts. The fix images are built and verified (
 ## 1. Materials
 
 * Head unit + its harness (yellow, red, black).
-* 12 V supply. The brick you have is 2.5 A - usable if the amplifiers stay disconnected or volume is at
-  zero. A 5 A or better supply is safer. Add an inline fuse (5 A) on the + lead.
+* **12 V supply rated 10 A or more.** Measured Nov 11: the unit's nameplate says 10 A and the rear of the
+  unit is fused at 10 A. A 1 A brick does not power it on at all, and a 2.5 A brick is marginal at best -
+  the amplifier bank and its capacitor charging pull several amps of inrush at power-on, so a small
+  current-limited supply just trips its own protection. Options, best first:
+  * an old **ATX PC power supply**: its +12 V rail on the 24-pin connector is usually 8-12 A. Short
+    **green (PS_ON) to any black (GND)** to start it without a motherboard; use **yellow wires for
+    +12 V** and **black for GND**. Some PSUs need a minimum load on the 5 V or 3.3 V rail - if it refuses
+    to start or the 12 V sags, hang a 12 V fan or an automotive bulb between +12 V and GND.
+  * a **12 V / 10 A (120 W) wall adapter**, or a bench/lab supply with current limit set to ~12 A.
+  * a **car battery** with a charger attached (real 12 V, enormous surge capacity, no protection to trip).
+* Inline fuse on the + lead: **10 A**, matching the unit's own rear fuse. Do not put a 5 A fuse on this
+  unit - it will blow at inrush. Use proper crimped terminals, not twisted strands, and leads of at least
+  **1.5 mm^2** copper; keep the leads short.
 * Multimeter (V and ohms/continuity).
 * USB-to-UART fob with **3.3 V** logic. 5 V TTL bridges (some CH341/CP2102 boards) can damage the SoC pad
   - check the bridge's IO voltage before connecting.
@@ -51,16 +62,23 @@ never mounts `/system` - nothing starts. The fix images are built and verified (
 
 ## 2. Bench power
 
-1. Set the brick to 12 V (12.0-13.0 V is fine; anything above 13.5 V is not).
-2. **Yellow and red both to +12 V.** Automotive harnesses usually carry constant (+, memory) and switched
-   (ACC, logic). Feeding both from the same supply is the usual bench hack; feeding only one often leaves
-   the unit dead or half-alive. Twist them together, put the fuse between supply and harness.
-3. **Black to the brick's GND.** Nothing else in the harness gets connected: CAN lines, speakers, power
+1. Set the supply to 12 V (12.0-13.0 V is fine; anything above 13.5 V is not; never 24 V).
+2. **Yellow and red both to +12 V**, through the 10 A inline fuse. Automotive harnesses usually carry
+   constant (+, memory) and switched (ACC, logic). Feeding both from the same supply is the usual bench
+   hack; feeding only one often leaves the unit dead or half-alive. Twist them together only if both leads
+   are heavy enough for 10 A - otherwise use two crimped terminals into one supply post.
+3. **Black to the supply's GND.** Nothing else in the harness gets connected: CAN lines, speakers, power
    antenna, mute, brake, parking brake - leave them open and tape them so they cannot touch each other.
 4. Meter before energising: continuity yellow->+, red->+, black->-; resistance between + and - must not be
-   near 0 ohms.
-5. Connect the UART first (§3), then power. You want the log from the very first line of the bootloader.
-6. Watch the supply voltage during writes. If it drops below ~11 V, abort and fix the supply.
+   near 0 ohms; check the unit's own 10 A rear fuse is intact.
+5. **Keep the speaker leads open for the first boots.** The amplifier bank is the heavy part of the load
+   and its capacitors draw inrush at power-on. Sound-input testing comes later, once the unit boots, and
+   then the supply must genuinely hold 10 A.
+6. Expect a brief voltage dip at power-on - that is normal inrush. It must recover to >= 12 V. If the
+   supply shuts down or stays below ~11 V, it is too weak: do not retry with a smaller one, get a heavier
+   supply.
+7. Connect the UART first (§3), then power. You want the log from the very first line of the bootloader.
+8. Watch the supply voltage during writes. If it drops below ~11 V, abort and fix the supply.
 
 ## 3. Serial console
 
@@ -146,7 +164,7 @@ Look for these, in order. Write down what you see.
 | OEM kernel (`4.19.111+ #190`) | boot partition holds OEM A10 boot, so `super` is the odd one out | restore OEM super (W1/W2) to get Android 10 back |
 | kernel panic / oops | kernel or DTB problem | copy the block verbatim, do not write anything |
 | no serial output at all, unit draws current | UART wiring or wrong port | swap TX/RX, check baud, check 3.3 V bridge, find the other UART |
-| no serial output, no current draw | power problem | re-check fuse, yellow+red both live, polarity |
+| no serial output, no current draw | power problem | the supply is too weak - this unit wants 10 A (§2): check the rear 10 A fuse, polarity, and that yellow *and* red are both live |
 | unit boots Android 10 normally | payload gone/rolled back | get TCP adb back (§8), then decide from there |
 
 ## 7. Write routes, safest first
@@ -247,6 +265,12 @@ the current payload it will not.
   `ttyFIQ0` failed - the log ends at the last u-boot line, which is itself a useful reading.
 * Unit restarts every ~10 s: watchdog because init never completes - that is exactly what D34 produces.
 * Unit gets hot, smells, or sparks: disconnect immediately, find the short before trying again.
+* Unit stays dead with a heavy supply: check the unit's rear 10 A fuse, supply polarity, and that both
+  yellow and red are energised. If all three are good, it is not a power problem - and then the next thing
+  to suspect is that the supply's 12 V post is not actually the same node you metered.
+* Supply starts but dies as soon as the unit is connected: that is over-current protection tripping on
+  inrush - the supply is undersized for a 10 A unit, or the amp capacitors are charging. Use an ATX PSU or
+  a battery; do not cycle a small brick repeatedly, each attempt is a partial write risk if init is half-up.
 * `upgrade_tool LD` shows 0 devices: maskrom not reached (no OTG access, or the short is on the wrong
   pad), or the cable/port is host-only.
 * `lpmake`/libsparse "Disk quota exceeded" on the NTFS HDD: build and copy on ext4 or the NAS instead.

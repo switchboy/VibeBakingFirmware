@@ -88,7 +88,8 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   A14 ramdisk + fstab). Flashing the OEM `boot-a10.img` unchanged would **not** work - its ramdisk fstab
   lists only `system/vendor/odm/product`, no `system_ext`. **No second flash without a serial console
   reading first.**
-* The unit goes on the desk bench next: harness yellow+red to a fused 12 V supply, black to supply GND,
+* The unit goes on the desk bench next: harness yellow+red to a **12 V / 10 A supply** fused at 10 A (the
+  unit's nameplate and rear fuse are both 10 A - a 1 A brick does not power it on), black to supply GND,
   a 3.3 V serial fob on `console=ttyFIQ0` at 115200 8N1. The standalone bench guide (materials, wiring,
   partition sector map, serial reading order, decision tree, write routes via `upgrade_tool` maskrom or
   TCP adb, troubleshooting) is `docs/reanimation.md`; capture with `scripts/serial_console.sh log <name>`.

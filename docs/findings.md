@@ -802,3 +802,13 @@ same two images byte-for-byte (`f378d4fd…`, `455a9ac8…`). The fstab itself i
 in `…/aospbuild-archive/vibe-fix/`. Step 2 reads the ramdisk from step 1's output, so the coherent image
 inherits the fstab - running it against the unfixed image yields a coherent image *without* fstab (caught
 on the first run).
+
+## Bench power, owner-measured Nov 11
+
+The unit's nameplate says **10 A** and the rear of the unit is **fused at 10 A**. The 1 A bench brick did
+not power the unit on at all, and the 2.5 A brick recorded earlier is also below what the amplifier bank
+needs at power-on (its capacitor charging is inrush, which trips a small current-limited supply). Practical
+minimum for the bench: a **12 V / 10 A (120 W)** supply, an ATX PSU's +12 V rail (short green PS_ON to any
+black to start; yellow = +12 V, black = GND; some PSUs need a small load on 5 V/3.3 V to start), or a car
+battery with a charger. Inline fuse **10 A**, leads >= 1.5 mm^2, crimped terminals. A brief rail dip at
+power-on is normal; it must recover to >= 12 V. Procedure lives in `docs/reanimation.md` §2.

@@ -1267,3 +1267,10 @@ Measured support for it, tonight:
 * Power caution recorded: the owner's brick is 12 V **2.5 A**; amplifier draw can exceed that, and a
   brownout mid-write is the worst failure mode on this bench. Fuse the + lead, keep the load low, abort if
   the supply falls below ~11 V. A 5 A supply is better if available.
+
+**Amendment Nov 11 (owner measured, supersedes the power paragraph above).** The unit's nameplate is 10 A
+and it is fused at 10 A at the rear, so the bench supply must be **12 V / 10 A or better** - a 1 A brick
+does not power the unit on, and the 2.5 A brick is below the amp bank's inrush. Recommended: ATX PSU +12 V
+rail, 120 W wall adapter, or a car battery; inline fuse 10 A (not 5 A, it would blow at inrush), leads
+>= 1.5 mm^2, speaker leads left open for the first boots. Nothing else in D35 changes: still boot/super
+only, still no write before a serial reading (**D30**).

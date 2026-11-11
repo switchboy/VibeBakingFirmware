@@ -90,7 +90,8 @@ This file is the index plus the risk register, and it must not restate numbers -
    vermagic will be rejected but is not fatal (Mali is built into both kernels; the OEM ships the same bad
    module). The composer question stays open (Android 14 may need AIDL `composer3`/`allocator`/`mapper`
    wrappers around the OEM blobs rather than the declared HIDL `composer@2.1::IComposer/default`). The
-   bench procedure is written up standalone in `docs/reanimation.md` (harness yellow+red to fused 12 V,
+   bench procedure is written up standalone in `docs/reanimation.md` (harness yellow+red to a 12 V/10 A
+   supply - nameplate and rear fuse are both 10 A, so a small brick will not power it on,
    black to GND, 3.3 V fob on `console=ttyFIQ0` 115200 8N1, partition sector map for `upgrade_tool WL`,
    decision tree, troubleshooting); capture with `scripts/serial_console.sh log <name>`.
 4. **Rollback is blind (D29) and the payload is ready (D31).** Rebuilt from `diatsia fw/update(1).zip`:
