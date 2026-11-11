@@ -1343,3 +1343,13 @@ writes no Windows-visible partition table - so the Rockchip **parameter** block,
 path uses. `scripts/write_rescue_sd.sh` stays useful for payload staging, but the layout must be copied from
 the tool-written card (dump its first sectors and the RKAF parameter) before any further card build. Nothing
 else in D37 changes: card-only media, no eMMC write, payload files unchanged.
+
+**Amendment Nov 11 (owner route, full-OEM unbrick).** The owner chose the known-good route: burn the Malysk
+factory PX6 firmware with `SD_Firmware_Tool.exe` on Windows and let the card unbrick the unit. That restores
+the **entire** eMMC - including `uboot`, `trust`, `dtb`, `dtbo`, `vbmeta`, `security` and the GPT, which
+**D18** had never allowed us to write. This is an OEM restore of the unit's own stock chain (not our payload),
+so it is a legitimate recovery; the D18/D19 prohibition still applies to anything *we* build afterwards. Once
+the unit is stock Android 10 again, the Android 14 payload is re-applied as **`boot` + `super` only**, using
+the verified images (`boot-a10k-a14rd.img` `455a9ac8...` or `a14-fixed.img` `f378d4fd...`, plus our A14
+`super`) - never a chain write. The tool-written card will be handed to the laptop after the unbrick so its
+first sectors and RKAF parameter can be dumped and mirrored (see the D37 amendment above).
