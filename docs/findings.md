@@ -1,7 +1,7 @@
 # Measured findings — evidence, not decisions
 
 This file holds the measurement/evidence records that used to sit inside `docs/decisions.md`.
-Decisions stay in `docs/decisions.md` (D1-D36); pointers here point back. Numbers are what the
+Decisions stay in `docs/decisions.md` (D1-D37); pointers here point back. Numbers are what the
 build host / dumps / probes actually produced - do not edit a number here without re-measuring.
 
 ## Packaging pass Nov 8 - dist, super, the HU payload, and its offline verification
@@ -842,3 +842,66 @@ What the DTB says about that connector (identical node set in our payload's DTB 
 * Both kernels carry the drivers for either path: strings `rockchip,rk3399-dw-hdmi` (1 hit), `tc358749`
   (2), `rockchip,rk3399-vop-big` / `rockchip,rk3399-vop-lit` (2 each), plus HDMI PHY compatibles for
   rk3228/rk3328/rk3288/rk3368 - so a monitor experiment needs no firmware change and writes nothing.
+
+## Bootable SD firmware, owner-supplied Nov 11 (settles the SD layout question)
+
+Owner supplied `bootableSD/bootable_sd_card_10_android_PX5.rar` and `...PX6.rar` (the Windows
+`SD_Firmware_Tool.exe` + `Rockchip Create Upgrade Disk Tool v1.53.exe` bundle plus a factory firmware
+container). The PX6 one is the relevant example: `update_10_android_zavod_PX6.img`, 2,477,425,112 B,
+sha256 `7772a1da0e719cda0522084ad8728b24d4661fa4b5408edbeec48cf42d103e02`, dated 2020-10-12. Extracted
+to ext4 at `/var/tmp/bootableSD-px6/` (tmpfs rejects large unrar writes with "Invalid ioctl").
+
+It is an **RKFW `update.img` container**, not a raw card dump - the Windows tool unpacks it and lays it
+out on the card. Its own config.ini documents the tool's knobs: `IDBLOCK_POS` ("default is 64"),
+`USE_FW_LOADER=true`, `UPDATE_FW_MODE=TRUE`, `SDBOOT_MODE`; `sd_boot_config.config` is the factory
+SD-boot switch (`loader_update=0`, `display_led=1`, `display_lcd=1`, `pcba_test=0`, `fw_update=0`).
+
+`afptool -unpack` refuses both containers ("check crc failed"), so the partition table was read directly
+from the RKAF parameter block inside the container (magic `RKAF`, chip string `RK3399`, 80-byte item
+records: partition name at +48, filename at +80, and the numeric fields in the 20 bytes before the next
+name). Decoding gives this partition map, in whole-disk 512-byte sectors:
+
+| partition | start | size (sectors) | image bytes |
+|---|---|---|---|
+| bootloader (MiniLoaderAll) | - | - | loader stored as a `BOOT` blob at container offset 102 |
+| parameter | - | - | RKAF block at 387,506 |
+| trust | 24576 | 8192 | 4,194,304 |
+| uboot | 16384 | 8192 | 4,194,304 |
+| misc | 32768 | 8192 | - |
+| boot | 59392 | 65536 | 27,133,952 |
+| dtbo | 49152 | 8192 | 803 |
+| vbmeta | 57344 | 8192 | 4,096 |
+| recovery | 124928 | 196608 | 38,848,512 |
+| super | 1379328 | 6373376 | 2,402,202,560 |
+| backup | RESERVED | - | - |
+
+**Every start sector matches the unit's own measured eMMC map** (uboot 16384, trust 24576, misc 32768,
+dtb 40960, dtbo 49152, vbmeta 57344, boot 59392..124927, recovery 124928, super 1378328...). Only
+`super` differs slightly (factory 1,379,328 vs unit 1,378,328 - a 1000-sector factory build offset, not a
+layout change). So the SD card is a **sector-for-sector mirror of the eMMC layout**, which is exactly the
+design recorded in `docs/reanimation.md` §4.
+
+Byte-level comparison of the factory PX6 payload against our staged OEM Android 10 files:
+
+* `trust.img` - **byte-identical** to `/tmp/opencode/rkrescue/trust.img` (`7f2c4e52...`, 4 MB).
+* `dtbo.img` - **byte-identical** (`28a07d49...`, 803 B, present twice in the container).
+* `uboot.img` - 4,194,092 of 4,194,304 bytes identical; the differences are the RSA signature block at
+  0x18..0x43 plus build-date strings ("Aug 3 2020" vs "Jun 2 2020") and a version string ("3/3" vs "2/2").
+  Functionally the same u-boot; both carry `boot_targets=mmc1 mmc0 usb0 pxe dhcp`, `mmc1`, `sdcard` and
+  `baseparameter` strings.
+* Vendor u-boot boot logic (strings): `bootcmd_mmc1=setenv devnum 1; run mmc_boot`,
+  `Could not find baseparameter partition`, `alloc_read_gpt_entries`, `Backup GPT repair fail!` -> the SD
+  slot is `mmc1` and is tried **first**, and partitions are located through a **GPT on the card**. So the
+  card needs a GPT with the Rockchip partition names, not just raw dd.
+
+Real boot headers found inside the container (validated header fields, page 2048): a plain boot.img at
+0x8cc9b4 (kernel 25,421,832, ramdisk 803,440, second 903,168) and a **recovery.img at 0x22af9b4 with a
+12,515,795-byte ramdisk** - the factory's SD-flash rescue environment. The container's payload area is
+sequential with page padding, so the factory's own boot kernel (25,421,832 B) differs from the OTA A10
+boot kernel (25,671,688 B); our staged `boot-a10.img` (27,406,336 B, sha `04a43ea9...`) is the OTA one and
+stays the rescue boot image because it is already proven coherent with `super-a10.img`.
+
+DTB note: the OEM A10 boot image's "second" stage starts with ASCII `RSCE` (Rockchip second-stage wrapper)
+and contains a raw DTB at +2048, totalsize 152,425 B, sha `cd4eeb3daece...`, `compatible =
+"rockchip,rk3399-hct", "rockchip,rk3399"` - the same DTB already recorded in findings. That DTB is what the
+card's `dtb` partition (sector 40960) gets.

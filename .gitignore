@@ -40,3 +40,7 @@ local.env
 .env.*
 *.swp
 .DS_Store
+bootableSD/
+*.rar
+*.img
+*.disk/

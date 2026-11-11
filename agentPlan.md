@@ -52,7 +52,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D20-D23 | decided | vendor libs via Android 14's own `<name>.vendor` modules; WiFi HAL rebuilt in-tree (`libwifi-hal-rtk`); libdrm patched to export `drmModeAddFB2_ext`; `usb_dongle` rebuilt from published source, `libomxvpu` stays a declared gap |
 | D24 | implemented | HCT app layer staged from the reference payload, re-signed with our platform key |
 | D25 | decided | recovery cannot install our package (trusted cert `cf2ab3…` is HCT's own); route 1 = testkey-signed zip attempt, route 2 = raw image
-| D32-D36 | decided | measured defect list (Mali vermagic is cleanup, DTB panel-table trimming is a vendor A10->A11 delta); our boot image is the vendor **A11** kernel+DTB on an **A10** chain; and our payload had **no first-stage fstab** - fixed images built (`a14-fixed.img`, `boot-a10k-a14rd.img`), neither flashed |s via `adb root` dd, recovery untouched |
+| D32-D37 | decided | measured defect list (Mali vermagic is cleanup, DTB panel-table trimming is a vendor A10->A11 delta); our boot image is the vendor **A11** kernel+DTB on an **A10** chain; and our payload had **no first-stage fstab** - fixed images built (`a14-fixed.img`, `boot-a10k-a14rd.img`), neither flashed |s via `adb root` dd, recovery untouched |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 9/10)

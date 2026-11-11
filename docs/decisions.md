@@ -1303,3 +1303,34 @@ board that looks like **HDMI**. Measured consequences (`docs/findings.md`, "Conn
    HDMI-looking socket is not USB, then the USB-stick socket is the one to test for OTG/maskrom. Still no
    write before a serial reading (**D30**), and still only `boot` + `super` are writable (**D18**, **D19**).
    The monitor test is read-only, so it may run before the console reading; the *decision* may not.
+
+## D37 - rescue SD card = sector-for-sector mirror of the eMMC layout + card-local GPT (Nov 11, DECIDED)
+
+The owner's known-good factory PX6 SD firmware (`bootableSD/bootable_sd_card_10_android_PX6.rar`,
+`update_10_android_zavod_PX6.img`, sha `7772a1da...`) settles the layout: it is an RKFW container that the
+Windows `SD_Firmware_Tool.exe` lays out on a card, with `IDBLOCK_POS` default **64**, and its partition
+table carries exactly the offsets the unit's eMMC uses (uboot 16384, trust 24576, misc 32768, dtbo 49152,
+vbmeta 57344, boot 59392, recovery 124928, super ~1378328). Its `trust.img` and `dtbo.img` are
+byte-identical to our staged OEM A10 copies, and its `uboot.img` differs only by signature bytes and build
+strings. Vendor u-boot lists `boot_targets=mmc1 mmc0 ...` (SD slot tried first) and finds partitions via
+`alloc_read_gpt_entries`, so **the card needs a GPT with Rockchip partition names**, not raw dd alone.
+
+Consequences:
+
+1. The card is built by `scripts/write_rescue_sd.sh` on the laptop: wipe, `sgdisk` GPT with the unit's
+   partition names/offsets (userdata trimmed to the card's remaining space), then
+   `dd bs=512 seek=64 idbloader.bin` (FlashData+FlashBoot, 239,616 B / 468 sectors), uboot@16384,
+   trust@24576, dtb@40960 (the RSCE-wrapped DTB carved from the OEM A10 boot's second stage, sha
+   `cd4eeb3d...`), dtbo@49152, vbmeta@57344 (4 KB zero - u-boot reports "Not AVB images, AVB skip" on this
+   unit and AVB is orange/not enforced), boot@59392 (`boot-a10.img`, sha `04a43ea9...`),
+   super@1378328 (`super-a10.img`, sha `30da961c...`). Then `sync` and per-piece read-back sha verification.
+2. Identity gate before any write: `RM=1`, vendor "Generic- SD/MMC", 7-8 GB, usb, nothing mounted, and the
+   device must not carry a system mountpoint. The workstation's `/dev/sda` is a 7.3 T RAID array and is
+   rejected by that gate; the laptop's `/dev/sda` passes (7.4 GB, RM=1, "Generic- SD/MMC", usb) and the
+   laptop's own disk is `nvme0n1`.
+3. Payload choice: the verified OEM Android 10 pair (`boot-a10.img` + `super-a10.img`) rather than the
+   factory container's own boot/super, because ours is already proven coherent (lpdump/debugfs) and matches
+   the OTA firmware the unit shipped with. Booting the card gives a working Android 10 from SD, which is the
+   unbrick route: `adbon` -> TCP adb -> `adb root` -> then write only `boot`/`super` on eMMC (**D18**, **D19**).
+4. Nothing in this decision writes to the unit. It is card-only media, so it is not gated by **D30** (the
+   serial-console gate applies to writes on the unit).
