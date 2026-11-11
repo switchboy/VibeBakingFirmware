@@ -1070,3 +1070,34 @@ the unit's own DTB `cd4eeb3d`) fixed it. D38 confirmed, D39 route confirmed.
 Network state right after that boot: a live host at 192.168.1.126 (port 5555 refused, so not adb yet),
 192.168.1.120 no longer responding, no adb device on either machine. TCP adb opens only after `adbon` is
 typed in the factory settings dialog (D28).
+
+## Stock Android 10 baseline: every owner criterion is satisfied on the shipped firmware - Nov 11 (adb over TCP)
+
+`adbon` typed in the factory settings dialog opened TCP adb (`adb connect 192.168.1.120:5555`, `adb root`
+accepted, `uid=0`). Build `rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.20250401.152740:userdebug/release-keys`,
+kernel `Linux version 4.19.111+ ... #190 ... Fri Jul 5 2024` = the OEM A10 kernel. eMMC is `mmcblk2`;
+`super` is 3,263,168,512 B, matching our measured map (boot p7, trust p2, uboot p1, dtb p4, dtbo p5,
+vbmeta p6, misc p3, security p10, metadata p12, frp p13, super p14, userdata p15, backup p9, cache p11).
+
+Measured hardware state on this stock firmware (all read-only probes):
+
+* **WiFi** works: `wlan0` state UP with `inet 192.168.1.120/24`, `persist.sys.wifi.type=RTL8188EU`,
+  `vendor.wifi_hal_legacy` and `wificond` both running, MAC `44:ef:bf:37:a3:e0`.
+* **Screen** works: boot animation then setup screen (owner observed); `dumpsys input` shows live windows on
+  displayId=0 plus a second displayId=2 surface.
+* **Touch** works: `/dev/input/event0..event2` present, eventhub records `deviceId=3 source=0x00001002`
+  (touchscreen) with real MOVE and UP MotionEvents.
+* **Buttons** work: KeyEvents recorded for keyCode 4 (BACK) and 3 (HOME).
+* **CANBUS / MCU** work: `/dev/mtc-car`, `/dev/mtc-av`, `/dev/mtc-cvbs`, `/dev/mtc-cvbs2`, `/dev/mtc-dab`,
+  plus `ttyS0/ttyS1/ttyS4`; `persist.product.mcuversion=MTCE_HXD_V3.56_1`, `hct.hub.sta=1`,
+  `hct.data.copy=1`, `init.svc.hctprecopy` ran, `vendor.weaver-hal-1-0` running.
+* **Sound input** works: `/proc/asound/devices` lists a digital audio *capture* node (card 0 has playback and
+  capture; card 1 playback), so the audio input path exists on the shipped firmware.
+
+So the brick was purely software: our Android 14 payload's missing first-stage fstab (D34) plus the wrong DTB
+(D38). The hardware, kernel and vendor HALs are all fine on the OEM A10 build.
+
+Backup note (D40): `scripts/pull_stock_backup.sh` pulls disk head (8 MB), backup GPT tail, and uboot/trust/
+misc/dtb/dtbo/vbmeta/boot/recovery/security/metadata/frp/super with a sha256 manifest, and refuses to run if
+adb is not root or the build is not stock A10. It reads partitions while Android is running, so `super` is a
+live-mounted snapshot - good enough as a rollback, and the recovery route can take a second copy later.
