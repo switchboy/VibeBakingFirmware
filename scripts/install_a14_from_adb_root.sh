@@ -22,8 +22,8 @@ set -u
 
 SRC=${SRC:-/data/local/tmp/a14}
 BACKUP=${BACKUP:-/data/local/tmp/a14-backup}
-BOOT_IMG=${BOOT_IMG:-a14-fixed.img}
-SUPER_IMG=${SUPER_IMG:-raw-super.img}
+BOOT_IMG=${BOOT_IMG:-boot-a14.img}
+SUPER_IMG=${SUPER_IMG:-super-a14.img}
 BOOT=/dev/block/by-name/boot
 SUPER=/dev/block/by-name/super
 USERDATA=/dev/block/by-name/userdata

@@ -1159,3 +1159,36 @@ answer. Measured:
   (kernel `4.19.111+`) coherent without building anything.
 * Rebuilding a driver is possible if we ever need it: the running unit exposes `/proc/config.gz` (34,030 B),
   so the exact config of the shipped `4.19.111+ #190` kernel is available for out-of-tree builds.
+
+## Recovery trust, dual certs, and why the write must not happen while super is mounted - Nov 11
+
+Attempt 2 ended with a black screen: the installer wrote `super` while stock Android 10 had its logical
+partitions mounted, so the framework collapsed before anything rebooted. Not a boot-chain brick - the
+chain (uboot/trust/dtb/dtbo/vbmeta/security/misc) was never touched - and the bootSD rollback restored
+stock Android 10 (adb came back, `/data` came back empty: 1.4 GiB used of 54 GiB).
+
+Measured consequences and decisions:
+
+* The rollback zip's `boot.img` is 27,406,336 B, so the first 27,406,336 B of the boot partition were
+  rewritten and everything above stayed leftovers of our previous Android 14 image (partition prefix
+  readback `1f48dc302392`, stock dump prefix `e7150f7cd3d9`, full stock dump `3d2741f04f31` / 33,554,432 B).
+  Writing our full 32,796,672 B image overwrites all of that; the trailing 757,760 B of the partition are
+  unread padding (u-boot sizes the read from the boot header).
+* Recovery cannot be the installer. Its `format()` calls `make_f2fs` from `/vendor/bin`, and our vendor
+  slice has no mkfs binaries, so once super holds Android 14 recovery cannot format `/data`.
+* The cert store cannot be patched on live stock either: stock mounts `/` (system-as-root) and `/vendor`
+  through device-mapper (`/dev/block/dm-2`, `dm-1`, `dm-0`, `dm-3`, read-only, seclabel), so
+  `/system/etc/security/otacerts.zip` is not writable from the running ROM.
+* The dual-cert store lives in OUR system slice instead - recovery reads its cert store from the mounted
+  system partition, so once Android 14 is installed recovery trusts both keys. Extracted from the stock
+  system extent in `hu-stock-backup/super.bin` (extent offset block 2560720): HCT's cert der-sha
+  `cf2ab3818595c4ed...`, our AOSP testkey der-sha `a40da80a59d170ca...`. `/var/tmp/otac-dual.zip`
+  (3,345 B, entries `hct.x509.pem` + `testkey.x509.pem`) is written into `system-slice.img` at
+  `/etc/security/otacerts.zip` and re-injected into `raw-super.img` at the system extent (block 2048).
+  Verified by extracting the system extent back out of the super: both entries present.
+  New payload shas: super `58991d74432e...` (3,263,168,512 B), boot unchanged `933e2ecc4237...`.
+  Original stock cert store kept as `hu-stock-backup/otacerts-original.zip` (1,049 B).
+* The install is therefore ONE detached shot from stock Android (where stock's own `make_f2fs` exists):
+  write boot+super, verify readback, `stop`, unmount `/data`, format fresh plain f2fs, reboot. It must run
+  under `setsid` because `stop` stops class main, which contains adbd, so the adb session dies mid-script
+  and an adb-child shell would be killed before the reboot.
