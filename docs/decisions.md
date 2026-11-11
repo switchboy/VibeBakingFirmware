@@ -1334,3 +1334,12 @@ Consequences:
    unbrick route: `adbon` -> TCP adb -> `adb root` -> then write only `boot`/`super` on eMMC (**D18**, **D19**).
 4. Nothing in this decision writes to the unit. It is card-only media, so it is not gated by **D30** (the
    serial-console gate applies to writes on the unit).
+
+**Amendment Nov 11 (measured, corrects point 1 above).** The Malysk factory card, burned with
+`SD_Firmware_Tool.exe` on Windows, boots the unit in the GPS SD slot after a **deep power cycle**, while our
+GPT card does not boot and Windows sees our GPT (as ~10 unformatted partitions) but sees nothing on the
+tool-written card. Vendor u-boot carries both `part_get_info_efi` and `part_get_info_rkparm`, and the tool
+writes no Windows-visible partition table - so the Rockchip **parameter** block, not a GPT, is what the boot
+path uses. `scripts/write_rescue_sd.sh` stays useful for payload staging, but the layout must be copied from
+the tool-written card (dump its first sectors and the RKAF parameter) before any further card build. Nothing
+else in D37 changes: card-only media, no eMMC write, payload files unchanged.

@@ -956,3 +956,24 @@ Correction to the paragraph above about the device counters: `/sys/block/sda/sta
 written**, ms writing, ...". Field 6 is writes *merged*, not sectors; sectors written is field 7, which was
 24,204,752 sectors (12.4 GB) across all runs. The card was never under-written - the apparent "817 MiB"
 reading was this field mix-up, not a missing write.
+
+## SD boot works, but only after a deep power cycle - Nov 11 (owner measured)
+
+The Malysk factory card (`update_10_android_zavod_PX6.img`, burned with `SD_Firmware_Tool.exe` on Windows)
+boots the PX6 in the **GPS-slot SD reader**, but the first power-on looked like a failure: "lights on, screen
+totally black, no backlight". It only came up after a **deep power cycle** (supply disconnected long enough
+for the PMIC / amplifier capacitor bank to bleed down). A quick re-power does not restart BootROM cleanly on
+this unit. So on the bench: power off, wait tens of seconds, then power on - and do not conclude the card is
+bad from the first attempt.
+
+Two layout facts from the same experiment:
+
+* Windows showed ~10 "unformatted" partitions on **our** GPT card, and saw **nothing** on the card the
+  Windows tool wrote. So the tool does not write an EFI/GPT table that Windows can parse; vendor u-boot
+  resolves partitions through the Rockchip **parameter** block (`part_get_info_rkparm` is in the u-boot
+  binary next to `part_get_info_efi`). Our card-local GPT approach (D37) is therefore not what BootROM +
+  miniloader expect - the parameter-based layout is authoritative. The next step is to read the tool-written
+  card directly (first sectors + the RKAF parameter block) and mirror it exactly.
+* The unit boots from the SD slot that Windows sees as the card-reader path, which confirms the SD slot
+  (`sdhci@fe330000`, the controller named by `androidboot.boot_devices` in the dtbo overlay) is a real boot
+  path on this board.
