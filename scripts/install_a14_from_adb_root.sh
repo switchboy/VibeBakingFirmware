@@ -95,7 +95,7 @@ dd if="$SRC/$SUPER_IMG" of="$SUPER" bs=4096 conv=fsync 2>&1 | tail -1
 sync
 
 say "== read back what is on the partitions =="
-got_boot=$(dd if="$BOOT" bs=1 count="$boot_img" 2>/dev/null | sha256sum | cut -d' ' -f1)
+got_boot=$(dd if="$BOOT" bs=4096 count=$((boot_img / 4096)) 2>/dev/null | sha256sum | cut -d' ' -f1)
 say "  boot   partition prefix $got_boot"
 got_super=$(dd if="$SUPER" bs=1M count=256 2>/dev/null | sha256sum | cut -d' ' -f1)
 say "  super  first 256 MiB $got_super"
@@ -105,17 +105,30 @@ want_super_head=$(dd if="$SRC/$SUPER_IMG" bs=1M count=256 2>/dev/null | sha256su
 tail_nonzero=$(dd if="$SUPER" bs=1M skip=$((super_img / 1048576 - 8)) 2>/dev/null | tr -d '\000' | wc -c)
 say "  super  tail beyond $((super_img / 1048576 - 8)) MiB: $tail_nonzero non-zero bytes"
 
+# The wipe is the part that kills adbd: `stop` stops class main and adbd is a class main service, so
+# the adb session dies the moment it runs. Either let the script run detached (setsid) so an orphaned
+# shell survives adbd's death, or set WIPE=0 and issue the detached command separately.
+if [ "${WIPE:-1}" != 1 ]; then
+  say "== stopping here: WIPE=0. Next phase, detached so adbd's death cannot abort it: =="
+  say "  setsid -f sh -c 'sync; stop; sleep 5; umount /data/sync; umount -l /data; \\
+      grep -q \" /data \" /proc/mounts || make_f2fs -f /dev/block/by-name/userdata; \\
+      sync; reboot' > /cache/wipe.log 2>&1"
+  exit 0
+fi
+
 say "== wiping /data (Android 10 encryption must not survive into Android 14) =="
 stop
 sleep 4
-umount /data 2>/dev/null || umount -l /data 2>/dev/null
 umount /data/sync 2>/dev/null
+umount /data 2>/dev/null || umount -l /data 2>/dev/null
 if grep -q ' /data ' /proc/mounts; then
   say "ABORT: /data still mounted - do not format a mounted filesystem"
   exit 1
 fi
 make_f2fs -f "$USERDATA" 2>&1 | tail -6
 say "  userdata now: $(blkid "$USERDATA" 2>/dev/null || echo 'blkid unavailable')"
+sync
+reboot
 
 say "== done: super+boot hold Android 14, /data is a fresh plain f2fs =="
 say "reboot now, then deep-power-cycle the unit (the PMIC/capacitors hold state for minutes)."
