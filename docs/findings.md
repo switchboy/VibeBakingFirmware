@@ -905,3 +905,25 @@ DTB note: the OEM A10 boot image's "second" stage starts with ASCII `RSCE` (Rock
 and contains a raw DTB at +2048, totalsize 152,425 B, sha `cd4eeb3daece...`, `compatible =
 "rockchip,rk3399-hct", "rockchip,rk3399"` - the same DTB already recorded in findings. That DTB is what the
 card's `dtb` partition (sector 40960) gets.
+
+## Card writer measured on the laptop Nov 11 (block size matters)
+
+The first burn attempt aborted, and the measurements explain why:
+
+* `bs=512` writes on this reader run at ~270 KB/s (the card queue is `max_sectors_kb=1024`,
+  `nr_requests=2`), so `super` (6.37 M tiny writes) would take ~3 hours. `bs=4096` is used instead: every
+  partition start is a multiple of 8 sectors, so its byte offset is a multiple of 4096 and the placement is
+  byte-identical (`boot` still lands on sector 59392, `super` on 1378328). Only `dtbo` (803 B) and
+  `dtb.dtb` (152,425 B) get a rounded-up tail inside their own 4 MB partitions, which is harmless.
+* Wiping only the first 8 MiB destroys the main GPT but leaves the **backup** GPT alive, and sgdisk then
+  reports "invalid main GPT header, but valid backup / Invalid partition data!" and exits non-zero, so the
+  script stopped before writing any payload. The wipe now zeroes the first and last 8 MiB and runs
+  `sgdisk --zap-all` before creating a fresh table, and the partition list is verified with `fdisk -l`
+  (expecting 15 partitions) before anything is written.
+* Vendor u-boot strings confirm the SD path and the safety rails: `Found IDB in SDcard` (ID block loader is
+  read from the card) and `Forbid to flash mmc 1(sdcard)` (u-boot refuses to write the SD slot through
+  fastboot, so a card in the slot cannot be overwritten by a stray flash command). Partition-name strings
+  present in the binary: `baseparameter`, `dtbo`, `security`, `userdata`, `vbmeta`, plus
+  `android_image_load_by_partname` / `part_get_info_efi` / `part_get_info_rkparm` and
+  `rkimg_bootdev=if mmc dev 1 && rkimgtest mmc 1; ...` -> the SD slot (mmc1) is tested first and partitions
+  are resolved either by EFI name or by the Rockchip parameter block.

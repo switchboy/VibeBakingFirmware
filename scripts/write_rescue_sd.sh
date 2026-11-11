@@ -18,7 +18,7 @@ DIR="${2:-$HOME/sdrescue}"
 
 # ---- identity gate: refuse anything that is not the removable SD card -------------------------
 [ -b "$DEV" ] || { echo "abort: $DEV is not a block device"; exit 1; }
-RM="$(cat "$DEV/removable" 2>/dev/null || echo 0)"
+RM="$(cat /sys/block/$(basename "$DEV")/removable 2>/dev/null || echo 0)"
 VENDOR="$(cat /sys/block/$(basename "$DEV")/device/vendor 2>/dev/null || true)"
 MODEL="$(cat /sys/block/$(basename "$DEV")/device/model 2>/dev/null || true)"
 TRAN="$(cat /sys/block/$(basename "$DEV")/device/transport 2>/dev/null || true)"
@@ -73,8 +73,10 @@ LAST=$((SECTORS - 34))   # backup GPT occupies the last 33 LBAs; last usable LBA
 if [ "$LAST" -le 1378328 ]; then echo "abort: card too small for super"; exit 1; fi
 
 echo "wiping $DEV"
-dd if=/dev/zero of="$DEV" bs=1M count=8 conv=notrunc status=none        # MBR/GPT area
-sgdisk -o "$DEV" > /dev/null                                             # fresh GPT, no leftovers
+dd if=/dev/zero of="$DEV" bs=1M count=8 conv=notrunc status=none        # kill old MBR/GPT/first data
+dd if=/dev/zero of="$DEV" bs=1M seek=$((BYTES / 1024 / 1024 - 8)) count=8 conv=notrunc status=none   # kill old backup GPT
+sgdisk --zap-all "$DEV"                                                 # clear MBR + main + backup GPT
+sgdisk -o "$DEV"                                                        # fresh, consistent GPT
 sgdisk -a 8 \
   -n 1:16384:24575    -c 1:uboot     \
   -n 2:24576:32767    -c 2:trust     \
@@ -91,15 +93,24 @@ sgdisk -a 8 \
   -n 13:1378304:1378327 -c 13:frp    \
   -n 14:1378328:7752703  -c 14:super  \
   -n 15:7752704:$LAST    -c 15:userdata \
-  "$DEV" > /dev/null
-sgdisk -v "$DEV"
+  "$DEV"
+echo "GPT written; verifying with fdisk (kernel parser):"
+fdisk -l "$DEV" 2>/dev/null | sed -n '1,25p'
+NPARTS=$(fdisk -l "$DEV" 2>/dev/null | grep -c "^${DEV}[0-9]")
+[ "$NPARTS" = "15" ] || { echo "abort: fdisk sees $NPARTS partitions, expected 15"; exit 1; }
+sgdisk -v "$DEV" 2>&1 | tail -6
 
 # ---- write the pieces ------------------------------------------------------------------------
+# bs=4096, not 512: every partition start is a multiple of 8 sectors, so its byte offset is a multiple
+# of 4096 and the placement stays sector-exact (boot -> sector 59392, super -> 1378328). bs=512 measured
+# ~270 KB/s on this reader (queue nr_requests=2), which would take hours for super.
+BS=4096
 for f in "${!OFF[@]}"; do
   size=$(stat -c %s "$DIR/$f")
-  count=$(( (size + 511) / 512 ))
-  echo "dd $f -> sector ${OFF[$f]} ($count sectors)"
-  dd if="$DIR/$f" of="$DEV" bs=512 seek="${OFF[$f]}" count="$count" conv=notrunc,fsync status=none
+  count=$(( (size + BS - 1) / BS ))
+  seek=$(( OFF[$f] * 512 / BS ))
+  echo "dd $f -> sector ${OFF[$f]} (byte $(( OFF[$f] * 512 )), $count blocks of $BS)"
+  dd if="$DIR/$f" of="$DEV" bs="$BS" seek="$seek" count="$count" conv=notrunc status=none
 done
 sync
 
@@ -108,8 +119,9 @@ echo "read-back verification:"
 fail=0
 for f in "${!OFF[@]}"; do
   size=$(stat -c %s "$DIR/$f")
-  count=$(( (size + 511) / 512 ))
-  got=$(dd if="$DEV" bs=512 skip="${OFF[$f]}" count="$count" status=none 2>/dev/null | head -c "$size" | sha256sum | cut -d' ' -f1)
+  count=$(( (size + BS - 1) / BS ))
+  seek=$(( OFF[$f] * 512 / BS ))
+  got=$(dd if="$DEV" bs="$BS" skip="$seek" count="$count" status=none 2>/dev/null | head -c "$size" | sha256sum | cut -d' ' -f1)
   want=$(sha256sum "$DIR/$f" | cut -d' ' -f1)
   if [ "$got" = "$want" ]; then echo "  ok   $f @${OFF[$f]}"; else echo "  FAIL $f @${OFF[$f]} got ${got:0:12} want ${want:0:12}"; fail=1; fi
 done
