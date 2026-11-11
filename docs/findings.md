@@ -927,3 +927,12 @@ The first burn attempt aborted, and the measurements explain why:
   `android_image_load_by_partname` / `part_get_info_efi` / `part_get_info_rkparm` and
   `rkimg_bootdev=if mmc dev 1 && rkimgtest mmc 1; ...` -> the SD slot (mmc1) is tested first and partitions
   are resolved either by EFI name or by the Rockchip parameter block.
+
+## Verification must drop the page cache (Nov 11, caught during the first real burn)
+
+The card writer's read-back check initially proved nothing: after `dd` writes 3.26 GB of `super`, a `dd`
+read of the same device offsets is satisfied from the write's own cached pages. Measured on the laptop: the
+device write counter (`/sys/block/sda/stat` field 6) had only ~817 MiB reached the media while the script was
+already reporting pieces "ok", and device reads were ~8.5 MiB - i.e. the verification was reading cache, not
+the card. The script now runs `sync; echo 3 > /proc/sys/vm/drop_caches` before the verification loop and uses
+`conv=fsync` on each write, so every sha comparison is read from media.

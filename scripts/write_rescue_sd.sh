@@ -110,12 +110,16 @@ for f in "${!OFF[@]}"; do
   count=$(( (size + BS - 1) / BS ))
   seek=$(( OFF[$f] * 512 / BS ))
   echo "dd $f -> sector ${OFF[$f]} (byte $(( OFF[$f] * 512 )), $count blocks of $BS)"
-  dd if="$DIR/$f" of="$DEV" bs="$BS" seek="$seek" count="$count" conv=notrunc status=none
+  dd if="$DIR/$f" of="$DEV" bs="$BS" seek="$seek" count="$count" conv=notrunc,fsync status=none
 done
 sync
 
 # ---- read-back verification -------------------------------------------------------------------
-echo "read-back verification:"
+# Drop the page cache first: after writing 3.26 GB, a plain dd read of the device is satisfied from the
+# write's own cached pages, so it proves nothing about what is actually on the card.
+echo "dropping page cache before verification"
+sync
+echo 3 > /proc/sys/vm/drop_caches
 fail=0
 for f in "${!OFF[@]}"; do
   size=$(stat -c %s "$DIR/$f")
