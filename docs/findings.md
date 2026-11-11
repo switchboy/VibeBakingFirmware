@@ -1057,3 +1057,16 @@ on-unit menu never appears). Reading `diatsia fw/update(1).zip` before flashing 
 * Our Android 14 boot images also carry an HCT DTB: `boot-a10k-a14rd.img` uses the OEM DTB `cd4eeb3d`
   (152,425 B), `a14-fixed.img` and `a11-boot.img` use `530b8412` (157,962 B, our edited copy). So the A14
   re-application does not need a DTB write either - `boot` carries it.
+
+## Unbrick succeeded - the unit boots its own OEM Android 10, screen alive - Nov 11 (owner measured)
+
+Route: a bootSD built by the owner reaches a real recovery environment; `diatsia fw/update(1).zip` passed
+key verification (OEM SignApk accepted) and patched product/vendor/system/odm unconditionally, then wrote
+boot/trust/uboot/dtbo and the raw loader. Result: the unit gets past the bootloader and the boot animation
+and lands on the **setup screen** - display working, so the dark screen was indeed the factory firmware's DTB
+variant (missing `display-timings-dsi` and `mtc-radio_v0/1/2`) and the OEM boot image (`04a43ea9`, carrying
+the unit's own DTB `cd4eeb3d`) fixed it. D38 confirmed, D39 route confirmed.
+
+Network state right after that boot: a live host at 192.168.1.126 (port 5555 refused, so not adb yet),
+192.168.1.120 no longer responding, no adb device on either machine. TCP adb opens only after `adbon` is
+typed in the factory settings dialog (D28).

@@ -1381,3 +1381,11 @@ still forbid writing a chain built by us. It also runs `remove_all_groups`, whic
 logical partitions; that is the intended rollback, and the A14 payload is re-applied afterwards as
 `boot` + `super` only. Nothing else changes: the factory card and the bootSD stay the safety nets, and a
 deep power cycle is required after the flash.
+
+**D40 - before anything else is written, take a byte-exact backup of the working stock eMMC.** The unit is
+now bootable stock Android 10 (owner measured Nov 11: boot animation + setup screen). While it is in that
+state, `adb root` over TCP pulls a known-good restore set to the NAS archive: `uboot`, `trust`, `dtb`,
+`dtbo`, `vbmeta`, `security`, `misc`, `metadata`, `boot`, and the whole `super` container plus the GPT and
+first 8 MB. That backup, not the factory card, is the rollback for the next Android 14 attempt - and the
+next attempt writes only `boot` + `super` (D18/D19). Nothing is written to the unit until that backup is
+verified by hash.
