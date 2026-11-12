@@ -19,6 +19,11 @@ update.zip
 extracted update.zip/
 refs/
 
+# The recovery ramdisk's own binaries stay out of git: they come from the stock backup
+# (a14-work/hu-stock-backup/recovery.bin) and are re-extracted by scripts/patch_recovery_autorun.sh.
+# Only the text files pulled out of that ramdisk are tracked (recovery-origin/*.rc, recovery.fstab).
+recovery-origin/sbin/
+
 # Payload parts and rebuilt images (reproducible from the build tree)
 *.img
 *.new.dat

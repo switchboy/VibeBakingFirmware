@@ -1325,6 +1325,14 @@ Still queued:
    slice is staged from the A11 dump, and zLink only started working after the newest diatsia firmware.
 4. `SSData` is still at 100% (797 MiB free) - the only filesystem still blocking builds. Scratch now
    lives on the repo volume, but anything that needs the tree's own `out/` may still fail there.
+5. The recovery route is ready to run once the unit is powered again: power on, `adbon`, `adb connect
+   192.168.1.120:5555`, `adb root`, then `scripts/flash_recovery_from_adb_root.sh` with
+   `a14-work/recovery-patched/recovery-patched.img` (`a0cd9de3…`) and its `recovery-sha256.txt` pushed to
+   `/data/local/tmp/rec/`. That only writes partition 8. Then boot the bootSD card with a roomy card
+   carrying `hu-install.flag`, `super-a14.img`, `boot-a14.img` and `hu-checksums.txt`
+   (`scripts/stage_hu_card.sh`), watch `/dev/console` and read `/tmp/hu-install.log`, and deep power-cycle
+   afterwards. Rollback for partition 8 alone: push `hu-stock-backup/recovery.bin` (`1fdf5ea77fc6…`) and
+   dd it back.
 
 ## zLink started working on the restored stock firmware - Nov 11 evening
 
@@ -1338,3 +1346,72 @@ Two things to measure in the morning, both offline against the running stock ima
   firmware that is actually on the unit now rather than the A11 dump.
 The MCU side is already known-good on stock (`persist.product.mcuversion=MTCE_HXD_V3.56_1`,
 `mtc-car`/`mtc-av`/`mtc-cvbs`/`mtc-cvbs2`/`mtc-dab`, `ttyS0/1/4`), so zLink is a userspace/blobs question.
+
+## Recovery partition measured - Nov 12 (what the D42 patch works on)
+
+**AVB cannot reject a patched recovery or our patched boot.** `vbmeta.bin` (1,048,576 B) holds **19
+non-zero bytes in total**: `AVB0`, header version 1, flags 0, `authentication_data_block_size = 0`,
+`auxiliary_data_block_size = 0`, `metadata_block_size = 0`, and the string `avbtool 1.1.0` at offset 128.
+Zero hash or chain descriptors, so nothing is verified against nothing. Neither `boot.bin`,
+`recovery.bin` nor our payload boot has an AVB footer - their last 64 bytes are all zeros. The kernel
+cmdline already says `androidboot.verifiedbootstate=orange`, `androidboot.veritymode=enforcing` and
+`androidboot.selinux=permissive`. `vbmeta` stays untouched, so D18 is unaffected either way.
+
+**Stock recovery image layout** (`sha256 1fdf5ea77fc66f48977d7846c468959a5845d0222dc73c3fe07a1b96b6cb023b`,
+100,663,296 B - partition-sized, zero padding after the last part): header version 2, header size field
+1660, page size 2048, os 10.0.0 patch level 2020-05; kernel 25,671,688 B load `0x10008000` (file offset
+2048); gzip cpio ramdisk 12,519,199 B load `0x11000000` (file 25,687,296); second bootloader 924,672 B
+load `0x10f00000` (file 38,202,880); recovery dtbo 803 B at file 39,129,600 = `0x254F000`, which the
+header stores as an offset field; dtb size 0 at `0x11f00000`. The derived offsets match the stored field,
+so the layout is confirmed rather than assumed.
+
+**Recovery already gives a shell without any patch.** `init.rc` imports `/init.recovery.${ro.hardware}.rc`,
+`prop.default` carries `ro.debuggable=1`, and `on fs && property:ro.debuggable=1` sets
+`sys.usb.config adb`, which starts `service adbd /system/bin/adbd --root_seclabel=u:r:su:s0
+--device_banner=recovery`. `init.recovery.rk30board.rc` sets `sys.usb.controller "fe800000.dwc3"`,
+`sys.usb.configfs 1` and `start console`. Recovery's adb is USB functionfs/configfs only - no TCP path -
+so the serial fob is the reliable channel and the USB direction of the head unit's port is still unverified.
+
+**init never mounts `/system` in recovery.** `on fs` in `init.rc` only builds the USB gadget and mounts
+functionfs; the partition mounts come from `/system/etc/recovery.fstab`, handled by `/system/bin/recovery`
+itself (`/system`, `/vendor`, `/odm`, `/cache`, `/metadata`, `/data` as f2fs, `cust`/`custom`,
+`/mnt/external_sd` = `mmcblk0p1`, `/mnt/internal_sd`). Anything that needs `/system/bin/linker64`
+therefore only works after recovery has started, which is what `hu-install.sh` waits for (D43).
+
+**The recovery ramdisk's `/sbin` is a static 32-bit ARM world.** `busybox` 1,807,056 B (`ELF 32-bit LSB
+executable, ARM, EABI5, statically linked, for GNU/Linux 2.6.14`) and `sh` 206,684 B (static), plus
+`e2fsck`, `eio`, `insmod`, `iwlist`, `mkdosfs`, `pcba_core`, `resize2fs`, `rmmod`. No `adbd`, no
+`recovery`, no applet symlinks. Probing the binary's strings: `dd`, `stat`, `mount`, `umount`, `reboot`,
+`sync`, `wc`, `cut`, `sed`, `cp`, `ls`, `df`, `du`, `sleep`, `head`, `tail`, `cat`, `od`, `expr`, `tr`
+appear; `sha256sum` and `blockdev` do not; `md5sum`, `sha1sum`, `cmp`, `cksum` and `hexdump` appear in the
+strings but cannot be confirmed without running the binary (no qemu-arm on this host, unit powered off),
+which is why `hu-install.sh` probes its hash applets at runtime instead of assuming them.
+
+**Correction: `hu-stock-backup/sys-region.bin` is our payload's system slice, not the stock one.** debugfs
+shows Android 34 binaries (`toybox` 562,832 B, `make_f2fs` 201,496 B, `blkid`, `sh`, all "for Android 34",
+interpreter `/system/bin/linker64`) and HCT apps dated 8-Nov-2026 (`blueletd`, `brlinktd`) - it is the
+region cut out of `raw-super.img` to inject `otacerts.zip`. The stock Android 10 mkfs is
+`hu-stock-backup/make_f2fs` (49,544 B, "for Android 29", byte-identical to `oem-in-super.bin`). No stock
+64-bit binaries were extracted: the stock `super.bin` system slice is not at a page-aligned offset we can
+find (the ext4 magic `53 ef` has no hit at 0, 1 MiB or 2 MiB), and D43 does not need them.
+
+**Tool quirks measured today.** `unpack_bootimg` needs `--boot_img`. `repack_bootimg` is a frozen binary
+that shells out to `unpack_bootimg` and `mkbootimg`, so the host `bin/` directory must be on PATH, and it
+refuses absolute destination names ("destination file name cannot be absolute"). Lineage's `mkbootimg`
+then rejects this header (version 2 with `--recovery_dtbo` and dtb size 0) and leaves a **1,648-byte**
+truncated image behind - hence `scripts/repack_recovery_python.py`, which splices the ramdisk and updates
+only `ramdisk_size` and the stored dtbo offset. `debugfs` has no `-r` option (it is read-only unless `-w`).
+And in this shell environment, ssh output redirected with `>` into a file comes back **0 bytes** while
+`| tee file` delivers the real content.
+
+**The patched recovery image is built and verified - Nov 12.** `scripts/patch_recovery_autorun.sh`
+splices `/sbin/hu-install.sh`, `/sbin/make_f2fs.oem` and the appended `init.recovery.rk30board.rc` into
+the stock ramdisk and produces `a14-work/recovery-patched/recovery-patched.img` (39,108,608 B, sha256
+`a0cd9de318a8fb284a44495431f79cd75c45332bb9dffcfb121655e38e71f51a`; the NAS copy hashed identically, so
+the base64 transport is proven). `unpack_bootimg` on stock and patched differs in exactly two lines:
+ramdisk size 12,519,199 → 12,504,405 (gzip -9 beats the original compression) and recovery dtbo offset
+`0x254f000` → `0x254b800`. Kernel, second bootloader and dtbo hashes are identical, and the extracted
+patched ramdisk holds the three injected files with hashes matching their sources, `service hu_install`
+and `start hu_install` once each, and the stock `console` service plus the `sys.usb.controller` line still
+present. The image is content-sized rather than partition-sized - readers go by the header's sizes, and the
+flash script compares only the bytes it wrote.

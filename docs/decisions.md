@@ -1399,3 +1399,27 @@ verifies the package before running the script, so a wrong digest range refuses 
 nothing (D18/D19 unchanged - only `boot` + `super` are written, no chain, no GPT). The detached adb-root
 installer (`scripts/install_a14_from_adb_root.sh`, `WIPE=1`) remains the primary route; this zip is the
 fallback for when adb is not reachable.
+
+**D42 - patch `recovery` first, so recovery becomes the tool instead of a menu we cannot drive.**
+Partition 8 is not part of the boot chain, so writing it cannot break normal boot, and AVB cannot reject
+the patch: `vbmeta.bin` carries zero descriptors (19 non-zero bytes in 1 MiB) and the recovery image has
+no AVB footer (findings below). `scripts/patch_recovery_autorun.sh` splices three things into the stock
+recovery ramdisk: `/sbin/hu-install.sh` (the card-driven installer), `/sbin/make_f2fs.oem` (the stock
+Android 10 mkfs, D10/D20 reasoning) and an appended `init.recovery.rk30board.rc` that declares
+`service hu_install /sbin/hu-install.sh` as `oneshot`/`disabled` and starts it on `on boot`. The patch is
+inert without `hu-install.flag` on a card, so the patched recovery behaves exactly like the stock one;
+the rollback is the byte-exact `recovery.bin` from the stock backup (`sha256 1fdf5ea77fc6…`, in
+`MANIFEST.sha256`). D18/D19 stay intact - the patch never touches uboot/trust/dtb/dtbo/vbmeta/security/GPT.
+
+**D43 - the recovery installer runs entirely out of the recovery ramdisk, never out of `/system`.**
+`/system` is the thing about to be overwritten, so `/sbin/hu-install.sh` may only use what the ramdisk
+already holds: static 32-bit ARM `busybox` and `sh` (measured below), which work before any partition is
+mounted. That busybox has no `sha256sum` and no `blockdev`, and `awk`/`grep` are not certain applets, so
+the script probes hash applets at runtime, reads partition sizes from `/proc/partitions`, compares sizes
+in KiB (byte counts above 2 GiB wrap in this shell) and accepts a manifest that names `sha256`, `sha1`
+and `md5` for the same files - whichever one the unit can compute is used. `/data` is formatted with
+`make_f2fs.oem` *before* the super write, while the stock Android 10 `/system` still serves its linker and
+libraries; if `/system` never gets mounted the script falls back to zeroing the first MiB of userdata and
+lets Android 14's `formattable` fstab entry format it. Only `super`, `boot` and `userdata` are ever written,
+and the target devices are hard-coded eMMC partitions, checked against `/proc/partitions` and the by-name
+symlinks before a byte is written.
