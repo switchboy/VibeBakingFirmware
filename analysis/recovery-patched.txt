@@ -1,0 +1,26 @@
+Patched recovery image (partition 8 only), built Nov 12 by scripts/patch_recovery_autorun.sh.
+
+  image      a14-work/recovery-patched/recovery-patched.img   39,108,608 B
+  sha256     a0cd9de318a8fb284a44495431f79cd75c45332bb9dffcfb121655e38e71f51a
+  stock      a14-work/hu-stock-backup/recovery.bin            100,663,296 B (partition-sized dump)
+  sha256     1fdf5ea77fc66f48977d7846c468959a5845d0222dc73c3fe07a1b96b6cb023b
+
+unpack_bootimg stock vs patched differs in exactly two lines:
+  ramdisk size           12,519,199 -> 12,504,405
+  recovery dtbo offset   0x000000000254f000 -> 0x000000000254b800
+Everything else identical: header version 2, page 2048, os 10.0.0 / patch 2020-05, cmdline, load
+addresses, dtb size 0.
+
+Part hashes (stock == patched, unchanged bytes):
+  kernel         a514a3ffb77ebc0d39cab547f21e0b87c4ac9cc210a35d870a6daabbd3480cd2  (25,671,688 B)
+  second         fb80617e7c970501c6ef63f39e4779ab017a20417f482a37ca021aa97f63f2f3  (924,672 B)
+  recovery_dtbo  28a07d4946e9f27884c69eab91437f0a1499344035b1d808d3a2a31303d06dcb  (803 B)
+
+Injected files as extracted from the patched ramdisk (hash == source):
+  sbin/hu-install.sh              ea8858cc59b8949d783d23d53bb38175b6b9a2c23ef261e79273f817591d368d  10,779 B
+  sbin/make_f2fs.oem              78c11c90e64565901255132ca567a5902a21e9190f1e9eefd8acbe5229326be7  49,544 B
+  init.recovery.rk30board.rc      8764427b05792e868eea0c4c952257eee0e3faa961cab98fcad0bc26114fe378   1,363 B
+
+The patched rc keeps the stock console service and sys.usb.controller line, and adds exactly one
+`service hu_install` and one `start hu_install`. Syntax of the installer checked with dash -n and
+busybox ash -n, both rc=0.

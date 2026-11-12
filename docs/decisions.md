@@ -1410,6 +1410,9 @@ Android 10 mkfs, D10/D20 reasoning) and an appended `init.recovery.rk30board.rc`
 inert without `hu-install.flag` on a card, so the patched recovery behaves exactly like the stock one;
 the rollback is the byte-exact `recovery.bin` from the stock backup (`sha256 1fdf5ea77fc6…`, in
 `MANIFEST.sha256`). D18/D19 stay intact - the patch never touches uboot/trust/dtb/dtbo/vbmeta/security/GPT.
+The signed fallback zip (D41) remains valid but becomes the manual path: with the flag on a card the patched
+recovery runs the installer itself, no menu navigation and no signature question. Its updater-script formats
+`/data` before unmounting it, which is exactly the ordering `hu-install.sh` gets right (unmount, then mkfs).
 
 **D43 - the recovery installer runs entirely out of the recovery ramdisk, never out of `/system`.**
 `/system` is the thing about to be overwritten, so `/sbin/hu-install.sh` may only use what the ramdisk
