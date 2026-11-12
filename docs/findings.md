@@ -1332,7 +1332,9 @@ Still queued:
    carrying `hu-install.flag`, `super-a14.img`, `boot-a14.img` and `hu-checksums.txt`
    (`scripts/stage_hu_card.sh`), watch `/dev/console` and read `/tmp/hu-install.log`, and deep power-cycle
    afterwards. Rollback for partition 8 alone: push `hu-stock-backup/recovery.bin` (`1fdf5ea77fc6…`) and
-   dd it back.
+   dd it back. The console banner itself proves which recovery booted: `hu-install: hash tool = …` means
+   the patched partition 8 loaded, and without a flag it prints `no hu-install.flag found on any card ...
+   nothing written` and exits 0, leaving the stock recovery menu.
 
 ## zLink started working on the restored stock firmware - Nov 11 evening
 
@@ -1415,3 +1417,14 @@ patched ramdisk holds the three injected files with hashes matching their source
 and `start hu_install` once each, and the stock `console` service plus the `sys.usb.controller` line still
 present. The image is content-sized rather than partition-sized - readers go by the header's sizes, and the
 flash script compares only the bytes it wrote.
+
+**What the bootSD archive actually is - Nov 12.** NAS `cold/vibe-baking/research/bootableSD/` holds only
+Rockchip's SD-boot tooling: `SDBoot.bin` (152,366 B), `rk32xx_loader_v1.00.232.bin`, the Windows
+`SD_Firmware_Tool.exe` and `Create Upgrade Disk Tool v1.53.exe`, `config.ini` and `sd_boot_config.config`.
+No Android image and no recovery image are in it. The card's boot config is six keys -
+`loader_update = 0`, `display_led = 1`, `display_lcd = 1`, `pcba_test = 0`, `fw_update = 0`,
+`demo_copy = 0` - so the card feeds the SoC a loader/minuboot and everything else comes from the eMMC
+chain. Two consequences: the recovery partition we patched is the one that runs on this route, and
+`config.ini` states in its own comments that the OEM upgrade flow deliberately leaves the recovery partition
+alone, which is the same scope D18/D19 enforce. Whether the SD path lands in recovery or in normal boot is
+still only known from the owner's own measurement; the console banner settles it on the next power-on.
