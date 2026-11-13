@@ -1428,3 +1428,59 @@ chain. Two consequences: the recovery partition we patched is the one that runs 
 `config.ini` states in its own comments that the OEM upgrade flow deliberately leaves the recovery partition
 alone, which is the same scope D18/D19 enforce. Whether the SD path lands in recovery or in normal boot is
 still only known from the owner's own measurement; the console banner settles it on the next power-on.
+
+## The recovery installer logic-tested offline - Nov 13
+
+`scripts/hu_recovery_install.sh` had never been run anywhere except on paper: busybox is not on this
+workstation, the unit is powered off, and no card was staged. `scripts/smoke_recovery_installer.sh` runs
+the real script against a fake card and fake partitions - sparse files at the measured payload sizes,
+`/proc/partitions` and `/dev/block/*` rewritten to files in the scratch dir, `$BB` mapped onto host
+coreutils, `/dev/console` rewritten to a file and say()'s `>` turned into `>>` so the transcript is the
+whole log rather than the last line - and asserts eight scenarios. Two bugs came out of it, both of
+which would have been discovered at the bench after a power-on. Neither writes anything, so both were
+"the install refuses" rather than a corrupt unit, but the route would not have run.
+
+**Bug 1 - the payload size check refused every write.** The installer derived KiB by dropping the last
+three decimal digits of the byte count, which divides by 1000, not 1024. `raw-super.img` (3,263,168,512 B)
+came out as 3,263,168 KiB against a partition of 3,186,688 KiB, and `a14-boot-fixed.img` (32,796,672 B)
+as 32,796 KiB against 32,768 KiB, so both comparisons failed and the first thing the installer printed
+after finding the flag was `super payload exceeds partition - nothing written`. Nothing may be divided
+here: busybox ash arithmetic uses a 32-bit long, so a byte count above 2,147,483,648 wraps. The size now
+comes from the card. `hu-checksums.txt` gained `size <bytes> <blocks> <name>` lines written by
+`scripts/stage_hu_card.sh`; the installer compares the declared byte count against `stat -c %s` as a
+decimal string (no arithmetic) and uses the declared block count for the `dd` counts and the readback.
+The largest number it ever computes is 796,672 blocks * 4 = 3,186,688 KiB, far under the wrap.
+`stage_hu_card.sh` refuses a payload whose byte count is not a multiple of 4096, so blocks * 4096 ==
+bytes by construction, and a mismatch would be caught by the readback hash anyway.
+
+**Bug 2 - the digest check verified nothing.** `scripts/stage_hu_card.sh` named the algorithms
+`sha1`/`sha256`/`md5`, while the installer matched the manifest against the applet name it probed
+(`sha1sum`). No line ever matched, `ok=1` was pre-set, and the loop verified zero files while reporting
+success - a corrupted card would have been flashed with no integrity check at all. The installer now
+accepts both spellings (`sha1` and `sha1sum` etc.) and refuses a manifest that carries no line for the
+digest it can actually compute: `no sha256sum line in ... - cannot verify the payload, nothing written`.
+The staging script writes the applet names (`sha256sum`/`sha1sum`/`md5sum`), so the match is direct, and
+its own read-back loop now checks the size lines too. Measured staging output against a fake card:
+`size 3263168512 796672 super-a14.img`, `size 32796672 8007 boot-a14.img`, plus one digest line per
+algorithm, and staging exits 1 on a payload truncated to 32,796,673 B.
+
+The scenarios, all passing offline (`scripts/smoke_recovery_installer.sh`, rc 0): inert with no flag and
+nothing written; good manifest writes super then boot, formats userdata through the stub mkfs and passes
+both readbacks; the old `sha256` spelling still matches the probed applet; a manifest whose digest lines
+are for an algorithm busybox does not have refuses; a manifest with no size lines refuses before any
+write; a declared byte count that does not match the file refuses; a partition smaller than the payload
+refuses with `super payload exceeds partition`; a payload with one byte changed inside it is caught by
+the digest check before the write.
+
+**Consequence: the recorded patched recovery image is now stale.** `a14-work/recovery-patched/
+recovery-patched.img` (39,108,608 B, sha256 `a0cd9de3…`) carries `hu-install.sh` with hash
+`ea8858cc…`, which is the buggy script. Flashing partition 8 with it would take the refuse-everything
+route, so `scripts/patch_recovery_autorun.sh` must run again before the flash and `analysis/
+recovery-patched.txt` must be rewritten with the new hashes. That script splices the ramdisk on the
+build host (`unpack_bootimg`, `repack_recovery_python.py`, the cpio checks), and the access wrapper it
+uses (`/tmp/opencode/omv.sh` + `/tmp/opencode/build_host.env`) is gone - `/tmp` was cleared - so the
+build-host credential has to be re-supplied before the image is rebuilt. Nothing was flashed today.
+
+What the smoke harness does *not* prove: the shell dialect. busybox ash is not available on this host,
+so POSIX syntax still has to be checked on the build host with `dash -n` and `busybox ash -n`, which is
+what the Nov 12 run did for the previous script.

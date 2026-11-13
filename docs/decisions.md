@@ -1415,14 +1415,24 @@ recovery runs the installer itself, no menu navigation and no signature question
 `/data` before unmounting it, which is exactly the ordering `hu-install.sh` gets right (unmount, then mkfs).
 
 **D43 - the recovery installer runs entirely out of the recovery ramdisk, never out of `/system`.**
+Amended Nov 13 after the offline logic test (findings, "The recovery installer logic-tested offline").
 `/system` is the thing about to be overwritten, so `/sbin/hu-install.sh` may only use what the ramdisk
 already holds: static 32-bit ARM `busybox` and `sh` (measured below), which work before any partition is
 mounted. That busybox has no `sha256sum` and no `blockdev`, and `awk`/`grep` are not certain applets, so
-the script probes hash applets at runtime, reads partition sizes from `/proc/partitions`, compares sizes
-in KiB (byte counts above 2 GiB wrap in this shell) and accepts a manifest that names `sha256`, `sha1`
-and `md5` for the same files - whichever one the unit can compute is used. `/data` is formatted with
-`make_f2fs.oem` *before* the super write, while the stock Android 10 `/system` still serves its linker and
-libraries; if `/system` never gets mounted the script falls back to zeroing the first MiB of userdata and
-lets Android 14's `formattable` fstab entry format it. Only `super`, `boot` and `userdata` are ever written,
-and the target devices are hard-coded eMMC partitions, checked against `/proc/partitions` and the by-name
-symlinks before a byte is written.
+the script probes hash applets at runtime, reads partition sizes from `/proc/partitions`, and accepts a
+manifest whose lines are:
+
+* `size <bytes> <blocks> <name>` - the payload's byte count and its 4096-byte block count, written by
+  `scripts/stage_hu_card.sh`. The script cannot derive either: busybox ash uses a 32-bit long, so a byte
+  count above 2 GiB wraps, and it has no `awk`. The declared byte count is compared with `stat -c %s` as
+  a decimal string, and only `blocks * 4` (max 796,672 * 4 = 3,186,688 KiB) is ever computed.
+* `<applet> <hex> <name>` - one digest line per algorithm, named as the busybox applet (`sha256sum`,
+  `sha1sum`, `md5sum`); the installer also accepts the short spelling and refuses a manifest that has no
+  line for the digest it can actually compute, because a manifest matched by nothing would verify nothing.
+
+`/data` is formatted with `make_f2fs.oem` *before* the super write, while the stock Android 10 `/system`
+still serves its linker and libraries; if `/system` never gets mounted the script falls back to zeroing
+the first MiB of userdata and lets Android 14's `formattable` fstab entry format it. Only `super`, `boot`
+and `userdata` are ever written, and the target devices are hard-coded eMMC partitions, checked against
+`/proc/partitions` and the by-name symlinks before a byte is written. Anything pending is `sync`ed before
+the container write, because recovery still has the slices inside `super` mounted read-only.

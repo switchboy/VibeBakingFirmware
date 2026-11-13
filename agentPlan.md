@@ -2,7 +2,9 @@
 
 Mission: ship a flashable firmware image for a PX6 (RK3399 / HCT4) head unit that runs a
 modern Android build (current security patches) while keeping the head-unit-specific hardware
-working. Owner accepts an old kernel if that is what the vendor blobs need; wrappers around the
+working. Owner accepts an old kernel if that is what the vendor blobs need, accepts wrappers where
+Android 14 changed the interface, and accepts losing apps and settings - but the unit must never be
+bricked, because there is exactly one unit.
 
 
 Canonical detail lives elsewhere: decisions in `docs/decisions.md`, measurements in `docs/findings.md`,
@@ -37,7 +39,8 @@ This file is the index plus the risk register, and it must not restate numbers -
 | Installed firmware is a Daisaita build, not the reference ROM | vendor assumptions could be wrong | largely resolved: the live HAL set matches the reference manifest except `cas`/`weaver`/`rockit.hw` (declared but binaries still present); the next report hashes every vendor blob so we can prove byte-for-byte equality |
 | No root on the unit | boot cmdline, lsmod, dmesg, `/init.hct.rc` unavailable | probe degraded fine (sysfs sizes + `/proc/config.gz` worked); **`/system/xbin/su` exists on this ROM** - the probe now calls it directly, so root may be available without Magisk |
 | Wireless CarPlay/AA needs 5 GHz, unit's WiFi is a USB **Realtek RTL8188E** dongle (2.4 GHz hardware) | feature cannot be used wirelessly | hardware fix: swap that USB module for a dual-band RTL8821CU/8822BU - the shipped vendor already carries `8821cu.ko`/`8822bu.ko`, so no kernel rebuild; needs module loading in `init.connectivity.rc` and a correct `iw reg` country code. Wired CarPlay/AA unaffected |
-| Payload signing / upgrade app rejects our zip | cannot install | keep the same custom update-binary mechanism; verify signature handling before release |
+| Payload signing / upgrade app rejects our zip | cannot install | resolved for the recovery path (**D25**): HCT's own cert is not ours, so the payload is flashed as raw images; the patched recovery (**D42**) removes the menu problem |
+| An installer bug discovered only at the bench | the flash silently refuses, or a corrupt payload is written | the installer is logic-tested offline first (`scripts/smoke_recovery_installer.sh`); its payload sizes and digests come from the card manifest (**D43**), not from arithmetic the recovery busybox cannot do |
 
 ## D-status (one line each; reasoning in `docs/decisions.md`)
 
@@ -51,62 +54,51 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D18-D19 | decided | stock-package transport (now superseded by D25 for the transport itself); never resize, never write the GPT |
 | D20-D23 | decided | vendor libs via Android 14's own `<name>.vendor` modules; WiFi HAL rebuilt in-tree (`libwifi-hal-rtk`); libdrm patched to export `drmModeAddFB2_ext`; `usb_dongle` rebuilt from published source, `libomxvpu` stays a declared gap |
 | D24 | implemented | HCT app layer staged from the reference payload, re-signed with our platform key |
-| D25 | decided | recovery cannot install our package (trusted cert `cf2ab3…` is HCT's own); route 1 = testkey-signed zip attempt, route 2 = raw image
-| D32-D37 | decided | measured defect list (Mali vermagic is cleanup, DTB panel-table trimming is a vendor A10->A11 delta); our boot image is the vendor **A11** kernel+DTB on an **A10** chain; and our payload had **no first-stage fstab** - fixed images built (`a14-fixed.img`, `boot-a10k-a14rd.img`), neither flashed |s via `adb root` dd, recovery untouched |
+| D25 | decided | recovery cannot install our package (trusted cert `cf2ab3…` is HCT's own); route 1 = testkey-signed zip attempt, route 2 = raw image |
+| D28-D31 | decided / implemented | bring-up access through the factory-settings password `adbon`; the Nov 9 write is recorded; rollback is blind and the stock rescue payload is rebuilt from the OEM package |
+| D32-D37 | decided | measured defect list (Mali vermagic is cleanup, DTB panel-table trimming is a vendor A10->A11 delta); our boot image is the vendor **A11** kernel+DTB on an **A10** chain; our payload had **no first-stage fstab** - fixed images built (`a14-fixed.img`, `boot-a10k-a14rd.img`), neither flashed; the bench procedure and debug access are measured; the rescue card is a sector mirror with a card-local GPT |
+| D38-D41 | decided | the unit's own board DTB lives in `boot`'s second stage, so flashing the OEM `boot.img` restores the display description without touching the chain; recovery is reachable through the owner's bootSD card; a byte-exact stock backup is taken before any further write; the recovery fallback zip carries no payload and dd's the images straight off the card |
+| D42-D43 | decided, then fixed Nov 13 | partition 8 is patched so recovery becomes the tool (it is not boot chain and AVB carries no descriptors); the card-driven installer runs only out of the ramdisk and reads payload size + digests from the card manifest. Nov 13's offline logic test found two bugs: a size check that divided by 1000 instead of 1024 and refused every write, and a digest check that matched manifest spellings no applet matched, so it verified nothing while reporting success |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
-## Current state (Nov 9/10)
+## Current state (Nov 13)
 
-1. **The unit is up for the first write and now holds our Android 14 payload.** Route 2 ran on Nov 9 over
-   TCP adb: `super` 2,275,747,780 B and `boot` 32,796,672 B written with verified shas; `recovery`,
-   `uboot`, `trust`, `dtb`, `dtbo`, `vbmeta`, the loader and the GPT untouched, so the boot chain is
-   intact (**D30**). Outcome: black screen, no boot animation, no OEM logo, WiFi gone, TCP adb dead, and
-   no recovery menu reachable by button combo. Full log: `docs/findings.md`, "Flash attempt Nov 9/10".
-2. **How access works here (D28):** USB adb is impossible (all HU sockets are host-mode, the laptop's
-   Type-C host saw no partner), developer options are absent, so the factory-settings password **`adbon`**
-   sets `persist.internet_adb_enable=1` -> port 5555 -> `adb connect 192.168.1.120:5555` -> `adb root` ->
-   uid 0. It does not carry over to Android 14: the prop lives in `/data`, which Android 14 formats fresh,
-   and Android 14 cannot recover Android 10's Wi-Fi credentials.
-3. **Next move - measure, don't re-flash (D34, D33).** Get a serial console reading (`console=ttyFIQ0`,
-   115200 8N1, 3.3 V), in this order: (a) init's fstab messages first, because the measured defect is that
-   our payload has **no first-stage fstab** (`First stage mount skipped (missing/incompatible/empty fstab in
-   device tree)`, `failed to read default fstab for first stage mount`); (b) which DTB u-boot used - it
-   prints either `Found DTB in <part>` or the boot-image `second size`/`dtb size`/`dtb addr` line, and
-   whether the `dtbo` overlay applied (`android_get_dtbo`, `%s: failed to read dtbo`); (c) kernel
-   panel/timing messages; (d) does init reach second stage, does its bpf/cgroup setup survive, which
-   services crash-loop, what does SurfaceFlinger say. Second-order risk, still real, is the
-   **mixed-generation boot** (**D33**): vendor A11 kernel+DTB in `boot`, vendor A10-era `uboot`/`trust`/
-   `dtbo` in the untouched partitions. Two coherent shapes, both built in NAS `/var/tmp/a14repack/` and
-   **neither flashed**: (1) `boot-a10k-a14rd.img` (28,231,292 B, `455a9ac8…`) = OEM A10 kernel
-   (`4.19.111+`, payload sha `59075004…`) + OEM A10 `second` carrying the A10 DTB (`cd4eeb3d…`) + our A14
-   ramdisk with `/first_stage_ramdisk/fstab.rk30board`, paired with our A14 `super`, no boot-chain write -
-   pending the unmeasured question whether Android 14 userspace survives on that kernel (string evidence:
-   `bpf` 165, `psi` 72, `cgroup2`, `ringbuf` 52, `f2fs` 107, no `erofs`). Flashing the OEM `boot-a10.img`
-   unchanged is **not** a path: its ramdisk fstab lists only `system/vendor/odm/product`, no `system_ext`.
-   (2) `a14-fixed.img` (32,796,672 B, `f378d4fd…`) = our current payload plus that fstab, so the A11 kernel
-   and the generation mix stay. (3) install the vendor A11 chain (`uboot`, `trust`, `dtbo`, `logo`, loader)
-   as the vendor's script does - riskier, it is the step that can brick an A10->A11 unit, and our rescue
-   media is unproven, so it is not allowed before serial plus a verified rescue card. `mali_kbase.ko`
-   vermagic will be rejected but is not fatal (Mali is built into both kernels; the OEM ships the same bad
-   module). The composer question stays open (Android 14 may need AIDL `composer3`/`allocator`/`mapper`
-   wrappers around the OEM blobs rather than the declared HIDL `composer@2.1::IComposer/default`). The
-   bench procedure is written up standalone in `docs/reanimation.md` (harness yellow+red to a 12 V/10 A
-   supply - nameplate and rear fuse are both 10 A, so a small brick will not power it on,
-   black to GND, 3.3 V fob on `console=ttyFIQ0` 115200 8N1, partition sector map for `upgrade_tool WL`,
-   decision tree, troubleshooting); capture with `scripts/serial_console.sh log <name>`.
-4. **Rollback is blind (D29) and the payload is ready (D31).** Rebuilt from `diatsia fw/update(1).zip`:
-   `super-a10.img` 3,263,168,512 B sha `30da961c…` and `boot-a10.img` 27,406,336 B sha `04a43ea9…`, in the
-   NAS archive `…/aospbuild-archive/vibe-rescue/`, verified with `lpdump` + `debugfs`. Serial `dd` of those
-   two restores Android 10. The SD media is built as a **boot card** (IDB flag 1) carrying the same two
-   images plus a rescue initramfs that `dd`s them - an upgrade card is useless here because it needs a
-   recovery we do not have. Rockchip's Linux tools are staged in `/tmp/opencode/rktools/` (`afptool`,
-   `rkImageMaker -storage:SD`, `upgrade_tool`, `programmer_image_tool`). Card goes in the sdmmc slot
-   (`dwmmc@fe320000` = `sdcard1` = u-boot `mmc 1`), not `sdcard2`. **No physical card has been written**:
-   the slot mapping, BootROM loader acceptance, IDB-parser acceptance for a `-storage:SD` image with
-   `RKLoader.bin`, and the flag-byte offset all need measuring on the desk with serial. The Nov 5 eMMC
-   "snapshot" is empty (zero except backup GPT), so it is not insurance; `/data/local/tmp/hu14-backup/`
-   on the unit (super head 16 MB, whole boot 32 MB, super tail backup failed) is unreachable until the
-   unit is on the desk.
-5. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
+1. **The unit runs stock Android 10 again and is backed up byte-for-byte (D39/D40).** The bootSD card
+   reaches a real recovery environment, `diatsia fw/update(1).zip` restores the unit's own firmware, and
+   the working stock eMMC was pulled partition-by-partition into `a14-work/hu-stock-backup/` with a
+   verified `MANIFEST.sha256` before anything else is written. That backup - not the factory card - is the
+   rollback for the next Android 14 attempt, which writes only `boot` + `super` (**D18**/**D19**).
+2. **Recovery became the tool instead of a menu nobody can drive (D42/D43).** Partition 8 is not part of
+   the boot chain and `vbmeta` carries zero descriptors, so a patched recovery cannot be rejected by AVB.
+   `scripts/patch_recovery_autorun.sh` splices the card-driven installer, the stock Android 10 `make_f2fs`
+   and an appended `init.recovery.rk30board.rc` into the stock ramdisk; the installer runs when a card
+   carries `hu-install.flag` and is inert without it. uboot/trust/dtb/dtbo/vbmeta/security/GPT stay
+   untouched.
+3. **The installer was logic-tested offline today and two bugs were fixed** (`docs/findings.md`,
+   "The recovery installer logic-tested offline"). Its payload-size math divided by 1000 where it meant
+   1024, so it refused every write before touching anything; its digest check compared manifest spellings
+   (`sha1`) against the applet name it probed (`sha1sum`), so zero files were ever verified while the
+   script still reported success. Payload sizes now come from the card as `size <bytes> <blocks> <name>`
+   lines written by `scripts/stage_hu_card.sh`, digest lines are named exactly as busybox applets, and
+   `scripts/smoke_recovery_installer.sh` asserts eight scenarios against a fake card and fake partitions.
+   **Consequence: the recorded patched recovery image still holds the old script, so
+   `scripts/patch_recovery_autorun.sh` has to run again and `analysis/recovery-patched.txt` has to be
+   rewritten before partition 8 is flashed.**
+4. **What blocks that rebuild today:** the build-host access wrapper lives outside the repo
+   (`/tmp/opencode/omv.sh` reading `/tmp/opencode/build_host.env`) and `/tmp` was cleared, so the NAS
+   credential must be re-supplied. The ramdisk splice, the boot-img comparison and the `dash -n` /
+   `busybox ash -n` syntax checks all run there. Nothing was flashed today, and the unit is powered off.
+5. **The route once that is fixed:** flash the rebuilt patched recovery over TCP adb (**D28**), stage the
+   roomy card with `scripts/stage_hu_card.sh`, boot the bootSD into recovery, watch `/dev/console` for the
+   `hu-install:` banner (that line is the proof partition 8 is ours), read `/tmp/hu-install.log`, deep
+   power-cycle afterwards, then check the four owner criteria: boot, WiFi, screen, sound input (touch,
+   physical buttons, CANBUS). Partition 8 alone rolls back by dd'ing `hu-stock-backup/recovery.bin`
+   `1fdf5ea77fc6…` back; the whole firmware rolls back with the stock backup or the OEM zip.
+6. **Still open before Android 14 can be believed:** the mixed-generation boot (**D33**), the composer
+   question (Android 14 may need AIDL `composer3`/`allocator`/`mapper` wrappers around the OEM blobs
+   rather than the declared HIDL `composer@2.1::IComposer/default`), whether Android 14 userspace survives
+   on the OEM A10 kernel, and a serial console reading (`console=ttyFIQ0`, 115200 8N1, 3.3 V) which
+   `docs/reanimation.md` drives from the bench.
+7. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
    (touch + physical buttons + CANBUS). Bluetooth is a deliberate second pass (`docs/decisions.md`).
    One agent at a time.

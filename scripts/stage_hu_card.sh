@@ -3,8 +3,11 @@
 # all in the card root, in the layout scripts/hu_recovery_install.sh expects.
 #
 #   hu-install.flag     - makes the patched recovery run the installer at all
-#   hu-checksums.txt    - "<algo> <hex> <name>" lines; the installer picks whichever algo its
-#                         busybox has (sha256sum is absent there, so sha1/md5 matter)
+#   hu-checksums.txt    - one `size <bytes> <blocks> <name>` line per payload (the installer's busybox
+#                         cannot do arithmetic above 2 GiB, so it reads the block count here), plus a
+#                         digest line per algorithm: `<applet> <hex> <name>` named exactly as the
+#                         busybox applet (sha256sum/sha1sum/md5sum) because the installer matches the
+#                         manifest against whichever applet it actually has
 #   super-a14.img       - raw-super.img, the logical super container
 #   boot-a14.img        - a14-boot-fixed.img, A10 kernel + Android 14 first-stage ramdisk
 #   update.zip          - the signed fallback package (recovery can install it by hand)
@@ -35,12 +38,20 @@ cp "$REPO/scripts/hu_recovery_install.sh" "$CARD/hu-install.sh" >> "$LOG" 2>&1
 [ -s "$ZIP" ] && cp "$ZIP" "$CARD/update.zip" >> "$LOG" 2>&1
 touch "$CARD/hu-install.flag"
 
-say "=== manifest: every algo the recovery busybox might offer ==="
+say "=== manifest: sizes first, then every digest we can compute ==="
 : > "$CARD/hu-checksums.txt"
+rc=0
 for name in super-a14.img boot-a14.img; do
-  for algo in sha256 sha1 md5; do
-    h=$(LC_ALL=C ${algo}sum "$CARD/$name" 2>/dev/null | cut -d' ' -f1)
-    [ -n "$h" ] && printf '%s %s %s\n' "$algo" "$h" "$name" >> "$CARD/hu-checksums.txt"
+  f="$CARD/$name"
+  [ -s "$f" ] || { say "FAIL $name not copied"; rc=1; continue; }
+  b=$(stat -c %s "$f")
+  # dd in the installer works in 4096-byte blocks, so a payload that is not block-aligned would
+  # leave its tail unwritten; refuse it here rather than on the unit.
+  if (( b % 4096 )); then say "FAIL $name is $b B, not a multiple of 4096"; rc=1; continue; fi
+  printf 'size %d %d %s\n' "$b" "$((b / 4096))" "$name" >> "$CARD/hu-checksums.txt"
+  for applet in sha256sum sha1sum md5sum; do
+    h=$(LC_ALL=C "$applet" "$f" 2>/dev/null | cut -d' ' -f1)
+    [ -n "$h" ] && printf '%s %s %s\n' "$applet" "$h" "$name" >> "$CARD/hu-checksums.txt"
   done
 done
 cat "$CARD/hu-checksums.txt" >> "$LOG"
@@ -48,10 +59,14 @@ cat "$CARD/hu-checksums.txt" >> "$LOG"
 say "=== read the card back ==="
 sync
 ls -l "$CARD" >> "$LOG" 2>&1
-rc=0
-while read -r algo h name; do
-  got=$(LC_ALL=C ${algo}sum "$CARD/$name" 2>/dev/null | cut -d' ' -f1)
-  if [ "$got" = "$h" ]; then say "  ok   $name $algo"; else say "  FAIL $name $algo got=$got"; rc=1; fi
+while read -r tag f1 f2 f3; do
+  if [ "$tag" = size ]; then
+    got=$(stat -c %s "$CARD/$f3" 2>/dev/null)
+    if [ "$got" = "$f1" ]; then say "  ok   $f3 size $f1 ($f2 blocks)"; else say "  FAIL $f3 size: got=$got manifest=$f1"; rc=1; fi
+    continue
+  fi
+  got=$(LC_ALL=C "$tag" "$CARD/$f2" 2>/dev/null | cut -d' ' -f1)
+  if [ "$got" = "$f1" ]; then say "  ok   $f2 $tag"; else say "  FAIL $f2 $tag got=$got"; rc=1; fi
 done < "$CARD/hu-checksums.txt"
 [ -f "$CARD/hu-install.flag" ] && say "  ok   hu-install.flag present" || { say "  FAIL hu-install.flag missing"; rc=1; }
 say "=== card staging rc=$rc ==="

@@ -18,15 +18,17 @@
 #
 # Card layout, all in the card root:
 #   hu-install.flag     - makes this script run at all
-#   hu-checksums.txt    - "<algo> <hex> <name>" lines; the script uses whichever algo busybox has
+#   hu-checksums.txt    - digest lines plus the payload sizes, see the manifest block below
 #   super-a14.img       - our logical super container (system/vendor/odm/product slices)
 #   boot-a14.img        - A10 kernel + Android 14 first-stage ramdisk
 #
 # Deliberately no awk and no grep: this busybox was measured to carry dd/stat/mount/umount/reboot/
 # sleep/wc/cut/sed/ls, but sha256sum and blockdev are absent and awk/grep are not certain applets.
-# Arithmetic wraps above 2 GiB in this shell, so partition and payload sizes are compared in KiB
-# (super is 3,186,688 KiB, well under the limit) and byte counts are reduced by dropping the last
-# three decimal digits - exact because both payloads are multiples of 1024.
+# Arithmetic wraps above 2 GiB in this shell (busybox ash uses a 32-bit long), so a byte count of
+# 3,263,168,512 can never be divided here - hence the manifest carries the block count rather than
+# the script computing it. Earlier versions derived KiB by dropping the last three decimal digits,
+# which divides by 1000, not 1024: raw-super.img would have read as 3,263,168 KiB against a
+# partition of 3,186,688 KiB and refused every write.
 BB=/sbin/busybox
 LOG=/tmp/hu-install.log
 
@@ -85,6 +87,43 @@ BOOTIMG="$CARD/boot-a14.img"
 [ -s "$SUPER" ] || die "no super-a14.img on the card"
 [ -s "$BOOTIMG" ] || die "no boot-a14.img on the card"
 
+# ---------- the manifest ----------
+# Two line types, written by scripts/stage_hu_card.sh:
+#   <algo> <hex> <name>          a digest of the payload file; <algo> may be spelled with or
+#                                without the trailing "sum" - it is matched to whichever applet
+#                                this busybox actually has
+#   size <bytes> <blocks> <name> the byte count and the 4096-byte block count of that file
+# The block count is what dd and the readback use, and the byte count is checked against `stat`
+# as a decimal string, so no arithmetic ever touches a number above 2 GiB.
+is_digits() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+super_bytes=""; super_blocks=""; boot_bytes=""; boot_blocks=""
+while read -r tag f1 f2 f3 _rest; do
+  [ "$tag" = size ] || continue
+  case "$f3" in
+    super-a14.img) super_bytes="$f1"; super_blocks="$f2" ;;
+    boot-a14.img)  boot_bytes="$f1";  boot_blocks="$f2" ;;
+  esac
+done < "$MAN"
+[ -n "$super_bytes" ] && [ -n "$super_blocks" ] || die "no size line for super-a14.img in $MAN"
+[ -n "$boot_bytes" ] && [ -n "$boot_blocks" ] || die "no size line for boot-a14.img in $MAN"
+is_digits "$super_blocks" || die "super-a14.img size line has a non-numeric block count"
+is_digits "$boot_blocks" || die "boot-a14.img size line has a non-numeric block count"
+
+file_bytes() {
+  b=$($BB stat -c %s "$1" 2>/dev/null)
+  [ -n "$b" ] || b=$($BB wc -c < "$1" 2>/dev/null)
+  printf '%s\n' "${b%% *}"
+}
+got_super_bytes=$(file_bytes "$SUPER")
+got_boot_bytes=$(file_bytes "$BOOTIMG")
+[ "$got_super_bytes" = "$super_bytes" ] || die "super-a14.img is $got_super_bytes B, manifest says $super_bytes B - nothing written"
+[ "$got_boot_bytes" = "$boot_bytes" ] || die "boot-a14.img is $got_boot_bytes B, manifest says $boot_bytes B - nothing written"
+
 # ---------- targets ----------
 # Hard-coded from the measured partition map of this unit (eMMC mmcblk2): boot is partition 7,
 # super is partition 14 (3,263,168,512 B), userdata is partition 15. Nothing else is ever written.
@@ -105,40 +144,48 @@ part_kib() {
     if [ "$nm" = "$1" ]; then printf '%s\n' "$kib"; return; fi
   done < /proc/partitions
 }
-super_kib=$(part_kib mmcblk2p14)
-boot_kib=$(part_kib mmcblk2p7)
-user_kib=$(part_kib mmcblk2p15)
-[ -n "$super_kib" ] || die "mmcblk2p14 not in /proc/partitions"
-[ -n "$boot_kib" ] || die "mmcblk2p7 not in /proc/partitions"
-[ -n "$user_kib" ] || die "mmcblk2p15 not in /proc/partitions"
+part_super_kib=$(part_kib mmcblk2p14)
+part_boot_kib=$(part_kib mmcblk2p7)
+part_user_kib=$(part_kib mmcblk2p15)
+[ -n "$part_super_kib" ] || die "mmcblk2p14 not in /proc/partitions"
+[ -n "$part_boot_kib" ] || die "mmcblk2p7 not in /proc/partitions"
+[ -n "$part_user_kib" ] || die "mmcblk2p15 not in /proc/partitions"
 
-# Payload sizes in KiB: drop the last three decimal digits of the byte count, exact for multiples
-# of 1024. raw-super.img is 3,263,168,512 B -> 3186688 KiB; a14-boot-fixed.img 32,796,672 -> 32028.
-payload_kib() {
-  b=$($BB wc -c < "$1" | $BB cut -d' ' -f1)
-  printf '%s\n' "${b%???}"
-}
-super_kib_img=$(payload_kib "$SUPER")
-boot_kib_img=$(payload_kib "$BOOTIMG")
-say "  super partition $super_kib KiB, payload $super_kib_img KiB"
-say "  boot  partition $boot_kib KiB, payload $boot_kib_img KiB"
-say "  userdata partition $user_kib KiB"
-[ "$super_kib_img" -le "$super_kib" ] || die "super payload exceeds partition - nothing written"
-[ "$boot_kib_img" -le "$boot_kib" ] || die "boot payload exceeds partition - nothing written"
-# Whole-block readback needs a multiple of 4 KiB; KiB % 4 == 0 is exactly that.
-[ $((super_kib_img % 4)) -eq 0 ] || die "super payload is not a multiple of 4096 B"
-[ $((boot_kib_img % 4)) -eq 0 ] || die "boot payload is not a multiple of 4096 B"
-super_blocks=$((super_kib_img / 4))
-boot_blocks=$((boot_kib_img / 4))
+# Payload size in KiB = blocks * 4 KiB. The largest block count here is 796,672 (raw-super.img),
+# so 796,672 * 4 = 3,186,688 KiB stays far below the 2 GiB wrap.
+super_kib=$((super_blocks * 4))
+boot_kib=$((boot_blocks * 4))
+say "  super partition $part_super_kib KiB, payload $super_kib KiB ($super_blocks blocks)"
+say "  boot  partition $part_boot_kib KiB, payload $boot_kib KiB ($boot_blocks blocks)"
+say "  userdata partition $part_user_kib KiB"
+[ "$super_kib" -le "$part_super_kib" ] || die "super payload exceeds partition - nothing written"
+[ "$boot_kib" -le "$part_boot_kib" ] || die "boot payload exceeds partition - nothing written"
+# The 4096-byte alignment is not checkable here without arithmetic above 2 GiB: stage_hu_card.sh
+# refuses a payload whose byte count is not a multiple of 4096, and the readback compares the hash
+# of exactly $super_blocks / $boot_blocks blocks against the hash of the whole file, so a manifest
+# whose block count does not match the file is caught there.
 
 # ---------- verify the payload before touching the unit ----------
 if [ -n "$HASH" ]; then
   ok=1
+  checked=0
   while read -r algo want name _rest; do
     [ -n "${algo:-}" ] || continue
-    [ "$algo" = "$HASH" ] || continue
     [ -n "${want:-}" ] || continue
+    # The manifest may name the algo either way; match it to the applet we actually have.
+    case "$algo" in
+      sha256|sha256sum) a=sha256sum ;;
+      sha1|sha1sum) a=sha1sum ;;
+      md5|md5sum) a=md5sum ;;
+      *) a="$algo" ;;
+    esac
+    [ "$a" = "$HASH" ] || continue
+    case "$name" in
+      super-a14.img|boot-a14.img) ;;
+      *) continue ;;
+    esac
     got=$($BB "$HASH" "$CARD/$name" 2>/dev/null | $BB cut -d' ' -f1)
+    checked=$((checked + 1))
     if [ "$got" = "$want" ]; then
       say "  ok   $name  $got"
     else
@@ -146,6 +193,9 @@ if [ -n "$HASH" ]; then
       ok=0
     fi
   done < "$MAN"
+  # A manifest with no line for the algorithm we can compute would verify nothing, so treat the
+  # absence as a failure rather than a silent pass.
+  [ "$checked" -gt 0 ] || die "no $HASH line in $MAN - cannot verify the payload, nothing written"
   [ "$ok" = 1 ] || die "card images do not match $HASH in hu-checksums.txt - nothing written"
 else
   say "  no hash applet in busybox - payload integrity checked by size + readback only"
@@ -182,6 +232,9 @@ fi
 # ---------- write ----------
 # super first: it is the big write, and a boot write landing on a half-written super is the worse
 # failure. A partial super is rolled back with hu-stock-backup/super.bin or the OEM restore zip.
+# Recovery still has /system and /vendor mounted (read-only) from the slices inside super, so
+# flush anything pending before overwriting the container underneath them.
+$BB sync
 say "== writing super =="
 $BB dd if="$SUPER" of="$SUPERDEV" bs=4096 conv=fsync 2>>"$LOG" || die "dd super failed"
 say "== writing boot =="
