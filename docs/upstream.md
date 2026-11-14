@@ -6,7 +6,8 @@ head unit run, and to record what upstream would demand before any of it is pres
 
 Two research passes produced this: one inventorying the repo (candidate by file), one checking upstream
 facts online. URLs below were opened by that pass on Nov 9; where it could not verify something that is
-said plainly.
+said plainly. Nov 14 added candidates **21** and **22** (kernel-side bugs found on the live unit) and a
+drafted issue text, **still not posted** - posting needs the owner's go-ahead.
 
 ## What upstream actually requires (verified Nov 9)
 
@@ -87,6 +88,8 @@ said plainly.
 | 18 | `PRODUCT_COPY_FILES += \` glued to a comment silently drops entries (our own regression) | `docs/decisions.md:770-777` | lesson generic, bug ours | wiki note ("check the *deployed* .mk") | trap documentation | low |
 | 19 | `drmModeAddFB2_ext` exported by libdrm | `patches/external-libdrm-rockchip-addfb2-ext.patch` (`xf86drmMode.c/.h`) | generic for RK boards | **freedesktop/drm** upstream (AOSP re-imports afterwards); Lineage's libdrm fork is dead so it cannot take it | vendor-compat shim | low |
 | 20 | `libwifi-hal-rtk` vendored in our device tree (`wifi_hal/`, 8 `.cpp`, Apache-2.0 headers) | `device/rk3399-px6-hct4/wifi_hal/` | **already upstream** in `LineageOS/android_hardware_realtek` (`compile_multilib: "both"`, `vendor_available`) | nothing to send; instead depend on the upstream module and drop our copy | redundant | high, but a no-op |
+| 21 | Vendor `gt9xx.c` stores `input_dev->phys` in a **stack array**, so the pointer dangles and a re-opened touch device panics the kernel | nothing in our repo - the bug is in `drivers/input/touchscreen/gt9xx/gt9xx.c` | generic for every board using this driver | GitHub issue on `rockchip-linux/kernel` (issues enabled, 274 open, default branch `develop-6.1`); the fix itself is a 1-line patch to that repo | bug fix | **high** - the defect is visible by reading the source, and is present in `develop-4.4`, `develop-4.19`, `develop-6.1` and `master` |
+| 22 | Rockchip's `rtl8188eu` fork warns (`rtw_warn_on(1)`) when power-save leave times out, tainting the kernel on every occurrence | nothing in our repo - we load the fork's `8188eu.ko` | generic for RK boards using this fork | `rockchip-linux/kernel` issue only: mainline **deleted** `drivers/staging/r8188eu/*` (both paths return 404 on `torvalds/linux` master), so `torvalds` cannot take it | bug report (not a patch) | medium - mainline removed the driver entirely, so the audience is the fork's maintainer |
 
 ## Notes worth keeping per candidate
 
@@ -109,6 +112,119 @@ said plainly.
   source — note `lineage.dependencies` may not reference repos outside the LineageOS org, and
   `github.com/kimocoder/android_wifi_hal` has **no LICENSE file** (unlicensed ⇒ Charter Category X), so it
   stays reference-only, never mergeable.
+* **21** is the only candidate here that we hit in production: it panicked our board on Nov 13
+  (`docs/findings.md`). It is generic - the same three lines are in all four branches - and it carries no
+  OEM content, so it is upstreamable as a bug report *and* as a patch. The home is `rockchip-linux/kernel`
+  (GitHub issues enabled; the repo is active, last push 2026-08-28). Lineage cannot take it: there is no
+  RK3399 kernel repo in the LineageOS org, and Lineage forbids prebuilt kernels anyway.
+* **22** must be phrased as a fork-specific report, not a mainline one: `drivers/staging/r8188eu/*` is
+  gone upstream (404 on torvalds master), so the only audience is `rockchip-linux/kernel`. Keep it short -
+  the ask is "a timing timeout should not `warn_on()`, it taints every boot".
+
+## Drafted, not posted (Nov 14)
+
+### Candidate 21 — issue text for `rockchip-linux/kernel`
+
+Nothing below names our board, our OEM firmware, our adb access or our build host; it quotes upstream
+source only. **Not posted.** Posting requires the owner's approval.
+
+> **Title:** `gt9xx`: `input_dev->phys` points at a stack buffer, so re-opening the device panics the kernel
+>
+> **Affected:** `drivers/input/touchscreen/gt9xx/gt9xx.c`, `gtp_request_input_dev()`. Verified on
+> `develop-4.4` (lines 2047 / 2092 / 2094), `develop-4.19`, `develop-6.1` and `master` (all
+> 2066 / 2111 / 2113).
+>
+> ```c
+> static s8 gtp_request_input_dev(struct i2c_client *client, struct goodix_ts_data *ts)
+> {
+>     s8 ret = -1;
+>     s8 phys[32];                       /* on the stack */
+>     ...
+>     ts->input_dev = devm_input_allocate_device(&client->dev);   /* outlives this function */
+>     ...
+>     sprintf(phys, "input/ts");
+>     ts->input_dev->name = goodix_ts_name;
+>     ts->input_dev->phys = phys;        /* dangling: phys dies with this stack frame */
+>     ...
+>     ret = input_register_device(ts->input_dev);
+> ```
+>
+> `devm_input_allocate_device()` gives the `input_dev` the lifetime of the I2C client, but `phys` is a
+> local array. Anything that reads `dev->phys` later - `evdev`'s `EVIOCGPHYS` via `str_to_user()`,
+> `input_dev_uevent()`, `/proc/bus/input/devices` - reads memory that is no longer the driver's.
+>
+> Two symptoms, same root cause:
+> * `/proc/bus/input/devices` prints the device with a `P: Phys=` field containing raw non-string bytes,
+>   because whatever now occupies that stack region gets copied as if it were a string.
+> * A fatal fault when the pages are gone. On an arm64 board with `CONFIG_VMAP_STACK=y` the fault address
+>   sits in the vmalloc area (thread stacks) with `pte=0`, i.e. an unmapped stack page:
+>
+> ```
+> Unable to handle kernel paging request at virtual address ffffff8009d73c70
+> pgd/pud/pmd present, pte=0000000000000000
+> Internal error: Oops: 96000007 [#1] PREEMPT SMP
+> pc : __pi_strlen+0x60/0x84   lr : str_to_user+0x24/0xf8
+> Comm: InputReader            Tainted: G W
+> Call trace:
+>   __pi_strlen+0x60/0x84
+>   evdev_ioctl_handler+0x1174/0x16b8
+>   evdev_ioctl+0x10/0x18
+>   do_vfs_ioctl+0xbc/0xda8
+>   ksys_ioctl+0x84/0x98
+>   __arm64_sys_ioctl+0x18/0x28
+>   el0_svc_common.constprop.0+0xb8/0x178
+> Kernel panic - not syncing: Fatal exception
+> ```
+>
+> `EVIOCGPHYS` is issued by any userspace that opens an input device - Android's `EventHub` does it on
+> every device open, so a framework restart re-opens `/dev/input/event*` and the fault fires. It is
+> intermittent because it only faults once the freed stack page has been unmapped or reused.
+>
+> **Mainline contrast:** `drivers/input/touchscreen/goodix.c` assigns string literals -
+> `input->phys = "input/pen"` (line 339) and `ts->input_dev->phys = "input/ts"` (line 1147) - and is not
+> affected. The lifetime rule is stated by Dmitry Torokhov on LKML in "[syzbot] [input?] KASAN:
+> slab-use-after-free Read in input_dev_uevent" (Aug 23 2023): `input_dev->name`/`phys`/`uniq` must not
+> point at memory that is freed.
+>
+> **Proposed fix** (one line, drops the array entirely):
+>
+> ```diff
+> --- a/drivers/input/touchscreen/gt9xx/gt9xx.c
+> +++ b/drivers/input/touchscreen/gt9xx/gt9xx.c
+> @@ static s8 gtp_request_input_dev(struct i2c_client *client,
+>                                  struct goodix_ts_data *ts)
+>  {
+>      s8 ret = -1;
+> -    s8 phys[32];
+>      ...
+> -    sprintf(phys, "input/ts");
+>      ts->input_dev->name = goodix_ts_name;
+> -    ts->input_dev->phys = phys;
+> +    ts->input_dev->phys = "input/ts";
+>      ts->input_dev->id.bustype = BUS_I2C;
+> ```
+>
+> The same pattern should be checked for the driver's other input devices (`pen_dev` sets `name` from a
+> literal and does not set `phys`, so it is clean today) and for the other vendor touch drivers under
+> `drivers/input/touchscreen/` in these branches.
+>
+> **How to reproduce without any vendor binary:** boot any board with this driver built in
+> (`CONFIG_TOUCHSCREEN_GT9XX`/`CONFIG_TOUCHSCREEN_PROPERTIES=y`, no `gt9xx.ko`), read
+> `/proc/bus/input/devices` (garbage `P: Phys=` is already the bug), then open the device's evdev node a
+> second time after its probe worker thread has exited and call `ioctl(fd, EVIOCGPHYS, buf)`; with
+> `CONFIG_VMAP_STACK=y` that faults once the stack page is unmapped.
+
+### Candidate 22 — short note for the same tracker
+
+> **Title:** `rtl8188eu` (Rockchip fork): `rtw_lps_state_chk()` `warn_on()`s on a timeout, tainting the kernel
+>
+> `hal/hal_com.c` `rtw_lps_state_chk()` (line 12035 on `develop-4.19`) polls `REG_TCR`'s `BIT_PWRBIT_OW_EN`
+> for `LPS_ACTIVE_TIMEOUT` ms; if the chip never clears it it prints `PS_MODE_ACTIVE check failed` and then
+> `rtw_warn_on(1)` (line 12050), which emits a full `WARNING:` backtrace and taints the kernel `W` on every
+> power-save transition that is slow. Reached via `HW_VAR_LPS_STATE_CHK` (`hal_com.c:12410-12412`) from
+> `rtw_set_ps_mode()` (`core/rtw_pwrctrl.c:1004`). A timeout is an expected condition on real hardware, so
+> `RTW_ERR()` plus a return is enough; the `warn_on()` only makes every later oops report say
+> `Tainted: G W`. Mainline cannot take this: `drivers/staging/r8188eu/*` no longer exists upstream.
 
 ## Do NOT upstream
 
@@ -119,6 +235,9 @@ said plainly.
 * The staged Daisaita Android 11 vendor blob tree, OEM kernel, dtb and RSCE logo
   (`prebuilt_vendor.sh` output `vendor/hct4/**`, `TARGET_PREBUILT_KERNEL`, `BOARD_PREBUILT_DTBIMAGE_DIR`,
   `boot_second_logo.bin`) — proprietary, and Lineage requires an extraction script, not committed blobs.
+  **This also means our crash record must not be attached to an upstream report as-is**: the RAMoops dump
+  names our board (`Rockchip RK3399 HCT  Board (DT)`), our kernel build (`#190`) and our loaded modules.
+  Only the generic fault signature belongs in the issue text above.
 * The permissive trust stack: `WITH_PERMISSIVE_SELINUX := true`, `androidboot.selinux=permissive`,
   `veritymode=disabled`, `verifiedbootstate=orange`, `BOARD_AVB_ENABLE := false`, `ueventd` `0666` on
   `/dev/mtc-*`/`ttyS*`, `user root` + `seclabel u:r:shell:s0` services. That is a security regression;
@@ -150,12 +269,14 @@ said plainly.
 
 ## When we start submitting (order, not yet started)
 
-1. Lineage wiki note: EOCD-comment recovery signature + `signapk -w` behaviour (docs only, Gerrit).
-2. Lineage device-tree fix: `update_engine_sideload` (+ the fstab `/recovery`/`/misc`/`cache` shape if a
+1. `rockchip-linux/kernel` GitHub issue: candidate **21** (draft above, generic, no CLA needed - issues are
+   not a contribution). Then the short **22** note. Both await the owner's go-ahead; nothing is posted yet.
+2. Lineage wiki note: EOCD-comment recovery signature + `signapk -w` behaviour (docs only, Gerrit).
+3. Lineage device-tree fix: `update_engine_sideload` (+ the fstab `/recovery`/`/misc`/`cache` shape if a
    generic home exists; upstream has no RK3399 tree, so `device/lineage` is the realistic host).
-3. AOSP Gerrit: releasetools `zip -y` / target-files-zip dependency, and the `ifdef` recovery_dtbo bug —
+4. AOSP Gerrit: releasetools `zip -y` / target-files-zip dependency, and the `ifdef` recovery_dtbo bug —
    after re-checking AOSP `main`.
-4. AOSP/Lineage: generic `libwifi-hal` 32-bit (as a Soong config variable), and drop our vendored
+5. AOSP/Lineage: generic `libwifi-hal` 32-bit (as a Soong config variable), and drop our vendored
    `wifi_hal/` in favour of `LineageOS/android_hardware_realtek`.
-5. freedesktop/drm: only if we can justify the `AddFB2_ext` compat shim without HU prose.
-6. Mainline U-Boot docs / Radxa wiki: Rockchip SD-boot + AVB-lock notes (documentation only).
+6. freedesktop/drm: only if we can justify the `AddFB2_ext` compat shim without HU prose.
+7. Mainline U-Boot docs / Radxa wiki: Rockchip SD-boot + AVB-lock notes (documentation only).

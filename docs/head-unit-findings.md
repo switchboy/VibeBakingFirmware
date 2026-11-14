@@ -3,17 +3,67 @@
 Source: `incoming/probe-20261104-1353.md` — the unit running Termux (`com.termux`, GitHub arm64 build),
 non-root, report uploaded over LAN. Kernel config recovered from the embedded gzip blob into
 `analysis/hu_kernel_config.txt` (1686 config options), vendor manifest into
-`analysis/hu_vendor_manifest.xml`.
+`analysis/hu_vendor_manifest.xml`. Later facts come from the root probe `incoming/probe-20261113-2016.md`
+and the RAMoops record `analysis/panic-20261113-2003-ramoops.txt`.
 
 ## Identity of the firmware actually installed
 
-| property | value |
-|---|---|
-| fingerprint | `rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.20220412.155213:userdebug/test-keys` |
-| Android | 10 (SDK 29), security patch **2020-05-05** |
-| build type | **userdebug / test-keys** (an engineering build, dated 2022-04-12) |
-| hardware | `rk30board`, platform `rk3399`, model `PX6` |
-| kernel | `4.19.111+` #277, built 2022-03-31 by `chun@r930`, Linaro GCC 6.3-2017.05 |
+Measured Nov 13 20:16 CET as root (`adb root`, `uid=0` / `u:r:su:s0`, SELinux **Permissive**), serial
+`D5362B7F96DAB676` (`incoming/probe-20261113-2016.md`). It differs from what the Nov 4/5 probes reported,
+because the owner re-flashed the OEM package via the bootSD card (**D39**):
+
+| property | value now | value on Nov 4/5 (before the re-flash) |
+|---|---|---|
+| fingerprint | `rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.20250401.152740:userdebug/release-keys` | `...eng.hct2.20220412.155213:userdebug/test-keys` |
+| Android | 10 (SDK 29), patch 2020-05-05 | same |
+| kernel | `4.19.111+` **#190**, built Fri Jul 5 2024 by `root@meng_book2`, machine `Rockchip RK3399 HCT Board` | `4.19.111+` **#277**, built 2022-03-31 by `chun@r930` |
+| root | `adb root` gives uid 0 with `u:r:su:s0`; `/system/xbin/su` present, no magisk | su present, app sandbox could not list `/system/bin` |
+| boot reason | `kernel_panic,fatal_exception` (see below) | - |
+
+That kernel build is the one inside `diatsia fw/update(1).zip` (the Daisaita/Daitsun Android 10 package,
+`docs/decisions.md` D39/D40), so the unit runs the OEM Android 10 firmware, not our payload. The vendor
+surface is byte-for-byte that reference - `analysis/vendor_blob_live_vs_oem_a10.tsv`, 126/126 identical.
+Hardware identity is unchanged across both builds: `rk30board`, platform `rk3399`, model `PX6`.
+
+## Input devices, and the defect that panicked the unit on Nov 13
+
+Four input devices register at boot: `mtc-key` (`/devices/platform/mtc-car/input/input0`), `goodix-ts`
+(`ff3d0000.i2c/i2c-4/4-0014/input/input1`), `gpio-keys`, plus the HID/virtual ones loaded later
+(`sd_user_hid.ko`, `virtual_tp.ko`). The full `/proc/bus/input/devices` dump is not in the probe report -
+it was read live over `adb root` on Nov 13 and needs re-reading when the unit is reachable.
+
+What that read showed for the touchscreen is the signature of a driver that stores its identity strings in
+memory it has already thrown away:
+
+```
+P: Phys=<raw non-string bytes>     U: Uniq= (empty)
+S: Vendor=dead Product=beef Version=28bb
+```
+
+`dead/beef/28bb` = `0xDEAD/0xBEEF/10427`, hardcoded in Rockchip's `drivers/input/touchscreen/gt9xx/gt9xx.c`;
+the garbage `Phys` is the same buffer. The driver declares `s8 phys[32];` **on the stack**, `sprintf`s
+`"input/ts"` into it and assigns `ts->input_dev->phys = phys` - the `devm`-allocated `input_dev` outlives
+the function, so `phys` is a dangling pointer into a dead kernel stack frame. Mainline's
+`drivers/input/touchscreen/goodix.c` uses string literals instead (`input->phys = "input/ts"`), so this is
+vendor-only; it is present in `rockchip-linux/kernel` `develop-4.4`, `develop-4.19`, `develop-6.1` and
+`master`. The driver is built into the kernel (no `gt9xx.ko`), so it cannot be fixed by swapping a module.
+
+That bug is what killed the unit at **20:03 CET on Nov 13**: `ro.boot.bootreason =
+kernel_panic,fatal_exception`. The framework restarted (system_server pid 466 died, zygote killed, new
+system_server pid 3989), its new `InputReader` thread re-opened `/dev/input/event1`, the `EVIOCGPHYS`
+ioctl ran `strlen()` on the freed stack page, and the kernel died with
+`Unable to handle kernel paging request at ffffff8009d73c70`, `pc __pi_strlen+0x60`, trace
+`evdev_ioctl_handler+0x1174`. The record is committed as `analysis/panic-20261113-2003-ramoops.txt`; the
+full decoding is `docs/findings.md` ("The Nov 13 20:03 kernel panic"). Touch works normally after the
+reboot - the fault only fires when an input device is *re-opened* after that page is unmapped, which is why
+it survived the Nov 11/12 sessions.
+
+**`vendor.sensors-hal-1-0` exits with status 255 and init loops on it.** In the panic record it exits twice
+in one boot (pid 290 at t=3325.637752, pid 3818 at t=3333.865666, uid 1000), each time followed by
+`init: starting service 'vendor.sensors-hal-1-0'...` and a `healthd: battery none chg=` line. Whether that
+is *why* system_server died is unproven - logcat is not in pstore. It is on the owner's criteria path
+(sensors/GPS behaviour), so the next reachable session should grab `logcat -d` around a crash and the
+HAL's own stderr.
 
 This is the Daisaita/Daitsun build of the HCT4 base — same Android version and same vendor HAL
 surface as the reference payload, but **not** the Hal9k Mod: no `/vendor/magisk`, no `eng.hct`
@@ -52,6 +102,14 @@ boot/uboot/trust/dtb/dtbo/vbmeta/recovery/super and the 5.4 GiB of userdata cont
 first.
 
 ## Kernel configuration (`analysis/hu_kernel_config.txt`)
+
+The Nov 13 root probe read `/proc/config.gz` from the kernel actually running now (`4.19.111+ #190`) and
+that dump is committed as `analysis/hu_kernel_config_live-20261113.txt` — 5774 lines, **byte-identical** to
+`analysis/daisaita_a10_kernel_config.txt` (the config shipped in the OEM Android 10 package). The Nov 4
+config (`analysis/hu_kernel_config.txt`, from the #277 build) differs from it: `CONFIG_FW_LOADER_USER_HELPER
+_FALLBACK=y` instead of unset, and `CONFIG_RTL8188FU=m` + `CONFIG_RTL8733BS=m` present there but absent in
+the build the unit runs today. So the reference config for the current kernel is the Daisaita A10 one, and
+everything below holds for both builds.
 
 - `CONFIG_IKCONFIG=y` + `CONFIG_IKCONFIG_PROC=y` — `/proc/config.gz` exists, so the exact shipped
   config is known. This is the base for a rebuilt kernel.
@@ -114,9 +172,25 @@ The vendor ships drivers for `8188eu`, `8189fs`, `8723bu`, `8821cs`, `8821cu`, `
 USB drivers already in the shipped vendor**. So wireless CarPlay/AA (5 GHz is required on modern
 phones) is a *hardware* limit, not a firmware one: swapping that USB WiFi module for a dual-band
 Realtek module the kernel already supports (8821CU/8822BU) is the route, and it needs no kernel
-rebuild — only `init.connectivity.rc`/module loading and a correct `iw reg` country code. `iw` was
-not on PATH; the updated probe now uses `/system/bin/iw` and reports the bound driver name, so we
-will confirm the chip exactly and see which frequencies the regdb allows.
+rebuild — only `init.connectivity.rc`/module loading and a correct `iw reg` country code.
+
+Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`, driver `rtl8188eu`,
+`wifi_chip_type = rtl8188eu` parsed from the DT at boot):
+
+* `iw dev` — `wlan0` joined `ssid hoefijzer`, `p2p0` on a second wiphy; `iw list` offers **Band 1 only**
+  (channels 1-13 at 20.0 dBm, ch 14 disabled, HT20/HT40, max RX 150 Mbps). No 5 GHz band exists on this
+  chip, which confirms the hardware limit above rather than contradicting it.
+* `iw reg get` — **`country 00: DFS-UNSET`**. The country code has never been set, so the 2.4 GHz channels
+  run under the world-regulatory default, and the kernel gates them via
+  `CONFIG_CFG80211_REQUIRE_SIGNED_REGDB=y` + `CONFIG_CFG80211_USE_KERNEL_REGDB_KEYS=y` (see the
+  kernel-configuration section). Setting a real country code (`iw reg SE` for the owner's Netherlands
+  install, or country plumbing in `init.connectivity.rc`) is still owed.
+* Live-only, read over `adb root` Nov 13 and **not** captured in the probe report: link quality ~99/99 at
+  −44 dBm. Re-measure with `iw dev wlan0 link` on the next reachable session.
+* The loaded driver is Rockchip's fork and it taints the kernel: a `WARNING` at
+  `drivers/net/wireless/rockchip_wlan/rtl8188eu/hal/hal_com.c:12050 rtw_lps_state_chk+0x58/0x70 [8188eu]`
+  fires when power-save leave times out (`rtw_warn_on(1)` after `PS_MODE_ACTIVE check failed`). Harmless,
+  but it is why the Nov 13 panic record says `Tainted: G W` — details in `docs/findings.md`.
 
 ## Privileges and root
 
@@ -132,12 +206,24 @@ will confirm the chip exactly and see which frequencies the regdb allows.
 
 ## Open questions for the owner
 
-1. Do you have a saved copy of the zip currently installed (Daisaita/Daitsun)? If not, the next
-   report can dump the current images over LAN (`dd` of boot/recovery/super needs root).
-2. Does `/system/xbin/su` prompt for a password, or does it give a root shell outright? The probe
-   will show which.
+1. ~~Do you have a saved copy of the zip currently installed?~~ Answered Nov 13: yes —
+   `diatsia fw/update(1).zip`, and the running fingerprint/kernel match it
+   (`eng.hct2.20250401.152740`, `#190`). A fresh `scripts/pull_stock_backup.sh` refresh (**D40**) is still
+   owed once the unit is reachable, since the Nov 11 manifest's `boot.bin`/`super.bin` hashes are now stale.
+2. ~~Does `/system/xbin/su` prompt for a password?~~ Answered Nov 13: root works over TCP adb
+   (`adb root` → `uid=0`, `u:r:su:s0`), so `su` is not needed for our probing (**D28**).
 3. Wireless CarPlay/AA: accept swapping the USB WiFi module for a dual-band one, or keep wired
-   CarPlay/AA only?
+   CarPlay/AA only? (`iw list` confirms the present chip has no 5 GHz band at all.)
+4. **The kernel panic.** The fix is a one-line vendor source change (`gt9xx.c`: assign a literal to
+   `input_dev->phys`) plus a kernel rebuild, which replaces the prebuilt-kernel stance of **D9** for that
+   one driver. Options: (a) rebuild just the kernel and re-flash `boot` only (needs the rollback path of
+   **D38**/**D40** verified first); (b) keep the OEM kernel and accept that a framework restart can panic
+   the unit again; (c) chase the sensors-HAL/system_server crash so the framework does not restart. Which
+   do you want, and may we post the bug report upstream (see `docs/upstream.md`, draft written, nothing
+   posted)?
+5. `vendor.sensors-hal-1-0` exits with status 255 and init loops on it. It is the nearest candidate for
+   the framework restart that triggered the Nov 13 panic, and sensors are part of the criteria path. Next
+   reachable session: capture `logcat -d` plus the HAL's stderr around a crash.
 
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)

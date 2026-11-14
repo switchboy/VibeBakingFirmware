@@ -41,6 +41,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | Wireless CarPlay/AA needs 5 GHz, unit's WiFi is a USB **Realtek RTL8188E** dongle (2.4 GHz hardware) | feature cannot be used wirelessly | hardware fix: swap that USB module for a dual-band RTL8821CU/8822BU - the shipped vendor already carries `8821cu.ko`/`8822bu.ko`, so no kernel rebuild; needs module loading in `init.connectivity.rc` and a correct `iw reg` country code. Wired CarPlay/AA unaffected |
 | Payload signing / upgrade app rejects our zip | cannot install | resolved for the recovery path (**D25**): HCT's own cert is not ours, so the payload is flashed as raw images; the patched recovery (**D42**) removes the menu problem |
 | An installer bug discovered only at the bench | the flash silently refuses, or a corrupt payload is written | the installer is logic-tested offline first (`scripts/smoke_recovery_installer.sh`); its payload sizes and digests come from the card manifest (**D43**), not from arithmetic the recovery busybox cannot do |
+| Vendor `gt9xx` driver leaves `input_dev->phys` pointing at a dead stack frame | fatal kernel panic whenever an input device is re-opened after that page is unmapped (observed Nov 13 20:03, on a framework restart) | one-line vendor-source fix (`phys = "input/ts"` literal, mainline `goodix.c` already does this) — but the driver is built into the kernel, so it needs a kernel rebuild, which cuts against **D9**'s prebuilt-kernel stance. Options recorded in `docs/head-unit-findings.md` open questions; bug report drafted in `docs/upstream.md` (not posted) |
 
 ## D-status (one line each; reasoning in `docs/decisions.md`)
 
@@ -62,7 +63,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D44 | open, Nov 14 - owner decision | vendor staging source: the firmware the unit runs today is byte-for-byte the **Android 10** reference (126/126 identical), while `vendor/hct4/tree/vendor` is staged from the **Android 11** dump (75 hashed paths differ, incl. audio/composer/sensors/gps/mtc/wifi). Re-staging from A10 revises D9/D15 |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
-## Current state (Nov 13)
+## Current state (Nov 13/14)
 
 1. **The unit runs stock Android 10 again and is backed up byte-for-byte (D39/D40).** The bootSD card
    reaches a real recovery environment, `diatsia fw/update(1).zip` restores the unit's own firmware, and
@@ -109,6 +110,23 @@ This file is the index plus the risk register, and it must not restate numbers -
    rather than the declared HIDL `composer@2.1::IComposer/default`), whether Android 14 userspace survives
    on the OEM A10 kernel, and a serial console reading (`console=ttyFIQ0`, 115200 8N1, 3.3 V) which
    `docs/reanimation.md` drives from the bench.
-8. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
+8. **The Nov 13 20:03 kernel panic is root-caused, offline, from the RAMoops record.**
+   `analysis/panic-20261113-2003-ramoops.txt` shows a fatal `strlen()` inside `evdev_ioctl_handler` from
+   the `InputReader` thread (`pc __pi_strlen+0x60`, fault address 4.7 MB past the kernel image, `pte=0`).
+   Cause: the vendor `drivers/input/touchscreen/gt9xx/gt9xx.c` keeps `input_dev->phys` in a **stack array**
+   (`s8 phys[32]`), so the pointer dies with the probe function; it is present in
+   `develop-4.4`/`4.19`/`6.1`/`master`, and the driver is built into the kernel, so no module swap fixes it.
+   It only fires when an input device is *re-opened*: the framework restarted that boot (system_server died,
+   zygote killed), the new EventHub asked for `EVIOCGPHYS`, and by then the stack page was unmapped.
+   Touch works fine after a reboot, which is why earlier sessions never saw it. The kernel-side taint came
+   from the Rockchip `rtl8188eu` fork's `rtw_warn_on(1)`. Full write-up: `docs/findings.md`; live-unit
+   facts: `docs/head-unit-findings.md`.
+9. **Unit offline again (`192.168.1.120` unreachable), and a generic bug report is drafted but NOT posted.**
+   `docs/upstream.md` carries candidates 21 (gt9xx dangling `phys`, home = `rockchip-linux/kernel` GitHub
+   issue) and 22 (the fork's power-save `warn_on`), with issue text written and scrubbed of OEM identity.
+   Nothing has been submitted. Pending the owner's answers: whether to post, and which panic route to take
+   (rebuild just the kernel with the 1-line fix / keep the OEM kernel and accept the risk / chase the
+   sensors-HAL crash so the framework stops restarting).
+10. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
    (touch + physical buttons + CANBUS). Bluetooth is a deliberate second pass (`docs/decisions.md`).
    One agent at a time.

@@ -1526,3 +1526,141 @@ Among the 75 paths that differ from the live unit are the HALs the owner's crite
 `hostapd`, `wpa_supplicant`, the WiFi `.ko` modules and `vendor/etc/vintf/manifest.xml` itself. Re-staging
 the vendor slice from the Android 10 firmware the unit actually runs revises **D9**/**D15**, so it is a
 decision for the owner rather than a change to make silently.
+
+## The Nov 13 20:03 kernel panic: the touch driver hands `input_dev->phys` a stack buffer (Nov 14, offline)
+
+**Provenance.** The unit went offline before this analysis, so everything below is worked from the RAMoops
+record pulled over `adb root` on Nov 13 (`/sys/fs/pstore/dmesg-ramoops-0`), now committed as
+`analysis/panic-20261113-2003-ramoops.txt` (263,797 B, sha256 head `d9b04399…`). Nothing was re-measured
+today; where a fact could only be seen on the live unit it is marked as such. The record's own header is
+`Panic#2 Part1` - the counter says a *previous* panic existed in the persistent RAM region, and only
+`dmesg-ramoops-0` was pulled (`/sys/fs/pstore` was never listed), so any earlier panic record is not in
+hand. Re-measure the pstore listing when the unit is reachable.
+
+**The fault, verbatim from the record** (`Panic#2 Part1`, kernel `4.19.111+ #190`, `Tainted: G W`,
+`Hardware name: Rockchip RK3399 HCT  Board (DT)`, `Modules linked in: usb_f_iap2 8188eu aic8800_bsp`):
+
+| item | value |
+|---|---|
+| first line | `[3334.164797] Unable to handle kernel paging request at virtual address ffffff8009d73c70` |
+| `ESR` | `0x96000007` - DABT (current EL), `ISS = 0x00000007`, `SET=0 FnV=0 EA=0 S1PTW=0`, IL 32 bits |
+| page tables | `pgd=f7ffe003`, `pud=f7ffe003`, `pmd=00250003`, **`pte=0000000000000000`** (4k pages, 39-bit VAs) |
+| oops | `Internal error: Oops: 96000007 [#1] PREEMPT SMP` |
+| process | `Process InputReader (pid: 4122)`, `CPU: 3` |
+| `pc` / `lr` | `__pi_strlen+0x60/0x84` / `str_to_user+0x24/0xf8` |
+| registers | `x0 = ffffff8009d73c78`, `x1 = ffffff8009d73c70`, `x11 = 0x0101010101010101` (the strlen zero-byte magic), `sp = ffffff800f863c90` |
+| trace | `__pi_strlen` → `evdev_ioctl_handler+0x1174/0x16b8` → `evdev_ioctl+0x10/0x18` → `do_vfs_ioctl+0xbc/0xda8` → `ksys_ioctl+0x84/0x98` → `__arm64_sys_ioctl+0x18/0x28` → `el0_svc_common` → `el0_svc` |
+| `Code:` tail | `f10020ff cb0703e7 (a8c10c22)` = `ldr x3, [x0], #8` - strlen walking the buffer it was handed |
+| end | `---[ end trace 2c55f59c8f1de4c7 ]---`, then `[3334.300295] Kernel panic - not syncing: Fatal exception`; SoC temp at panic was 68 C (`rockchip-thermal ff260000.tsadc: channal 0`) |
+
+The trace ids run consecutively - `2c55f59c8f1de4c6` is the earlier WARN (§ below), `…c7` is this panic -
+so both happened in the *same* boot. `Kernel Offset: disabled` (`kaslr_offset() == 0`) and
+`# CONFIG_ARM64_RANDOMIZE_TEXT_OFFSET is not set` (`analysis/daisaita_a10_kernel_config.txt:5770`).
+
+**What the faulting address is.** Decoding it against the shipped config, not against a guess. Line numbers
+below are `analysis/daisaita_a10_kernel_config.txt`, which is byte-identical to the live
+`/proc/config.gz` dump committed as `analysis/hu_kernel_config_live-20261113.txt` (5774 lines, `diff -q`
+clean):
+`CONFIG_ARM64_VA_BITS=39` (`:380`) → `VA_START = 0xffffff8000000000`; `# CONFIG_KASAN is not set` (`:5620`)
+→ `MODULES_VADDR = VA_START`, and `MODULES_VSIZE` is `SZ_128M`
+(`arch/arm64/include/asm/memory.h` from `rockchip-linux/kernel` `develop-4.19`) →
+`KIMAGE_VADDR = MODULES_END = 0xffffff8008000000`; `TEXT_OFFSET = 0x00080000` (`arch/arm64/Makefile:96`) →
+`_text = 0xffffff8008080000`. The Android boot image header in the D40 stock backup's `boot.bin` says the
+kernel Image is **25,671,688 B**, and the live `boot` partition dump taken Nov 13 reports the same size, so
+`_end = 0xffffff80098fb808`. The `pc` (`0xffffff8008e14120`) is 13.6 MB inside that image - real kernel
+text. The faulting address is **4.7 MB past `_end`**, i.e. in the vmalloc area, and `pte=0` says the page
+is simply not mapped. `PAGE_OFFSET = 0xffffffc000000000` is the linear map, and the register values that
+come from it (`x24 = 0xffffffc0d78c4600`, `x23 = 0xffffffc0eede2000`, `x8 = 0xffffffc0eede0800`) are live
+kernel objects on the `evdev`/`input_dev` side of the request - those are fine; only the `phys` pointer is
+stale. `CONFIG_VMAP_STACK=y` (`:628`) puts thread stacks in vmalloc, and `sp` is
+likewise past `_end`, so the current stack is a vmalloc'd one: **the address `dev->phys` points at is a
+stack page of some earlier thread that has since been freed and unmapped.**
+
+**The driver bug.** Rockchip's BSP touch driver, not mainline's. In
+`drivers/input/touchscreen/gt9xx/gt9xx.c` (`rockchip-linux/kernel`):
+
+```c
+static s8 gtp_request_input_dev(struct i2c_client *client, struct goodix_ts_data *ts)
+{
+    s8 ret = -1;
+    s8 phys[32];                     /* 2066: on the STACK */
+    ...
+    ts->input_dev = devm_input_allocate_device(&client->dev);   /* 2072: lives until the i2c client goes */
+    ...
+    sprintf(phys, "input/ts");       /* 2111 */
+    ts->input_dev->name = goodix_ts_name;   /* 2112: "goodix-ts" (line 69), a static string - fine */
+    ts->input_dev->phys = phys;      /* 2113: points the long-lived struct at the frame that dies */
+    ts->input_dev->id.vendor = 0xDEAD; ts->id.product = 0xBEEF; ts->id.version = 10427;
+```
+
+The `input_dev` is `devm`-allocated, so it outlives `gtp_request_input_dev()`; `phys` does not. Same code
+is in every branch we checked: `develop-4.4` (lines 2047/2092/2094), `develop-4.19`, `develop-6.1` and
+`master` (all 2066/2111/2113). Mainline's rewrite is unaffected -
+`drivers/input/touchscreen/goodix.c` assigns literals: `input->phys = "input/pen"` (line 339) and
+`ts->input_dev->phys = "input/ts"` (line 1147). So the fix is one line in the vendor driver.
+
+The driver is **built into the kernel**: `gt9xx` is not in `/proc/config.gz`'s touchscreen list, there is no
+`gt9xx.ko`/`goodix.ko` in `/vendor/lib/modules`, and the boot log registers it directly
+(`input: goodix-ts as /devices/platform/ff3d0000.i2c/i2c-4/4-0014/input/input1`,
+`incoming/probe-20261113-2016.md:7472`). A module swap cannot fix this; the kernel source has to change.
+
+**Why it only bites sometimes.** Android 10's `EventHub::openDevice_locked` asks the kernel for the three
+identity strings on every device open: `EVIOCGNAME` (`a10-EventHub.cpp:1203`), `EVIOCGPHYS` (`:1241`),
+`EVIOCGUNIQ` (`:1249`), fetched from `android.googlesource.com/platform/frameworks/native`
+`refs/heads/android10-release`. `EVIOCGPHYS`/`EVIOCGUNIQ` go through `str_to_user()`, which does
+`strlen(str)` - and `strlen` on a dangling stack pointer is harmless while the vmalloc page happens to
+still be mapped (it copies whatever garbage sits there) and fatal once that page is freed. Both ends of
+that match what the unit printed:
+
+* Garbage-but-mapped: `/proc/bus/input/devices` read via `adb root` on Nov 13 showed goodix-ts with
+  `P: Phys=` followed by raw non-string bytes, `U: Uniq=` empty, and `Vendor=dead Product=beef
+  Version=28bb` (= the driver's `0xDEAD/0xBEEF/10427`). This was a live read **not** captured in the probe
+  report, so it is not reproducible while the unit is offline - re-read it on the next reachable session.
+* Freed page: the Nov 13 panic, `pte=0`.
+
+The upstream rule this breaks is stated plainly by Dmitry Torokhov on LKML in
+"[syzbot] [input?] KASAN: slab-use-after-free Read in `input_dev_uevent`" (Aug 23 2023): a driver must not
+point `input_dev->name`/`phys`/`uniq` at memory it has already freed. The vendor driver does exactly that.
+
+**What set the ioctl off in this boot** (all times are uptimes from the record):
+
+| t | event |
+|---|---|
+| 3325.637752 | `init: Service 'vendor.sensors-hal-1-0' (pid 290) exited with status 255`, init restarts it |
+| 3328.430911 | `binder_alloc: 466: binder_alloc_buf, no vma` - system_server (pid **466**) is gone |
+| 3328.515860 / 3328.545520 | `bootanim` started by surfaceflinger (pid 184); `init: Service 'zygote' (pid 266) received signal 9` → **the framework restarts** |
+| 3333.631361 | `idmap2d` started from pid **3989 (system_server)** - the *new* system_server |
+| 3333.865666 | sensors-hal (pid 3818) exits 255 again; init restarts it at 3333.868249 |
+| 3334.164797 | the panic, in `InputReader` pid **4122** - a child of the new system_server, doing the first `EVIOCGPHYS` of a fresh `EventHub` open of `/dev/input/event1` |
+
+So the panic needs a *framework restart*: the goodix-ts device is re-opened, the dead `phys` pointer is
+read again, and by then its stack page is gone. Touch itself kept working after the reboot, which fits:
+nothing re-opens the device during a normal boot. **Honest gap:** the kernel log cannot say *why* system_server
+died - logcat is not in pstore. The twice-exiting `vendor.sensors-hal-1-0` (status 255, uid 1000) is the
+nearest candidate and is itself a defect worth chasing (`docs/head-unit-findings.md`), but the causal link
+is unproven. Reboot completed 20:03:30 CET (`ro.runtime.firstboot = 1794596610003`, probe line 656) and
+`ro.boot.bootreason = kernel_panic,fatal_exception` (probe line 358); with 3334 s of uptime that puts the
+crashed boot's start at ≈19:47:56 CET (derived arithmetic, not a measured boot timestamp).
+
+**The taint came from the WiFi fork.** Earlier in the same boot, `[1566.010716] WARNING: CPU: 3 PID: 1070 at
+drivers/net/wireless/rockchip_wlan/rtl8188eu/hal/hal_com.c:12050 rtw_lps_state_chk+0x58/0x70 [8188eu]`,
+`Comm: RTW_CMD_THREAD`, that record's own line says `Not tainted` - it is what made the panic's
+`Tainted: G W`. The warning is fork-only: `rtw_lps_state_chk()` polls `REG_TCR`'s `BIT_PWRBIT_OW_EN` for
+`LPS_ACTIVE_TIMEOUT` ms and, on failure, prints `PS_MODE_ACTIVE check failed` then `rtw_warn_on(1)`
+(`hal_com.c:12035-12052` at `develop-4.19`), reached via `HW_VAR_LPS_STATE_CHK` (`hal_com.c:12410-12412`)
+from `rtw_set_ps_mode()` (`core/rtw_pwrctrl.c:1004`, the function defined at `:858`) - i.e. power-save
+leave timing on our USB 8188eu. Mainline
+cannot be told about it as-is: `drivers/staging/r8188eu/*` returns 404 on `torvalds/linux` master (the
+driver was removed from staging), so this belongs in `rockchip-linux/kernel`'s issue tracker. It did not
+kill anything; it just taints and logs.
+
+**Consequence for our firmware.** The bug is *provable* on the kernel the unit runs today (`#190`), because
+that is where the panic came from. Our payload ships the vendor **Android 11** kernel (`4.19.193 #24`,
+**D33**), and the same three lines exist in every Rockchip branch we could read
+(`develop-4.4`/`4.19`/`6.1`/`master`) - but the vendor kernel *source* is not in hand
+(`docs/findings.md`, the Nov 11 module/kernel story), so for the A11 kernel this is an inference from the
+BSP family, not an inspection result. Shipping the prebuilt kernel unchanged therefore inherits a panic that
+fires whenever an input device is re-opened after that stack page is freed. The fix is a one-line vendor
+source patch (`ts->input_dev->phys = "input/ts";`) plus a kernel rebuild, which is a real build step
+(**D9**'s prebuilt-kernel stance) - recorded as a risk and an owner question, not decided here. See
+`docs/upstream.md` for the report we could send, which is written to be safe to post without our OEM data.
