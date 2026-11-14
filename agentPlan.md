@@ -36,7 +36,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | Super partition too small for Android 14 | install fails | no longer a risk: Android 14 needs 2.18 GB of logical content and the group is 3.26 GB (1.07 GB spare). If it ever stops fitting, that is a fresh layout decision (**D19**), not a scripted GPT rewrite |
 | HCT apps depend on framework internals | features break | keep app layer from current firmware initially; test early on real car |
 | Bricking the unit | hardware loss | **only one unit**: backup GPT head/tail, p1-p13, boot/recovery and the current logical images before any flash; never flash without a verified restore path. Losing accounts/apps/settings is acceptable per the owner, so backup only needs to be firmware-level |
-| Installed firmware is a Daisaita build, not the reference ROM | vendor assumptions could be wrong | largely resolved: the live HAL set matches the reference manifest except `cas`/`weaver`/`rockit.hw` (declared but binaries still present); the next report hashes every vendor blob so we can prove byte-for-byte equality |
+| Installed firmware is a Daisaita build, not the reference ROM | vendor assumptions could be wrong | measured Nov 13 (`tools/vendor_blob_check.py`): the live firmware's hashed surface is byte-for-byte the **Android 10** reference (126/126 identical), while our staged tree comes from the **Android 11** dump, which differs in 75 paths incl. audio/composer/sensors/gps/mtc/wifi. Re-staging from the A10 firmware revises D9/D15 - pending the owner's decision |
 | No root on the unit | boot cmdline, lsmod, dmesg, `/init.hct.rc` unavailable | probe degraded fine (sysfs sizes + `/proc/config.gz` worked); **`/system/xbin/su` exists on this ROM** - the probe now calls it directly, so root may be available without Magisk |
 | Wireless CarPlay/AA needs 5 GHz, unit's WiFi is a USB **Realtek RTL8188E** dongle (2.4 GHz hardware) | feature cannot be used wirelessly | hardware fix: swap that USB module for a dual-band RTL8821CU/8822BU - the shipped vendor already carries `8821cu.ko`/`8822bu.ko`, so no kernel rebuild; needs module loading in `init.connectivity.rc` and a correct `iw reg` country code. Wired CarPlay/AA unaffected |
 | Payload signing / upgrade app rejects our zip | cannot install | resolved for the recovery path (**D25**): HCT's own cert is not ours, so the payload is flashed as raw images; the patched recovery (**D42**) removes the menu problem |
@@ -59,6 +59,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D32-D37 | decided | measured defect list (Mali vermagic is cleanup, DTB panel-table trimming is a vendor A10->A11 delta); our boot image is the vendor **A11** kernel+DTB on an **A10** chain; our payload had **no first-stage fstab** - fixed images built (`a14-fixed.img`, `boot-a10k-a14rd.img`), neither flashed; the bench procedure and debug access are measured; the rescue card is a sector mirror with a card-local GPT |
 | D38-D41 | decided | the unit's own board DTB lives in `boot`'s second stage, so flashing the OEM `boot.img` restores the display description without touching the chain; recovery is reachable through the owner's bootSD card; a byte-exact stock backup is taken before any further write; the recovery fallback zip carries no payload and dd's the images straight off the card |
 | D42-D43 | decided, then fixed Nov 13 | partition 8 is patched so recovery becomes the tool (it is not boot chain and AVB carries no descriptors); the card-driven installer runs only out of the ramdisk and reads payload size + digests from the card manifest. Nov 13's offline logic test found two bugs: a size check that divided by 1000 instead of 1024 and refused every write, and a digest check that matched manifest spellings no applet matched, so it verified nothing while reporting success |
+| D44 | open, Nov 14 - owner decision | vendor staging source: the firmware the unit runs today is byte-for-byte the **Android 10** reference (126/126 identical), while `vendor/hct4/tree/vendor` is staged from the **Android 11** dump (75 hashed paths differ, incl. audio/composer/sensors/gps/mtc/wifi). Re-staging from A10 revises D9/D15 |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 13)
@@ -84,21 +85,30 @@ This file is the index plus the risk register, and it must not restate numbers -
    **Consequence: the recorded patched recovery image still holds the old script, so
    `scripts/patch_recovery_autorun.sh` has to run again and `analysis/recovery-patched.txt` has to be
    rewritten before partition 8 is flashed.**
-4. **What blocks that rebuild today:** the build-host access wrapper lives outside the repo
-   (`/tmp/opencode/omv.sh` reading `/tmp/opencode/build_host.env`) and `/tmp` was cleared, so the NAS
-   credential must be re-supplied. The ramdisk splice, the boot-img comparison and the `dash -n` /
-   `busybox ash -n` syntax checks all run there. Nothing was flashed today, and the unit is powered off.
-5. **The route once that is fixed:** flash the rebuilt patched recovery over TCP adb (**D28**), stage the
+4. **The Nov 13 probe answers the blob question and opens D44.** The unit is powered, root works through
+   `su` (uid 0, context `u:r:su:s0`), and the firmware it runs is the April 2025 OEM rebuild. Its hashed
+   vendor/system/product/odm surface is **126/126 identical** to the Android 10 reference, while the tree
+   our payload stages comes from the Android 11 dump and differs from the live unit in **75** paths
+   (audio/composer/sensors/gps/power/vibrator/mtc/bluetooth/wifi/rild/hostapd and the vendor manifest).
+   Re-staging from the A10 firmware revises **D9**/**D15**, so it is the owner's decision (**D44**), not a
+   change to make silently.
+5. **Two things need the build host, and the build host is currently unreachable.** The patched recovery has
+   to be rebuilt, and the vendor slice may have to be re-staged - both run on the NAS (`
+   `scripts/patch_recovery_autorun.sh`, `scripts/prebuilt_vendor.sh`, a packaging pass, the `dash -n` /
+   `busybox ash -n` checks). The access wrapper lives outside the repo (`/tmp/opencode/omv.sh` reading
+   `/tmp/opencode/build_host.env`) and `/tmp` was cleared, so the NAS credential has to be re-supplied.
+   Nothing was flashed today.
+6. **The route once those are done:** flash the rebuilt patched recovery over TCP adb (**D28**), stage the
    roomy card with `scripts/stage_hu_card.sh`, boot the bootSD into recovery, watch `/dev/console` for the
    `hu-install:` banner (that line is the proof partition 8 is ours), read `/tmp/hu-install.log`, deep
    power-cycle afterwards, then check the four owner criteria: boot, WiFi, screen, sound input (touch,
    physical buttons, CANBUS). Partition 8 alone rolls back by dd'ing `hu-stock-backup/recovery.bin`
    `1fdf5ea77fc6…` back; the whole firmware rolls back with the stock backup or the OEM zip.
-6. **Still open before Android 14 can be believed:** the mixed-generation boot (**D33**), the composer
+7. **Still open before Android 14 can be believed:** the mixed-generation boot (**D33**), the composer
    question (Android 14 may need AIDL `composer3`/`allocator`/`mapper` wrappers around the OEM blobs
    rather than the declared HIDL `composer@2.1::IComposer/default`), whether Android 14 userspace survives
    on the OEM A10 kernel, and a serial console reading (`console=ttyFIQ0`, 115200 8N1, 3.3 V) which
    `docs/reanimation.md` drives from the bench.
-7. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
+8. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
    (touch + physical buttons + CANBUS). Bluetooth is a deliberate second pass (`docs/decisions.md`).
    One agent at a time.

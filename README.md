@@ -23,6 +23,13 @@ The current firmware's concrete security problems are listed in `docs/firmware-a
 (permissive SELinux, Magisk in the vendor image, world-writable `/dev/mtc-*`/`ttyS*`/`ttyV*`, adb over
 TCP, 2020-05 vendor patch level, third-party OTA server).
 
+What runs **today** is not the Hal9k build: the owner restored the unit's own firmware through the bootSD
+recovery card (**D39**), and the Nov 13 probe reports
+`rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.20250401.152740:userdebug/release-keys` - the April
+2025 OEM rebuild (`diatsia fw/update(1).zip`, `31bb492a…`) - with SELinux still Permissive and root
+available through `su`. Its hashed vendor/system/product/odm surface is 126/126 identical to the Android 10
+reference image (`tools/vendor_blob_check.py`), which is what makes **D44** a live question.
+
 ## Where things live
 
 | path | what it is |
@@ -53,10 +60,17 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
    `scripts/make_flash_stick.sh <mountpoint>` for the raw-image install (`docs/flash.md`).
 5. First boot: the ROM's own `/system/bin/hu_probe.sh` writes the report to the stick - no terminal needed.
 
-## Status (Nov 13)
+## Status (Nov 13/14)
 
 * The Android 14 build is in the tree and verified offline: apps, WiFi HAL, patched libdrm, drmservice
   and the vendor module set (D21-D24). Packaging pass and payload audit: `docs/findings.md`.
+* Nov 13 probe (`incoming/probe-20261113-2016.md`, root via `su`): the firmware running today is the April
+  2025 OEM rebuild, and its hashed vendor/system/product/odm surface is **byte-for-byte the Android 10
+  reference** (`tools/vendor_blob_check.py`, 126/126 identical, `analysis/vendor_blob_live_vs_oem_a10.tsv`).
+  The tree we stage, however, comes from the Android 11 dump and differs from the live unit in **75** paths
+  (audio/composer/sensors/gps/power/vibrator/mtc/bluetooth/wifi/rild/hostapd and the vendor manifest). Which
+  vendor base to ship is now **D44** and is the owner's call, because it trades proven hardware against the
+  cleaner Android 14 HAL interface D9 chose.
 * Route 1 (signed zip through recovery) was **rejected** on Nov 9: recovery trusts only HCT's own cert
   (`cf2ab3…`), which we do not hold (**D25**). Route 2 ran the same day and the write itself succeeded
   over TCP adb (`adbon` in the factory-settings dialog -> port 5555 -> `adb root`, **D28**), but the unit

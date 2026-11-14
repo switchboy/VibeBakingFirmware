@@ -1436,3 +1436,32 @@ the first MiB of userdata and lets Android 14's `formattable` fstab entry format
 and `userdata` are ever written, and the target devices are hard-coded eMMC partitions, checked against
 `/proc/partitions` and the by-name symlinks before a byte is written. Anything pending is `sync`ed before
 the container write, because recovery still has the slices inside `super` mounted read-only.
+
+**D44 - vendor staging source: the Android 10 firmware the unit runs today, or the Android 11 dump.**
+Nov 14, **OPEN - owner decision.** Measured Nov 13 with `tools/vendor_blob_check.py` (findings, "The live
+vendor is byte-for-byte the Android 10 reference"): the firmware the unit boots now has a hashed vendor
+surface that is **126/126 identical** to `analysis/daisaita_a10/` (vendor + system + product + odm), while
+`vendor/hct4/tree/vendor` is staged from `vendor/hct4/prebuilt/vendor_a11.img` and differs from the live
+unit in **75** hashed paths - `audio.primary.rk30board.so`, `hwcomposer.rk30board.so`,
+`sensors.rk30board.so`, `gps.default.so`, `power.default.so`, `vibrator.default.so`, the `mtc.mfi` service
+and impl, bluetooth, wifi, `rild`, `hostapd`, `wpa_supplicant`, the WiFi `.ko` modules and
+`vendor/etc/vintf/manifest.xml` itself. The Nov 11 zLink observation points the same way: zLink only worked
+after the newest firmware, which is this A10-era tree.
+
+* **Option A - re-stage from the Android 10 vendor** (`analysis/daisaita_a10/vendor.img`). Cost: the HAL
+  interface versions **D9** deliberately chose to avoid shimming come back - allocator/mapper 2.x, so
+  Android 14 needs the `libion` path again; audio 2.0/5.0 instead of 6.0; older drm/cas/keymaster - so the
+  wrapper work in D16 and `hal/` grows, and the VINTF manifest has to be built from an A10-era tree.
+  Benefit: every blob shipped is one this unit has actually executed today, which is the only evidence we
+  have that audio, CAN/MCU (`MTCE_HXD_V3.56_1`), sensors, radio and WiFi work on this board and this MCU.
+* **Option B - keep the Android 11 tree as staged** (D9/D15 unchanged). Cost: 75 vendor blobs this unit has
+  never executed, driving a mainboard MCU whose firmware we cannot read, with only circumstantial evidence
+  (the zLink result) that the A11-era blobs may not match it. Benefit: Android 14 needs far fewer shims, and
+  the declared HAL set is what Android 14's framework expects.
+
+Neither option is cheap to swap: both need `scripts/prebuilt_vendor.sh` plus a packaging pass on the build
+host. Nothing was re-staged today, and the Nov 9 black screen was the missing first-stage fstab (**D34**),
+not the vendor, so neither vendor base is proven to boot yet. Recommendation for the record: A for the
+first bring-up attempt (prove the hardware with the blobs proven on it), B as the second attempt if the A10
+HAL surface turns out to need too much wrapping - but this trades proven hardware against a cleaner
+framework interface, so it is the owner's call.

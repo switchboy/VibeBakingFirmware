@@ -1484,3 +1484,45 @@ build-host credential has to be re-supplied before the image is rebuilt. Nothing
 What the smoke harness does *not* prove: the shell dialect. busybox ash is not available on this host,
 so POSIX syntax still has to be checked on the build host with `dash -n` and `busybox ash -n`, which is
 what the Nov 12 run did for the previous script.
+
+## The live vendor is byte-for-byte the Android 10 reference, not the Android 11 dump - Nov 13/14
+
+A fresh probe ran at 20:16 CET on Nov 13 (`incoming/probe-20261113-2016.md`) on the firmware the unit
+boots today, as root: `id` reports uid 0 with context `u:r:su:s0`, `su` is present, magisk is not. The
+build is `rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.20250401.152740:userdebug/release-keys`
+(the April 2025 OEM rebuild the owner flashed via the bootSD route, **D39**), SELinux Permissive, and the
+cmdline is the usual one: `console=ttyFIQ0`, `androidboot.console=ttyFIQ0`,
+`earlycon=uart8250,mmio32,0xff1a0000`, `androidboot.selinux=permissive`,
+`androidboot.verifiedbootstate=orange`, `androidboot.veritymode=enforcing`, `androidboot.dtbo_idx=0`,
+`androidboot.boot_devices=fe330000.sdhci`, `storagemedia=emmc`. Root read of the block sizes gives
+`super 3,263,168,512` and `userdata 58,844,495,360`; the sysfs size for `mmcblk2` comes back as
+`-1610612736` in the probe's arithmetic, because 62,813,896,704 B wraps a signed 32-bit read - partition
+sizes must come from `blockdev`/root, not from sysfs. The probe's own card listing found no
+`/storage/sdcard0`, and it asks whether the owner keeps a copy of the zip currently installed; the answer
+is yes - `diatsia fw/update(1).zip` is that firmware (**D39**/**D40**).
+
+`tools/vendor_blob_check.py` hashes the paths the probe hashed (vendor HAL binaries, `.ko` modules,
+`build.prop`, the vintf manifest) and re-reads the same paths out of reference images with debugfs.
+Run against the three reference vendor images:
+
+| reference | identical | differ | live-only | meaning |
+|---|---|---|---|---|
+| `analysis/daisaita_a10/vendor.img` + its `system`/`product`/`odm` | 126 | 0 | 0 | the whole hashed surface of the live firmware is byte-for-byte the Android 10 reference (rc 0) |
+| `analysis/daisaita_a11/vendor.img` | 1 | 75 | 2 | almost every vendor blob differs from the Android 11 dump |
+| `analysis/images/assembled/vendor.img` | 96 | 17 | 2 | mostly A10-era, 17 blobs differ |
+
+The committed comparison file `analysis/vendor_blob_live_vs_oem_a10.tsv` is the first row: 126 rows, all
+`identical`. Without the `--system`/`--product` images the tool reports `/product/build.prop` and
+`/system/build.prop` as `live-only`, because they are not inside the vendor image - that is why the
+vendor-only runs exit 1 while the full run exits 0.
+
+**What this changes.** `scripts/prebuilt_vendor.sh` stages `vendor/hct4/tree/vendor` from
+`vendor/hct4/prebuilt/vendor_a11.img`, and `scripts/package.sh` prefers `daisaita_a11.zip` when it needs
+to re-unpack, so the vendor our payload ships is the Android 11-era tree. The unit runs the Android 10-era
+tree byte-for-byte, and that is the tree whose zLink/MCU behaviour the owner measured working on Nov 11.
+Among the 75 paths that differ from the live unit are the HALs the owner's criteria depend on:
+`audio.primary.rk30board.so`, `hwcomposer.rk30board.so`, `sensors.rk30board.so`, `gps.default.so`,
+`power.default.so`, `vibrator.default.so`, the `mtc.mfi` service and impl, `bluetooth`, `wifi`, `rild`,
+`hostapd`, `wpa_supplicant`, the WiFi `.ko` modules and `vendor/etc/vintf/manifest.xml` itself. Re-staging
+the vendor slice from the Android 10 firmware the unit actually runs revises **D9**/**D15**, so it is a
+decision for the owner rather than a change to make silently.
