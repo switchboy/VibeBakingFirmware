@@ -11,7 +11,7 @@
 | `docs/firmware-analysis.md` | Phase 0 inventory of the OEM payload (security posture, boot chain, drivers) | what the shipped firmware actually is |
 | `docs/feasibility.md` | version ceiling analysis (VNDK/APEX, KeyMint), kernel strategy options K1/K2/K3, and the **Nov 15 kernel/vendor coupling risk assessment** (two-agent adversarial pass: which kernel Android 14's VINTF accepts, how kernel/modules/manifest couple) | why Android 14 is the ceiling, and which kernel shape is legal |
 | `docs/ota.md` | post-install upgrades once Android 14 runs | future OTA story |
-| `docs/plan.md` | milestone history M1-M10 with status | what was tried, in order |
+| `docs/plan.md` | milestone history M1-M10 with status, plus **M11 (Nov 15, NOT STARTED)**: proven-kernel shape A / staged A11 shape B / our own kernel build shape C, the kernel-modules-manifest coupling rule, the NAS recipe, and the owner decisions it waits on | what was tried, in order, and what comes next |
 | `docs/termux.md` | Android 10-era shell mechanics (Termux, upload endpoint) | how the old probes reached us |
 | `docs/upstream.md` | candidate register for upstream contributions (NO PRs submitted), with the verified review/licensing rules | what could go upstream, where, and what cleanup it needs |
 | `agentPlan.md` | lean index: mission, phases, risk register, D-status, current state | the agent's next move |

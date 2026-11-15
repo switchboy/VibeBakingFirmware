@@ -1507,3 +1507,20 @@ patch. Reasons that hold for the record:
   plumbing (`device/rk3399-px6-hct4/configs/init.hu.rc`, `on property:ro.boot.wificountrycode=NL` →
   `iw reg set NL`), because under the vendor CN map channels 12/13 are "no IR". The decline applies to
   touching the *stock* Android 10 firmware; nothing there is changed.
+
+**D46 - the primary payload shape is the proven kernel on the current disk layout (Nov 15, owner decided).**
+The owner's direction after the Nov 15 two-agent assessment (`docs/feasibility.md`, "Risk assessment Nov 15"):
+use **the kernel this hardware has actually executed** - OEM Android 10 `4.19.111+ #190` - with **the disk
+layout as it exists today** (no repartition, no GPT write, **D11**/**D19**) as the risk-averse primary
+(**M11 shape A**, `docs/plan.md`). The Android 11 kernel shape is already built and staged, so it becomes the
+documented fallback (**shape B**; **D9**/**D33** stay as recorded), and the owner also wants **a kernel
+build**, not only prebuilt binaries (**shape C**), because shipping a binary we cannot patch is exactly what
+keeps the Nov 13 `gt9xx` bug and any future 4.19 CVE unfixable - **D45**'s accepted risk stops being
+acceptable once we can build. Shape A implies, by the coupling rule measured Nov 15 (`docs/findings.md`,
+"Which kernel Android 14's VINTF actually accepts"): vendor re-staged from the Android 10 reference (**D44**
+leans option A), the stock `4.19.111+` module set (`a14-work/hu-stock-backup/vendor-modules/`), and a vendor
+manifest at **`target-level="4"`** - `#190` passes the FCM-4 kernel list (0 unmet) and fails the FCM-5 list
+(19 unmet), while `#24` passes FCM-5. Still **OPEN**, polled Nov 15 before anything starts: what "a kernel
+build" means (public BSP `develop-4.19` experiment vs the vendor's GPL source vs deferred), the manifest
+level, the KeyMint route, the validation gate (card-only console boot before any eMMC write), and how the NAS
+credential is re-supplied. Nothing has been built, staged or flashed under **D46**.

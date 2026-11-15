@@ -224,3 +224,104 @@ Two caveats before baking GApps in:
    is already built and validated against the real LBAs).
 5. M10 app layer: re-add the HCT apps, decide whether to bake GApps in; then M4 vendor-side gaps,
    M5 packaging, M7 hardening, M6 kernel rebuild. M9 stays parked (D12).
+
+## M11 - the proven-kernel shape, plus a kernel build (Nov 15, owner direction - NOT STARTED)
+
+Owner direction Nov 15: the **proven working kernel on this hardware with the current disk layout** is the
+risk-averse primary - i.e. the OEM Android 10 kernel `4.19.111+ #190` and the layout as it exists today
+(no repartition, no GPT write, **D11**/**D19**). The Android 11 kernel shape is already built and staged,
+so it stays as the documented fallback, and the owner also wants **a kernel build** rather than only
+prebuilt binaries. Three shapes, never mixed:
+
+| shape | boot image | vendor slice | modules | vendor manifest | status |
+|---|---|---|---|---|---|
+| **A - proven shape (primary)** | `boot-a10k-a14rd.img` (kernel 25,671,688 B = `4.19.111+ #190`, sha `455a9ac8…`) + our Android 14 first-stage ramdisk/fstab | re-staged from `analysis/daisaita_a10/vendor.img` (the tree the unit has executed) | the stock 19 `.ko` at `vermagic=4.19.111+` (`a14-work/hu-stock-backup/vendor-modules/`) | **`target-level="4"`** (FCM-4: both kernels pass the kernel list, measured Nov 15) | to build |
+| **B - staged A11 shape (fallback)** | `a14-boot-fixed.img` (kernel 30,455,816 B = `4.19.193 #24`, sha `933e2ecc…`) | current staged tree (A11-era blobs) | 17 `.ko` at `vermagic=4.19.193` | `target-level="5"` (what we ship today) | built, coherent, never booted |
+| **C - our own kernel build (new)** | our own `Image` from kernel source + our own modules | vendor userspace from shape A or B | modules built against **our** kernel | matches whichever kernel is used | needs source; card-tested only |
+
+The coupling rule from Nov 15 governs all three: kernel, `.ko` vermagics and manifest `target-level` must
+agree (`docs/findings.md`, "Which kernel Android 14's VINTF actually accepts"). A kernel swap without the
+matching module set and manifest level is not a small change - it refuses WiFi/HID/iAP at insmod time and
+fails VINTF.
+
+### Work items
+
+**W1 - offline, workstation, no NAS and no unit.** Prove shape A is coherent before spending build hours:
+dump the A10 vendor tree out of `analysis/daisaita_a10/vendor.img` (`debugfs -R dump`, the method already in
+`tools/vendor_blob_check.py`), list its modules + manifest, run `tools/vendor_link_closure.py` and
+`tools/vendor_abi_check.py` against it, and compute the super fit (A14 system 1,012,817,920 + product
+456,159,232 + odm 811,008 + A10 vendor 298,737,664 ≈ 1.77 GB inside group 3,258,974,208 - spare ~1.49 GB,
+no resize needed). Also fetch from AOSP `main`: whether `compatibility_matrix.4.xml` still ships in Android 14
+(agent 1 read it on `android14-release`: audio 5.0, composer 2.1-3, mapper 2.1, allocator 2.0, keymaster 3.0,
+wifi 1.0-3), whether the platform ships a SELinux **mapping** file for a vendor sepolicy of version 29, and
+whether a `target-level="4"` vendor manifest may declare AIDL HALs (our KeyMint) while the FCM-4 matrix does
+not require them. Write the manifest edit shape A needs, with no OEM prose.
+
+**W2 - NAS build host.** Switch the vendor staging source (**D44** flips to option A), rebuild the device
+manifest at `target-level="4"`, run `m dist` / `m superimage` / `m bootimage` under the load policy, then
+`scripts/rebuild_boot_with_fstab.sh` for the shape-A boot image, `scripts/verify_artifacts.sh` gates,
+`scripts/smoke_recovery_installer.sh` offline logic test, `dash -n` / `busybox ash -n` syntax checks, and
+`scripts/stage_hu_card.sh` with the shape-A payload + its card manifest digests (**D43** contract). Nothing
+touches `uboot`/`trust`/`dtb`/`dtbo`/`vbmeta`/`security` or the GPT (**D18**/**D19**).
+
+**W3 - kernel build track (NAS).** Clone `rockchip-linux/kernel` branch `develop-4.19` and build an `Image`
+with the config the unit ships (the embedded gzip dump - `analysis/hu_kernel_config_live-20261113.txt`),
+patching the `gt9xx` `phys` literal (the Nov 13 bug, candidate 21) and keeping `CONFIG_IKCONFIG_PROC=y`.
+Then measure what the public tree lacks versus the OEM kernel: the MTC/CAN/AV-in/tuner drivers are **not**
+in the public tree (`drivers/input/misc/mtc-car.c` returns 404), so the gap list decides whether shape C can
+serve the criteria (touch yes, CANBUS/AV/radio probably no). The durable route is the vendor's own GPL source
+(`docs/feasibility.md` K2 leverage); the public-tree build is an experiment, and it is validated by a
+**card boot**, never by flashing eMMC.
+
+**W4 - unit, read-only, next reachable session.** `ls /sys/fs/pstore` (the earlier record is `Panic#2`, so a
+first panic record may exist uncollected), `/proc/bus/input/devices`, `ls -lZ /dev/ion /dev/binder*
+/dev/dma_heap`, `lsmod`, `logcat -d` around a `vendor.sensors-hal-1-0` exit (the trigger of the Nov 13
+panic, and the measurement **D45** depends on staying acceptable), `iw dev wlan0 link`. Also the pending
+`scripts/pull_stock_backup.sh` refresh (**D40**, fresh dir `hu-stock-backup-refresh`) and the unfinished
+`system` logical-slice byte compare.
+
+**W5 - card-only validation, no eMMC write.** Boot the bootSD card into the patched recovery (**D39**/**D42**),
+read `/dev/console` for the `hu-install:` banner and `/tmp/hu-install.log` (**D43**), then boot the shape-A
+image from the card and read the console through the documented order (`docs/reanimation.md`): init fstab
+line, DTB source, dtbo application, panel timing, `hu_insmod` lines, SurfaceFlinger. This is the only way to
+test a kernel or a vendor shape on real hardware without touching the eMMC.
+
+**W6 - the flash decision point.** Only after W5 is green and the rollback is re-verified: raw `dd` of
+`super` + `boot` over TCP adb root (**D28**, `adbon`), or the card-driven installer. Rollback = the stock
+backup (**D40**) or the OEM zip (**D39**); partition 8 alone rolls back with `recovery.bin 1fdf5ea7…`.
+
+### NAS access, so agents do not rediscover it
+
+Target `root@192.168.1.29` (OMV NAS, Debian 13, 16 CPUs / 24 GB, docker holds ~12 GB). Build root
+`/srv/dev-disk-by-label-SSData/aospbuild/`, tree `aospbuild/lineage21s`, repo checkout
+`aospbuild/VibeBakingFirmware`, load policy `build_fast.sh` (`-j4`), scratch `aospbuild/tmp`.
+Auth is **password only** through a wrapper kept outside the repo: `sh /tmp/opencode/omv.sh`, backed by
+`/tmp/opencode/askpass.sh` + `/tmp/opencode/build_host.env` (mode 600, credential never in argv); the
+raw form is in `scripts/cold_storage_move.sh:65` (`SSH_ASKPASS=... SSH_ASKPASS_REQUIRE=force ssh -o
+PreferredAuthentications=password -o PubkeyAuthentication=no`). **Those wrapper files are gone - `/tmp` was
+cleared - so the credential has to be re-supplied before any build.** Rules that burned us before: long
+NAS jobs must be `setsid nohup ... > log 2>&1 < /dev/null &` (ssh sessions over ~60 s return nothing, and
+`ssh ... > file` can come back 0 bytes in this shell), never `systemd-run` (its unit env breaks
+`envsetup.sh`), and directory verification is one ssh call comparing `find . -type f -printf '%P %s\n' |
+LC_ALL=C sort` rather than per-file calls. Full procedure: `docs/build-host.md`.
+
+### Decisions the owner must make (polled Nov 15, nothing starts before the OK)
+
+1. **What "a kernel build" means**: public BSP `develop-4.19` experiment, vendor GPL source then rebuild,
+   both, or defer kernel building until after bring-up.
+2. **D44**: flip vendor staging to the Android 10 reference (implied by shape A) - yes/no.
+3. **Manifest level**: accept `target-level="4"` under the Android 14 framework (FCM-4 matrix + vendor-local
+   `libion`/HIDL shims), which is what shape A requires.
+4. **Validation gate**: card-only console boot before any eMMC write (recommended), or go straight to raw dd.
+5. **KeyMint**: software KeyMint (test-only attestation, simplest, avoids the OP-TEE TA pairing question) or
+   a wrapper over the `keymaster@3.0` blob.
+6. **NAS credential**: how the password is re-supplied (restore `build_host.env`, or a key, or the owner runs
+   the builds themselves).
+
+### Limits that stay fixed through all of this
+
+One unit, so nothing is flashed without a verified rollback path (**D38**/**D40**/**D42**/**D43**); never
+write `uboot`/`trust`/`dtb`/`dtbo`/`vbmeta`/`security` or the GPT (**D18**/**D19**); super group stays
+3,263,168,512 B (**D11**); permissive SELinux during bring-up only (**D5**); OEM/HCT binaries and our
+workstation credentials stay out of anything upstream (`docs/upstream.md` "Do NOT upstream"); one agent at a
+time (interference engine), agents told the NAS recipe above so they never spend turns reinventing it.
