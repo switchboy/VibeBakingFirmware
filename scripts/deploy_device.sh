@@ -71,17 +71,41 @@ for f in "$DEST/prebuilt/boot_second_logo.bin" \
   [ -s "$f" ] || { echo "  ! missing or empty: $f (run SHAPE=$SHAPE scripts/prebuilt_vendor.sh first)"; exit 1; }
 done
 
-# The kernel and the modules must be from the same build, or every .ko refuses at insmod time
-# (WiFi/HID/iAP/virtual touchpad disappear with no visible cause, docs/findings.md). The kernel
-# banner carries its version and the .ko vermagic carries the same string, so compare them here.
-kver=$(LC_ALL=C strings "$KERNEL" 2>/dev/null | grep -m1 -o 'Linux version [0-9.]\+[^(]*' | sed 's/^Linux version //')
-mver=$(find "$VTREE/lib/modules" -name '*.ko' -exec LC_ALL=C strings {} \; 2>/dev/null | grep -m1 -o 'vermagic=[^ ]*' | sed 's/^vermagic=//')
-if [ -n "$mver" ] && [ "$kver" != "$mver" ]; then
-  echo "  ! kernel $KERNEL says '$kver', staged modules say vermagic '$mver'"
-  echo "  ! they must match: kernel, .ko vermagic and manifest target-level move together (D46)"
+# Kernel and modules must be from the same build, or every .ko refuses at insmod time (WiFi/HID/iAP/
+# virtual touchpad disappear with no visible cause, docs/findings.md). The rule is *per module*, not
+# partition-wide: stock vendor trees carry leftovers from other kernels (mali_kbase.ko at vermagic
+# 4.4.167, some aic8800-era .ko at 4.19.101+) that hu_insmod.sh never attempts and insmod refuses
+# harmlessly. What has to match the kernel is the list the boot script loads - that is the criteria set.
+# The banner reads "Linux version 4.19.111+ (root@...) ...", so the version is the third field - take
+# it whitespace-delimited, because a trailing space would make every vermagic compare unequal.
+kver=$(LC_ALL=C strings "$KERNEL" 2>/dev/null | grep -m1 'Linux version ' | awk '{print $3}')
+[ -n "$kver" ] || { echo "  ! no 'Linux version ...' banner in $KERNEL"; exit 1; }
+INSMOD_SRC="$REPO/device/rk3399-px6-hct4/configs/hu_insmod.sh"
+mods=$(sed -n '/^for m in /,/do/p' "$INSMOD_SRC" 2>/dev/null | tr '\n' ' ' | tr -d '\\')
+mods=${mods#*for m in }
+mods=${mods%; do*}
+absent="" wrong="" count=0
+for m in $mods; do
+  count=$((count + 1))
+  ko="$VTREE/lib/modules/$m.ko"
+  if [ ! -s "$ko" ]; then absent="$absent $m"; continue; fi
+  mv=$(LC_ALL=C strings "$ko" 2>/dev/null | grep -m1 -o 'vermagic=[^ ]*' | sed 's/^vermagic=//' || true)
+  if [ "$mv" != "$kver" ]; then wrong="$wrong $m($mv)"; fi
+done
+echo "  kernel '$kver'; hu_insmod.sh loads $count module(s) from $VTREE/lib/modules"
+if [ "$count" = 0 ]; then
+  echo "  ! could not read the module list from $INSMOD_SRC - the coupling gate would be vacuous"
   exit 1
 fi
-echo "  kernel/modules: kernel '$kver', modules vermagic '${mver:-none}' (shape $SHAPE)"
+if [ -n "$absent" ]; then echo "  ! missing from the staged tree:$absent"; fi
+if [ -n "$wrong" ]; then echo "  ! wrong vermagic against this kernel:$wrong"; fi
+if [ -n "$absent" ] || [ -n "$wrong" ]; then
+  echo "  ! kernel, .ko vermagic and manifest target-level move together (D46): WiFi / USB HID / iAP"
+  echo "    would be gone with no visible cause. Check the reference vendor image that was staged -"
+  echo "    the NAS archive's ref-a10/ is a different Android 10 build than the unit's firmware"
+  echo "    (use ref-a10-live/, docs/findings.md)."
+  exit 1
+fi
 
 # Flags the Makefile guards with `ifdef` must not be set to `false`: definedness is enough to emit
 # the flag, and mkbootimg then gets an empty argument (see docs/build-host.md).

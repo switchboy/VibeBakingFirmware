@@ -92,19 +92,24 @@ cd "$REPO"
 
 # The firmware zip is only needed the first time; afterwards the extracted reference image and
 # kernel in vendor/hct4/prebuilt/ are reused (it is ~1 GB, so re-unpacking every pass is waste).
-# Shape A has no zip to unpack on the NAS: its reference is the extracted Android 10 archive
-# (ref-a10/vendor.img) and the stock boot backup (hu-stock-backup/boot.bin), whose kernel payload is
-# #190 - the kernel the unit runs today. Shape B still uses the Android 11 package.
+# Shape A has no zip to unpack on the NAS: its reference is the *live* Android 10 firmware
+# (aospbuild-archive/ref-a10-live/vendor.img, sha 3fe2f53a…, 323,530,752 B) plus the stock boot backup
+# (hu-stock-backup/boot.bin, sha 3d2741f0…), whose kernel payload is #190 - the kernel the unit runs
+# today. The archive's older ref-a10/ directory is a *different* Android 10 build whose /lib/modules
+# lacks sd_user_hid/usb_f_iap/virtual_tp/aic8800 (docs/findings.md), so it is deliberately not a
+# candidate. Shape B still uses the Android 11 package.
 ZIPARG=""
 REFARG=""
 BOOTARG=""
 case "$SHAPE" in
-  a10) for p in "$A/archive/ref-a10/vendor.img" "$A/../aospbuild-archive/ref-a10/vendor.img" \
-                 "/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/ref-a10/vendor.img"; do
+  a10) for p in "$A/../aospbuild-archive/ref-a10-live/vendor.img" \
+                 "/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/ref-a10-live/vendor.img" \
+                 "$A/archive/ref-a10-live/vendor.img"; do
          if [ -s "$p" ]; then REFARG="$p"; break; fi
        done
-       for p in "$A/archive/hu-stock-backup/boot.bin" "$A/../aospbuild-archive/hu-stock-backup/boot.bin" \
-                 "/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hu-stock-backup/boot.bin"; do
+       for p in "$A/../aospbuild-archive/hu-stock-backup/boot.bin" \
+                 "/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hu-stock-backup/boot.bin" \
+                 "$A/archive/hu-stock-backup/boot.bin"; do
          if [ -s "$p" ]; then BOOTARG="$p"; break; fi
        done ;;
   a11) for z in "$A/daisaita_a11.zip" "$REPO/../diatsia fw/update.zip"; do

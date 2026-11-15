@@ -47,45 +47,62 @@ WORK=$(mktemp -d "$OUT/.work.XXXXXX")
 trap 'umount "$WORK/mnt" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 
 # ---- 1. reference image, and the kernel whose module vermagic matches it --------
-# The zip is ~1 GB, so it is only unpacked when something is still missing.
-if [ ! -s "$REF" ] || [ ! -s "$KERNEL" ]; then
-    mkdir -p "$OUT/prebuilt"
-    if [ ! -s "$REF" ] && [ -n "$REF_IMG" ]; then
-        [ -s "$REF_IMG" ] || { echo "REF_IMG $REF_IMG missing"; exit 1; }
+# REF_IMG / BOOT_IMG are *authoritative*, not merely "used when something is missing": a prebuilt copy
+# that already exists but hashes differently is a stale reference and gets replaced. That happened on
+# Nov 15 - the NAS archive's aospbuild-archive/ref-a10/vendor.img (333,447,168 B, sha b4e50b55…) is a
+# different Android 10 build than the one the unit actually runs (analysis/daisaita_a10/vendor.img,
+# 323,530,752 B, sha 3fe2f53a…): its /lib/modules lacks sd_user_hid.ko, usb_f_iap.ko, usb_f_iap2.ko,
+# virtual_tp.ko and the aic8800 pair, i.e. the WiFi / USB-HID / iAP modules the owner's criteria depend
+# on. Reusing a stale copy silently because the file was "not missing" is exactly the trap this gate
+# exists to catch (docs/findings.md, "the archive ref-a10 is not the live Android 10 firmware").
+sha_of() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
+
+cut_kernel() {   # boot image header v2: the kernel payload sits at page_size, kernel_size bytes
+    python3 - "$1" "$2" <<'PY'
+import struct, sys
+d = open(sys.argv[1], "rb").read()
+page = struct.unpack_from("<I", d, 56)[0] or 2048
+ksize = struct.unpack_from("<I", d, 8)[0]
+open(sys.argv[2], "wb").write(d[page:page + ksize])
+PY
+}
+
+mkdir -p "$OUT/prebuilt"
+if [ -n "$REF_IMG" ]; then
+    [ -s "$REF_IMG" ] || { echo "REF_IMG $REF_IMG missing"; exit 1; }
+    if [ ! -s "$REF" ] || [ "$(sha_of "$REF")" != "$(sha_of "$REF_IMG")" ]; then
         cp "$REF_IMG" "$REF"
-        echo "  reference vendor copied from $REF_IMG ($(stat -c %s "$REF") B)"
+        echo "  reference vendor: $(stat -c %s "$REF") B sha $(sha_of "$REF" | cut -c1-12) <- $REF_IMG"
+    else
+        echo "  reference vendor already matches $REF_IMG ($(stat -c %s "$REF") B, sha $(sha_of "$REF" | cut -c1-12))"
     fi
-    if [ ! -s "$KERNEL" ] && [ -n "$BOOT_IMG" ]; then
-        [ -s "$BOOT_IMG" ] || { echo "BOOT_IMG $BOOT_IMG missing"; exit 1; }
-        python3 - "$BOOT_IMG" "$KERNEL" <<'PY'
-import struct, sys
-d = open(sys.argv[1], "rb").read()
-page = struct.unpack_from("<I", d, 56)[0] or 2048
-ksize = struct.unpack_from("<I", d, 8)[0]
-open(sys.argv[2], "wb").write(d[page:page + ksize])
-PY
-        echo "  kernel payload cut from $BOOT_IMG: $(stat -c %s "$KERNEL") B"
+fi
+if [ -n "$BOOT_IMG" ]; then
+    [ -s "$BOOT_IMG" ] || { echo "BOOT_IMG $BOOT_IMG missing"; exit 1; }
+    cut_kernel "$BOOT_IMG" "$WORK/kernel.cut"
+    [ -s "$WORK/kernel.cut" ] || { echo "no kernel payload in $BOOT_IMG"; exit 1; }
+    if [ ! -s "$KERNEL" ] || [ "$(sha_of "$KERNEL")" != "$(sha_of "$WORK/kernel.cut")" ]; then
+        cp "$WORK/kernel.cut" "$KERNEL"
+        echo "  kernel payload: $(stat -c %s "$KERNEL") B sha $(sha_of "$KERNEL" | cut -c1-12) <- $BOOT_IMG"
+    else
+        echo "  kernel already matches $BOOT_IMG ($(stat -c %s "$KERNEL") B, sha $(sha_of "$KERNEL" | cut -c1-12))"
     fi
-    if [ ! -s "$REF" ] || [ ! -s "$KERNEL" ]; then
-        [ -n "$ZIP" ] || { echo "missing $REF / $KERNEL and no update.zip given"; exit 1; }
-        unzip -qo "$ZIP" -d "$WORK/pkg"
-        if [ ! -s "$REF" ]; then
-            if [ -f "$WORK/pkg/vendor.new.dat.br" ]; then
-                brotli -d -f "$WORK/pkg/vendor.new.dat.br" -o "$WORK/pkg/vendor.new.dat"
-            fi
-            python3 "$REPO/tools/reassemble.py" --dir "$WORK/pkg" --out "$WORK/images" --partition vendor
-            cp "$WORK/images/vendor.img" "$REF"
+fi
+
+# The zip (~1 GB) is unpacked only when the reference or kernel is still missing after that.
+if [ ! -s "$REF" ] || [ ! -s "$KERNEL" ]; then
+    [ -n "$ZIP" ] || { echo "missing $REF / $KERNEL and no update.zip given"; exit 1; }
+    unzip -qo "$ZIP" -d "$WORK/pkg"
+    if [ ! -s "$REF" ]; then
+        if [ -f "$WORK/pkg/vendor.new.dat.br" ]; then
+            brotli -d -f "$WORK/pkg/vendor.new.dat.br" -o "$WORK/pkg/vendor.new.dat"
         fi
-        if [ ! -s "$KERNEL" ]; then
-            # boot.img header v2: kernel sits at page_size, kernel_size bytes.
-            python3 - "$WORK/pkg/boot.img" "$KERNEL" <<'PY'
-import struct, sys
-d = open(sys.argv[1], "rb").read()
-page = struct.unpack_from("<I", d, 56)[0] or 2048
-ksize = struct.unpack_from("<I", d, 8)[0]
-open(sys.argv[2], "wb").write(d[page:page + ksize])
-PY
-        fi
+        python3 "$REPO/tools/reassemble.py" --dir "$WORK/pkg" --out "$WORK/images" --partition vendor
+        cp "$WORK/images/vendor.img" "$REF"
+    fi
+    if [ ! -s "$KERNEL" ]; then
+        cut_kernel "$WORK/pkg/boot.img" "$KERNEL"
+        echo "  kernel payload cut from the update.zip's boot.img: $(stat -c %s "$KERNEL") B sha $(sha_of "$KERNEL" | cut -c1-12)"
     fi
 fi
 [ -s "$REF" ] && [ -s "$KERNEL" ] || { echo "reference image or kernel missing"; exit 1; }
@@ -204,5 +221,9 @@ echo "shape:        $SHAPE ($LABEL reference)"
 echo "vendor blobs: $TREEV ($(find "$TREEV" -type f | wc -l) files, $(du -sh "$TREEV" | cut -f1))"
 echo "reference:    $REF"
 echo "kernel:       $KERNEL (its vermagic must match the .ko files in $TREEV/lib/modules)"
-echo "modules:      $(find "$TREEV/lib/modules" -name '*.ko' 2>/dev/null | wc -l) .ko, vermagic $(find "$TREEV/lib/modules" -name '*.ko' -exec strings {} \; 2>/dev/null | grep -m1 -o 'vermagic=[0-9.+a-zA-Z-]*' || echo none)"
+# Distinct vermagics, not the first one found: stock trees carry leftovers from other kernels
+# (mali_kbase.ko at 4.4.167), so a single-match echo is misleading. Per-module checking with the
+# kernel banner is scripts/deploy_device.sh's job.
+vm=$(find "$TREEV/lib/modules" -name '*.ko' -exec LC_ALL=C strings {} \; 2>/dev/null | sed -n 's/.*vermagic=\([^ ]*\).*/\1/p' | sort -u | tr '\n' ' ')
+echo "modules:      $(find "$TREEV/lib/modules" -name '*.ko' 2>/dev/null | wc -l) .ko, vermagics: ${vm:-none}"
 echo "run scripts/deploy_device.sh after this (it copies the generated .mk files)"

@@ -1935,3 +1935,39 @@ declares none**, which is exactly why shape A keeps `target-level="4"` without a
 to be at. Manifest counts measured here: Android 10 = 26 inline `<hal format="hidl">` declarations + 3
 fragments (`cas@1.1`, `weaver@1.0`, `rockit.hw@1.0`), Android 11 = 11 inline declarations, `version="2.0"`,
 `target-level="5"`.
+
+
+## The NAS archive's `ref-a10` is not the firmware the unit runs - restaged from `ref-a10-live` (Nov 15)
+
+W2's first restage used the archive copy `aospbuild-archive/ref-a10/vendor.img` (333,447,168 B, sha
+head `b4e50b55…`). It is **not** the Android 10 firmware this head unit has executed. The reference the
+unit's vendor blobs were compared against all along is `analysis/daisaita_a10/vendor.img` (323,530,752 B,
+sha `3fe2f53aa1f1…`), and its `/lib/modules` holds 21 `.ko`; the archive image holds 10.
+
+| `/lib/modules` | archive `ref-a10` (`b4e50b55…`) | live `analysis/daisaita_a10` (`3fe2f53a…`) |
+|---|---|---|
+| `.ko` count | 10 | 21 |
+| present in both | `8188eu`, `8189fs`, `8723bu`, `8821cs`, `8821cu`, `8822bu`, `8822cs`, `bcmdhd`, `mali_kbase`, `sprdwl_ng` | same ten (sizes differ by a few bytes: `8188eu` 2,251,264 vs 2,251,256 - a different build, not a rename) |
+| only in the live image | - | `8188fu`, `8733bs`, `8733bs_ap`, `8821cu_ap`, `aic8800_bsp`, `aic8800_fdrv`, `aic8800_fdrv_ap`, `sd_user_hid`, `usb_f_iap`, `usb_f_iap2`, `virtual_tp` |
+
+Nine of those are the modules `hu_insmod.sh` loads, so the archive tree loses the criteria outright: the
+WiFi chips the HU may use (`8188fu`, `8733bs`), the AP6476/aic8800 pair, the USB HID gadget module behind
+the steering-wheel/USB input path, and `usb_f_iap`/`usb_f_iap2` (iAP accessory = CarPlay-style input).
+`sd_user_hid` is also one of the fourteen. The first restage therefore staged 10 modules at
+`vermagic=4.19.101+` into `vendor/hct4/tree_a10/vendor/lib/modules` and echoed that as the module set.
+
+Two fixes came out of this. `scripts/prebuilt_vendor.sh` now treats `REF_IMG`/`BOOT_IMG` as
+**authoritative**: it compares sha256 of the existing prebuilt copy with the reference and replaces it
+when they differ, instead of reusing whatever was already on disk because it was "not missing" (which is
+what silently shipped the wrong tree). And `scripts/deploy_device.sh` now checks the coupling **per
+module**: every module named in `configs/hu_insmod.sh` must exist in the staged tree *and* carry the
+kernel's version in its vermagic, so a reference missing `sd_user_hid.ko` aborts the deploy before any
+build hours are spent. The partition-wide "all vermagics must equal the kernel" rule that was there
+before was wrong anyway (stock trees ship `mali_kbase.ko` at `4.4.167` and some aic8800-era `.ko` at
+`4.19.101+`, which `insmod` refuses harmlessly), and it also compared a version string that had a
+trailing space, which flagged every module as mismatched.
+
+The correct pair is mirrored on the NAS as `aospbuild-archive/ref-a10-live/` (`vendor.img`
+`3fe2f53a…` 323,530,752 B, `system.img` `298e8a4c…` 1,275,330,560 B), byte-identical to the workstation
+copies. `scripts/package.sh`'s shape-A reference lookup now lists only `ref-a10-live/`, and the stale
+`ref-a10/` directory stays untouched as an archive of that other build. Nothing was written to the unit.
