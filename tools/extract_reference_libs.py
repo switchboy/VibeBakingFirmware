@@ -83,15 +83,22 @@ def main():
 
     # Read every image once, so the first one that has the soname wins and the report can say where
     # each file came from. Images are searched in the order given.
+    # The arch directory is the *last* component of the path, so /lib(64)/<soname> in a vendor image
+    # and /system/lib(64)/<soname> in an Android 10 system image (which has no VNDK APEX) both match.
     sources = {}
     for img in args.images:
         raw = as_raw(img, simg2img, tmp)
         for rel in walk(raw, "/", sizes=False, pattern=None, dirs=False):
             base = os.path.basename(rel)
-            if base in sonames and os.path.dirname(rel.lstrip("/")).split("/")[0] in arches:
-                key = (base, os.path.dirname(rel.lstrip("/")))
-                if key not in sources:
-                    sources[key] = (raw, rel.lstrip("/"), img)
+            if base not in sonames:
+                continue
+            dirname = rel.lstrip("/").rsplit("/", 1)[0] if "/" in rel.lstrip("/") else ""
+            arch = dirname.rsplit("/", 1)[-1] if dirname else dirname
+            if arch not in arches:
+                continue
+            key = (base, arch)
+            if key not in sources:
+                sources[key] = (raw, rel.lstrip("/"), img)
 
     got, missing = [], []
     for want in sonames:

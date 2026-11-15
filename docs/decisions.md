@@ -1484,9 +1484,11 @@ the VINTF check against a `target-level="4"` manifest.
 (`analysis/daisaita_a10/vendor.img`), because the owner made the proven kernel + current layout the primary
 (**D46**) and the two are coupled: `#190` only passes the kernel requirement list at `target-level="4"`. The
 closure run is still owed before the build, and it now has a concrete dependency list to check against
-(`docs/findings.md`, "Shape A checked against Android 14's actual code"): the four libraries Android 14 does
-not build get injected from the Android 10 reference system image, while Android 14's own vendor variants cover
-tinyalsa, hardware_legacy, expat, drm, ui, hidlbase and hidltransport.
+(`docs/findings.md`, "Shape A checked against Android 14's actual code"): `libion`, `libaudioroute` and
+`libspeexresampler` are imported byte-for-byte from the Android 10 reference as vendor modules
+(`prebuilt_vendor_libs/Android.bp` + `vendor_libs.mk`), while Android 14's own vendor variants cover
+tinyalsa, hardware_legacy, expat, drm, ui, hidlbase, hidltransport **and libaudioutils**
+(`system/media/audio_utils` builds it with `vendor_available: true`).
 
 **D45 - the Nov 13 kernel panic is inherited, not fixed (Nov 15, owner decided).** The root cause is the
 vendor touch driver leaving `input_dev->phys` pointing at a dead kernel stack frame (record:
@@ -1549,10 +1551,12 @@ card-only console boot recommended in `docs/feasibility.md`. Consequences that m
 
 * The offline gates are the only safety net before the first eMMC write, so they must cover everything shape
   A depends on, not just packaging: `tools/vendor_link_closure.py` + `tools/vendor_abi_check.py` clean on the
-  restaged A10 tree, VINTF compatible at `target-level="4"`, `.ko` vermagics matching `4.19.111+`, the
-  injected legacy libs present for both arches (`docs/findings.md`), the first-stage fstab inside the boot
-  image (the Nov 9 black screen was exactly this, **D34**), `scripts/verify_artifacts.sh`, and the installer
-  logic test (`scripts/smoke_recovery_installer.sh`).
+  restaged A10 tree, VINTF compatible at `target-level="4"`, `tools/payload_coupling_check.py` PASSing on the
+  finished artifacts (kernel banner vs the vermagic of the modules `hu_insmod.sh` loads, the first-stage fstab
+  and the DTB inside boot's second stage, the imported libraries plus `libaudioutils` in both arches, the GPS
+  HAL files, the manifest's target-level with no `<kernel>` tag - `docs/findings.md`), the first-stage fstab
+  inside the boot image (the Nov 9 black screen was exactly this, **D34**), `scripts/verify_artifacts.sh`, and
+  the installer logic test (`scripts/smoke_recovery_installer.sh`).
 * No console output is read before the payload is written, so a first-boot failure is diagnosed from the
   rescue route rather than from a card boot: the rescue card (**D39**/**D42**) and the byte-exact stock
   backup (**D40**) stay staged before the write, and partition 8 alone rolls back with `recovery.bin

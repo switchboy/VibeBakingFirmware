@@ -1791,27 +1791,48 @@ exists in Android 14 too (`hardware/interfaces/gnss/aidl/`), and its `default` s
 example (`Gnss.cpp` → `DeviceFileReader`/`FixLocationParser`), i.e. it would report a fake fix, not real
 satellites - we do not ship that one.
 
-**Audio input needs four injected libraries, and the agent overstated the shortage.** Measured
-DT_NEEDED of `/lib64/hw/audio.primary.rk30board.so` **and** `/lib/hw/audio.primary.rk30board.so` (both arches
-are identical): `liblog libcutils libtinyalsa libaudioutils libaudioroute libhardware_legacy libspeexresampler
-libc++ libc libm libdl`. Android 14 *does* build three of those as vendor variants (the agent said four were
-gone): `libtinyalsa` (`external/tinyalsa/Android.bp:19-21`, `vendor_available: true`), `libhardware_legacy`
-(`hardware/libhardware_legacy/Android.bp:72-74`, `vendor_available: true`), plus `libexpat`
-(`external/expat/Android.bp:42`) and `libdrm` (`external/libdrm/Android.bp:81,91`) which the composer path
-needs. Android 14 does **not** build: `libion` (`system/core/libion` is gone - directory 404), `libaudioroute`,
-`libaudioutils`, `libspeexresampler`. Byte-exact copies of all four exist in the Android 10 reference system
-image (`analysis/daisaita_a10/system.img`, which carries `/system/lib(64)/` rather than a VNDK APEX):
+**Audio input needs three imported libraries plus one Android 14 vendor variant.** Measured DT_NEEDED of
+`/lib64/hw/audio.primary.rk30board.so` **and** `/lib/hw/audio.primary.rk30board.so` (both arches are
+identical): `liblog libcutils libtinyalsa libaudioutils libaudioroute libhardware_legacy libspeexresampler
+libc++ libc libm libdl`. Android 14 *does* build most of them as vendor variants (the research agent said
+four were gone): `libtinyalsa` (`external/tinyalsa/Android.bp:19-21`, `vendor_available: true`),
+`libhardware_legacy` (`hardware/libhardware_legacy/Android.bp:72-74`, `vendor_available: true`) and
+**`libaudioutils`** - which the agent missed: Android 14 builds it in
+`platform/system/media/+/android14-release/audio_utils/Android.bp:35-36` with `vendor_available: true`, so
+requesting `libaudioutils.vendor` / `libaudioutils.vendor_32` puts it in `/vendor/lib(64)/` with Android 14's
+own ABI. Plus `libexpat` (`external/expat/Android.bp:42`) and `libdrm` (`external/libdrm/Android.bp:81,91`)
+for the composer path. What Android 14 genuinely does **not** build is `libion` (`system/core/libion` is gone
+- directory 404), `libaudioroute` (`hardware/libhardware_legacy/audio/` builds `libaudiohw_legacy` only, no
+`audio_route`) and `libspeexresampler` (`external/speexresampler` is gone - directory 404). Byte-exact copies
+of all four exist in the Android 10 reference system image (`analysis/daisaita_a10/system.img`, which carries
+`/system/lib(64)/` rather than a VNDK APEX):
 
-| soname | 64-bit | 32-bit | its own DT_NEEDED (all resolvable on Android 14) |
-|---|---|---|---|
-| `libion.so` | 15,184 B | 15,176 B | liblog, libc++, libc, libm, libdl |
-| `libaudioroute.so` | 23,680 B | 19,460 B | liblog, libcutils, libutils, libexpat, libtinyalsa, libc++ |
-| `libaudioutils.so` | 87,376 B | 75,864 B | libcutils, liblog, libspeexresampler, libc++ |
-| `libspeexresampler.so` | 24,208 B | 24,108 B | libc++, libc, libm, libdl |
+| soname | 64-bit | 32-bit | its own DT_NEEDED (all resolvable on Android 14) | route |
+|---|---|---|---|---|
+| `libion.so` | 15,184 B | 15,176 B | liblog, libc++, libc, libm, libdl | prebuilt module, both arches |
+| `libaudioroute.so` | 23,680 B | 19,460 B | liblog, libcutils, libutils, libexpat, libtinyalsa, libc++ | prebuilt module, both arches |
+| `libaudioutils.so` | 87,376 B | 75,864 B | libcutils, liblog, libspeexresampler, libc++ | Android 14's own vendor variant |
+| `libspeexresampler.so` | 24,208 B | 24,108 B | libc++, libc, libm, libdl | prebuilt module, both arches |
 
-None of them pulls an Android-10-only ABI, so injecting both arches through
-`device/rk3399-px6-hct4/prebuilt_vendor_libs/<arch>/` (**option F** of `tools/vendor_link_closure.py`) is the
-route; the alternative is rebuilding those four from upstream sources in our device tree.
+The symbol-level check (`nm -D --undefined-only`) says which of these actually carry live calls and which are
+only linker obligations, and it is the same list for both arches of the audio blob:
+`create_resampler release_resampler` (libspeexresampler), `pcm_open pcm_read pcm_write pcm_close
+pcm_get_htimestamp pcm_is_ready pcm_get_error pcm_get_buffer_size pcm_frames_to_bytes` (libtinyalsa),
+`property_get property_set str_parms_create str_parms_create_str str_parms_add_str str_parms_get_str
+str_parms_has_key str_parms_to_str str_parms_destroy` (libcutils, which Android 14 ships as a vendor
+variant). Nothing references `libaudioroute`, `libaudioutils` or `libhardware_legacy` symbols, so those three
+only have to *exist* for the linker. `/lib64/librga.so` needs `libion.so` in DT_NEEDED and its own undefined
+symbols are `hw_get_module property_get _Znwm _ZdlPv` plus two libc++ symbols - no ion calls, so libion is a
+linker obligation for the composer path rather than a symbol dependency.
+
+The route is **modules, not staging-dir injection**: `device/rk3399-px6-hct4/prebuilt_vendor_libs/Android.bp`
+declares `libion`, `libaudioroute` and `libspeexresampler` as `cc_prebuilt_library_shared` vendor modules with
+arch-specific `lib`/`lib64` srcs, and `vendor_libs.mk` requests them plus `libaudioutils.vendor(_32)`. That is
+deliberate: an injected file is not an install dependency, so `build_image.py`'s file filter excludes it and
+the *product* vendor.img omits it - pack25 lost an injected `libchrome.so` exactly that way - and the shape-A
+build skips `m dist`, so there is no dist-built vendor.img to recover it from. `tools/extract_reference_libs.py`
+now also finds libraries under `/system/lib(64)/` (its arch filter used to match only a leading `lib`/`lib64`
+directory, which is why the Android 10 system copies were invisible to it).
 
 **Screen and CANBUS are the same class of problem, and both are covered.** `/lib64/hw/hwcomposer.rk30board.so`
 (and the 32-bit copy) needs `librga.so`, and `/lib64/librga.so` needs **`libion.so`** - hence the libion
@@ -1892,3 +1913,25 @@ workstation copy and the NAS archive copy):
 
 The old malformed image is kept, renamed `a14-work/a14chk/boot-a10k-a14rd.img.stale-misplaced-second`
 (28,231,292 B, sha head `455a9ac8…`) so the mistake stays auditable; nothing was written to the unit.
+
+## Coupling measured with `tools/payload_coupling_check.py` - both shapes pass against their own vendor (Nov 15)
+
+The new gate reads the artifacts, and its first run is on the reference images on disk (no unit, no build):
+
+| pair | boot layout | kernel | modules in that vendor | verdict |
+|---|---|---|---|---|
+| shape A: `analysis/daisaita_a10/vendor.img` + `a14chk-shapeA/boot-a10k-a14rd.img` | kernel 25,671,688 B @2048, ramdisk 1,631,866 B @25,675,776, second 924,672 B @27,308,032, `dtb_size 0`, DTB at +2048 size 152,425 | `4.19.111+` (#190) | 21 `.ko`, vermagics `4.19.111+`, `4.19.101+`, `4.4.167`; **all 14 modules `hu_insmod.sh` loads are present at `4.19.111+`** | PASS |
+| shape B: `analysis/daisaita_a11/vendor.img` + `a14chk/a14-boot-fixed.img` | kernel 30,455,816 B @2048, ramdisk 1,631,866 B @30,459,904, second 544,768 B @32,092,160, `dtb_size 157,962`, DTB at +1536 | `4.19.193` (#24) | 17 `.ko`, vermagics `4.19.193` and `4.4.167`; the 14 insmod modules present at `4.19.193` | PASS |
+| stale `455a9ac8…` image vs the same A10 vendor | second computed at 27,308,032 reads `00 00 00 00 00 00 00 00`; ramdisk has no fstab | `4.19.111+` | - | FAIL (D38 + D34) |
+
+Two things this settles. First, **the vermagic rule is per-module, not partition-wide**: the stock vendor
+partitions carry leftovers from other kernels (GPU `.ko` at `4.4.167`, some aic8800-era `.ko` at
+`4.19.101+`) which `hu_insmod.sh` never attempts and `insmod` refuses harmlessly, so "every vermagic equals
+the kernel" would fail a legitimate payload. What must match is the list the boot script loads - WiFi chips,
+`usb_f_iap`/`usb_f_iap2`, `sd_user_hid` - and both vendor partitions supply all fourteen at their own kernel
+version. Second, **the Android 11 stock manifest declares `<kernel target-level="5"/>` and the Android 10 one
+declares none**, which is exactly why shape A keeps `target-level="4"` without adding a `<kernel>` tag
+(**D46**): the gate reports the tag as a fact and fails only if a payload declares a level it is not supposed
+to be at. Manifest counts measured here: Android 10 = 26 inline `<hal format="hidl">` declarations + 3
+fragments (`cas@1.1`, `weaver@1.0`, `rockit.hw@1.0`), Android 11 = 11 inline declarations, `version="2.0"`,
+`target-level="5"`.

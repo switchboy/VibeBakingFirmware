@@ -4,20 +4,30 @@
 #   scripts/verify_artifacts.sh <lineage-tree>
 #
 # Run on the build host. Nothing here touches the head unit: every check reads files in out/ and
-# compares them against the stock Android 11 reference in vendor/hct4/. It answers the four
-# questions that decide whether a build is flashable:
+# compares them against the stock reference in vendor/hct4/. Which reference is decided by SHAPE
+# (a10 = shape A, the primary and the default; a11 = shape B, the fallback - D44/D46). It answers
+# the questions that decide whether a build is flashable:
 #
 #   1. did the vendor partition get built from the staged blobs (VENDOR/ + vendor.map in target_files)?
 #   2. does the built vendor.img still carry every stock blob (tools/vendor_diff.py)?
 #   3. is super internally consistent - logical partitions byte-identical to their images (check_super.py)?
 #   4. can recovery actually install an update (update_engine_sideload + our recovery.fstab)?
-# Plus VINTF compatibility, and the boot image header that u-boot reads.
+# Plus VINTF compatibility, the boot image header that u-boot reads, and the kernel/module vermagic
+# coupling - the gate that makes boot-a10k-a14rd.img + this super a legal pair (D47).
 set -eu
 TREE=${1:?usage: verify_artifacts.sh <lineage-tree>}
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 PROD=$TREE/out/target/product/rk3399
 STAGE=$PROD/obj/PACKAGING/target_files_intermediates/lineage_rk3399-target_files
 WORK=${WORK:-/srv/dev-disk-by-label-SSData/aospbuild/tmp}
+SHAPE=${SHAPE:-a10}
+case "$SHAPE" in
+  a10) REF_IMG="$TREE/vendor/hct4/prebuilt/vendor_a10.img"; VTREE="$TREE/vendor/hct4/tree_a10/vendor"
+       LABEL="Android 10"; TL=4 ;;
+  a11) REF_IMG="$TREE/vendor/hct4/prebuilt/vendor_a11.img"; VTREE="$TREE/vendor/hct4/tree/vendor"
+       LABEL="Android 11"; TL=5 ;;
+  *) echo "SHAPE must be a10 or a11"; exit 1 ;;
+esac
 fail=0
 say() { printf '%s\n' "$*"; }
 bad() { say "  ! $*"; fail=1; }
@@ -44,8 +54,8 @@ else
   bad "no IMAGES/vendor.map"
 fi
 
-say "=== built vendor.img vs the stock Android 11 partition ==="
-python3 "$REPO/tools/vendor_diff.py" "$TREE/vendor/hct4/prebuilt/vendor_a11.img" "$PROD/vendor.img" \
+say "=== built vendor.img vs the stock $LABEL partition ==="
+python3 "$REPO/tools/vendor_diff.py" "$REF_IMG" "$PROD/vendor.img" \
   "$REPO/device/rk3399-px6-hct4" 2>&1 | tail -14
 
 say "=== every dropped vendor destination really replaced (tools/vendor_dropped_check.py) ==="
@@ -53,7 +63,7 @@ python3 "$REPO/tools/vendor_dropped_check.py" "$TREE" "$TREE/device/rockchip/rk3
 [ "${PIPESTATUS[0]}" = 0 ] || bad "dropped vendor destinations are missing from vendor.img (see PRODUCT_PACKAGES in device.mk)"
 
 say "=== kept vendor blobs resolve their DT_NEEDED in the built image ==="
-python3 "$REPO/tools/blob_deps.py" "$TREE/vendor/hct4/tree/vendor" \
+python3 "$REPO/tools/blob_deps.py" "$VTREE" \
   "$TREE/device/rockchip/rk3399/vendor_build_wins.txt" "$PROD/vendor.img" \
   "$TREE/device/rockchip/rk3399/vendor_dest_keep.txt" 2>&1 | tail -14
 [ "${PIPESTATUS[0]}" = 0 ] || bad "a staged vendor blob needs a library that /vendor does not provide"
@@ -107,6 +117,15 @@ if [ -n "$UB" ]; then
 else
   bad "no unpack_bootimg in out/host"
 fi
+
+say "=== kernel / modules / manifest coupling (tools/payload_coupling_check.py) ==="
+# Reads the finished artifacts, not the recipe: kernel banner vs .ko vermagic, the first-stage fstab
+# and the DTB inside boot's second stage, the libraries Android 14 does not build (both arches), the
+# criterion HAL files (GPS under D49), and the manifest's target-level with no <kernel> tag. This is
+# one of the gates D47 makes the safety net before the first eMMC write.
+python3 "$REPO/tools/payload_coupling_check.py" "$PROD/vendor.img" "$PROD/boot.img" \
+  --tree "$TREE" --staged-tree "$VTREE" --manifest-target-level "$TL" 2>&1 | tail -16
+[ "${PIPESTATUS[0]}" = 0 ] || bad "boot image and vendor partition disagree - do not flash this pair"
 
 say "=== recovery carries an installer ==="
 RD="$WORK/recovery-ramdisk-check"

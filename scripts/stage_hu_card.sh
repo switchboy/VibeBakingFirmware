@@ -8,11 +8,12 @@
 #                         digest line per algorithm: `<applet> <hex> <name>` named exactly as the
 #                         busybox applet (sha256sum/sha1sum/md5sum) because the installer matches the
 #                         manifest against whichever applet it actually has
-#   super-a14.img       - raw-super.img, the logical super container
-#   boot-a14.img        - a14-boot-fixed.img: vendor A11 kernel (4.19.193 #24) + Android 14
-#                         first-stage ramdisk. It must move together with super-a14.img, whose .ko
-#                         files are vermagic 4.19.193; the A10 kernel variant (boot-a10k-a14rd.img)
-#                         needs the stock 4.19.111+ modules instead (docs/flash.md, docs/findings.md).
+#   super-a14.img       - the logical super container, built from the partition images of the staged vendor
+#   boot-a14.img        - the shape's boot image. SHAPE=a10 (default, shape A) -> boot-a10k-a14rd.img,
+#                         OEM kernel 4.19.111+ #190, sha 3cf40129…; SHAPE=a11 (fallback) ->
+#                         a14-boot-fixed.img, kernel 4.19.193 #24, sha 933e2ecc…. The boot image and the
+#                         super always move together, because each super carries the .ko set whose
+#                         vermagic matches its kernel (docs/flash.md, docs/findings.md).
 #   update.zip          - the signed fallback package (recovery can install it by hand)
 #   hu-install.sh       - a readable copy of what the patched recovery runs
 #
@@ -21,10 +22,19 @@
 set -u
 
 CARD="${1:?usage: stage_hu_card.sh <mounted-card-dir>}"
-CHK=/run/media/Daan/Opslagmonster/a14-work/a14chk
+WORK=/run/media/Daan/Opslagmonster/a14-work
 ZIP=/run/media/Daan/Opslagmonster/a14-work/huzip-card/update.zip
 REPO=/run/media/Daan/Opslagmonster/VibeBakingFirmware
 LOG=/run/media/Daan/Opslagmonster/a14-work/card-stage.log
+SHAPE=${SHAPE:-a10}
+case "$SHAPE" in
+  a10) CHK="$WORK/a14chk-shapeA"; BOOT="$CHK/boot-a10k-a14rd.img" ;;
+  a11) CHK="$WORK/a14chk";       BOOT="$CHK/a14-boot-fixed.img" ;;
+  *) echo "SHAPE must be a10 or a11 (shape A primary, shape B fallback)"; exit 1 ;;
+esac
+SUPER="$CHK/raw-super.img"
+[ -s "$BOOT" ] || { echo "no boot image for shape $SHAPE: $BOOT"; exit 1; }
+[ -s "$SUPER" ] || { echo "no super payload for shape $SHAPE: $SUPER (build it from the staged vendor first)"; exit 1; }
 
 : > "$LOG"
 say() { printf '%s\n' "$1" >> "$LOG"; }
@@ -34,9 +44,9 @@ say() { printf '%s\n' "$1" >> "$LOG"; }
 say "=== free space on the card ==="
 df -h "$CARD" >> "$LOG" 2>&1
 
-say "=== copy the payload ==="
-cp "$CHK/raw-super.img" "$CARD/super-a14.img" >> "$LOG" 2>&1
-cp "$CHK/a14-boot-fixed.img" "$CARD/boot-a14.img" >> "$LOG" 2>&1
+say "=== copy the payload (shape $SHAPE) ==="
+cp "$SUPER" "$CARD/super-a14.img" >> "$LOG" 2>&1
+cp "$BOOT" "$CARD/boot-a14.img" >> "$LOG" 2>&1
 cp "$REPO/scripts/hu_recovery_install.sh" "$CARD/hu-install.sh" >> "$LOG" 2>&1
 [ -s "$ZIP" ] && cp "$ZIP" "$CARD/update.zip" >> "$LOG" 2>&1
 touch "$CARD/hu-install.flag"

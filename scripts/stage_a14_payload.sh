@@ -19,8 +19,18 @@
 set -euo pipefail
 
 WORK=${WORK:-/run/media/Daan/Opslagmonster/a14-work}
-BOOTIMG="${1:-$WORK/a14chk/a14-boot-fixed.img}"
-SUPERIMG="${2:-$WORK/a14chk/raw-super.img}"
+# Which payload is staged depends on the shape (D46/D47). Shape A is the default - the proven OEM
+# kernel with the current layout - and it pairs with the super built from the Android 10 restaged
+# vendor (the stock 4.19.111+ modules live in that partition's /vendor/lib/modules). Shape B is the
+# Android 11 kernel fallback and pairs with the A11-vendor super whose modules are vermagic 4.19.193.
+SHAPE=${SHAPE:-a10}
+case "$SHAPE" in
+  a10) BOOTIMG="${1:-$WORK/a14chk-shapeA/boot-a10k-a14rd.img}"; SUPERIMG="${2:-$WORK/a14chk-shapeA/raw-super.img}" ;;
+  a11) BOOTIMG="${1:-$WORK/a14chk/a14-boot-fixed.img}";        SUPERIMG="${2:-$WORK/a14chk/raw-super.img}" ;;
+  *) echo "SHAPE must be a10 or a11"; exit 1 ;;
+esac
+echo "shape $SHAPE: boot $(basename "$BOOTIMG") ($(stat -c %s "$BOOTIMG" 2>/dev/null || echo missing) B), super $(basename "$SUPERIMG") ($(stat -c %s "$SUPERIMG" 2>/dev/null || echo missing) B)"
+[ -s "$BOOTIMG" ] && [ -s "$SUPERIMG" ] || { echo "abort: payload files missing for shape $SHAPE"; exit 1; }
 
 adb get-state >/dev/null || { echo "abort: no adb device"; exit 1; }
 adb shell id 2>/dev/null | grep -q 'uid=0' || { echo "abort: adb shell is not root - run adb root first"; exit 1; }

@@ -47,7 +47,7 @@ Why:
 |---|---|---|
 | `keymaster@3.0` (`keystore.rk30board.so`) | KeyMint (`IKeyMintDevice`) required by keystore2 since Android 11 | **A** software KeyMint (AOSP `keymint-service`, test-only attestation) — simplest; **B** wrapper exposing KeyMint 4.x over the legacy blob (keeps HW-backed keys, more work) |
 | `gatekeeper@1.0`, `weaver@1.0` | accepted as-is (HIDL still supported) | keep; software gatekeeper if blob misbehaves |
-| `audio@5.0` + `audio.effect@5.0`, loaded through `libhardware_legacy.so` + `audio.primary.rk30board.so` | HIDL audio 5.0 still served in 14, but `libhardware_legacy` is not in the platform anymore | ship a vendor-local `libhardware_legacy.so` + `libtinyalsa`/`libaudioroute`/`libspeexresampler`/`libaudioutils` built from Android-10 sources (the "wrapper" approach) |
+| `audio@5.0` + `audio.effect@5.0`, loaded through `libhardware_legacy.so` + `audio.primary.rk30board.so` | HIDL audio 5.0 still served in 14 (`libaudiohal` keeps `@4.0`-`@7.1` impls); `libhardware_legacy` and `libtinyalsa` exist as vendor variants | request `libhardware_legacy.vendor`/`libtinyalsa.vendor(_32)` from Android 14; import `libaudioroute.so` and `libspeexresampler.so` from the Android 10 reference as vendor modules (`create_resampler`/`release_resampler` are real symbol needs) |
 | `composer@2.1` needing `libhwc2on1adapter` + `libhwc2onfbadapter` | deprecated but functional in 14 | ship vendor-local copies of both adapters |
 | `allocator@2.0`/`mapper@2.0` + `gralloc.rk30board.so`/`libgralloc_drm.so` | Android 12+ prefers dmabuf heaps (kernel ≥5.6); kernel 4.19 has Rockchip **ion** | keep HIDL 2.0 allocator/mapper; ship a vendor `libion.so` shim that talks to `/dev/ion` via ioctls (Android 12 removed `libion` from the platform) |
 | `camera.provider@2.4/2.5` needing `libchrome`, `libui`, `libnativewindow`, `librkisp/libvpu/librga/libjpeghwenc`, `libsync_vendor` | HIDL camera 2.5 supported in 14 | ship vendor-local `libchrome` (Android-10 copy) + vendor variants of `libui`/`libnativewindow`; Rockchip libs already live in vendor |
@@ -188,7 +188,8 @@ What must be added to the restaged Android 10 vendor, all of it in our own parti
 
 | Android 14 needs | Route | Why |
 |---|---|---|
-| `libion.so`, `libaudioroute.so`, `libaudioutils.so`, `libspeexresampler.so` | inject both arches from `analysis/daisaita_a10/system.img` into `prebuilt_vendor_libs/<arch>/` (closure option F), or rebuild them from upstream source in the device tree | Android 14 does not build them; `librga.so` (composer/camera/OMX) needs `libion`, `audio.primary.rk30board.so` needs the audio trio |
+| `libion.so`, `libaudioroute.so`, `libspeexresampler.so` | declared as vendor modules in `prebuilt_vendor_libs/Android.bp` (byte-exact copies from `analysis/daisaita_a10/system.img`, both arches), requested by `vendor_libs.mk` | Android 14 builds none of them: `system/core/libion` is gone, legacy audio has no `audio_route` module, `external/speexresampler` is gone. Modules, not staging-dir injection, because shape A builds without `m dist` and `build_image.py`'s file filter only keeps install dependencies |
+| `libaudioutils.so` | Android 14's own vendor variant: `libaudioutils.vendor` / `libaudioutils.vendor_32` (`system/media/audio_utils/Android.bp:35-36`, `vendor_available: true`) | Android 14 does build it - the earlier note that four libraries were missing was wrong; the audio blob needs no symbols from it, only the DT_NEEDED entry |
 | `libtinyalsa.so`, `libhardware_legacy.so`, `libexpat.so`, `libdrm.so`, `libui.so`, `libcutils.so`, `libutils.so`, `libhidlbase.so`, `libhidltransport.so` vendor variants | add the `<name>.vendor` modules to `PRODUCT_PACKAGES` via `vendor_modules_extra.mk` (closure option D) | they exist in Android 14 with `vendor_available: true`; only the request makes them land in `/vendor` |
 | the OEM custom HAL interface lib `android.hardware.mtc.mfi@1.0.so` (+ impl) | staged as blobs | Android 14 never defines that interface; this is the CANBUS/MFi surface |
 | GPS stack: `gnss@1.0-service`, `gnss@1.0-impl.so`, `gps.default.so` | staged as blobs, `gnss@1.0` kept in the manifest | Android 14's GNSS JNI walks HIDL down to `IGnss@1.0`; the AIDL example service is a fixture player and must not be shipped |
@@ -204,7 +205,8 @@ accepted, same as shape B.
 **Gate change:** the owner chose raw `dd` of `super` + `boot` once the offline gates pass (**D47**), instead
 of a card-only console boot. That makes the offline gates the only safety net, so they must cover everything
 this table lists: link closure + ABI check clean on the restaged A10 tree, VINTF compatible at level 4, module
-vermagics matching the kernel (`4.19.111+` set), the four injected libs present in both arches, boot image
+vermagics matching the kernel (`4.19.111+` for the modules `hu_insmod.sh` loads), the imported libraries plus
+`libaudioutils` present in both arches, boot image
 carrying the first-stage fstab, installer logic test, and the rollback verified (stock backup **D40**, rescue
 card **D39**/**D42**). A kernel we build ourselves (**shape C**) is never written to `boot` without a card
 boot first, because our own kernel has never executed on this board.

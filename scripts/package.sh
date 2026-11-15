@@ -23,6 +23,25 @@ TREE=$A/lineage21s
 REPO=$A/VibeBakingFirmware
 DEVMK=$REPO/device/rk3399-px6-hct4      # generated files (vendor_staging.mk, vendor_modules_extra.mk)
 LOG=$TREE/package.log
+# Which stock vendor tree the build stages (D44/D46). Shape A is the default because the owner made
+# the proven OEM kernel the primary payload; SHAPE=a11 restages the Android 11 fallback. Every
+# consumer of these paths reads the same variables: prebuilt_vendor.sh, deploy_device.sh,
+# verify_artifacts.sh and BoardConfig.mk's HCT4_KERNEL.
+SHAPE=${SHAPE:-a10}
+case "$SHAPE" in
+  a10) VTREE=$TREE/vendor/hct4/tree_a10/vendor; REF_IMG=$TREE/vendor/hct4/prebuilt/vendor_a10.img;
+       SRC=vendor/hct4/tree_a10/vendor; KREF=kernel_a10; LABEL="Android 10" ;;
+  a11) VTREE=$TREE/vendor/hct4/tree/vendor;    REF_IMG=$TREE/vendor/hct4/prebuilt/vendor_a11.img;
+       SRC=vendor/hct4/tree/vendor;            KREF=kernel_a11; LABEL="Android 11" ;;
+  *) echo "SHAPE must be a10 or a11"; exit 1 ;;
+esac
+export SHAPE
+export HCT4_KERNEL="vendor/hct4/prebuilt/$KREF"   # BoardConfig.mk's kernel knob (D46)
+# SSData had 9.5 GB free on Nov 15 and `m dist` regrows ~7 GB of symbols/img-root zips, which would
+# refill the filesystem mid-build (docs/build-host.md). SKIP_DIST=1 builds only what the flash payload
+# needs: bootimage, recoveryimage, superimage. The injected-library route is then irrelevant, because
+# the libraries shape A needs are real modules (vendor_libs.mk), not staging-dir files.
+SKIP_DIST=${SKIP_DIST:-0}
 
 # The owner's build policy (docs/build-host.md "Memory ceiling"): the NAS has 24 GB RAM and docker holds
 # ~12 GB, so the job count depends on the hour.
@@ -73,10 +92,30 @@ cd "$REPO"
 
 # The firmware zip is only needed the first time; afterwards the extracted reference image and
 # kernel in vendor/hct4/prebuilt/ are reused (it is ~1 GB, so re-unpacking every pass is waste).
+# Shape A has no zip to unpack on the NAS: its reference is the extracted Android 10 archive
+# (ref-a10/vendor.img) and the stock boot backup (hu-stock-backup/boot.bin), whose kernel payload is
+# #190 - the kernel the unit runs today. Shape B still uses the Android 11 package.
 ZIPARG=""
-for z in "$A/daisaita_a11.zip" "$REPO/../diatsia fw/update.zip"; do
-  if [ -s "$z" ]; then ZIPARG="$z"; break; fi
-done
+REFARG=""
+BOOTARG=""
+case "$SHAPE" in
+  a10) for p in "$A/archive/ref-a10/vendor.img" "$A/../aospbuild-archive/ref-a10/vendor.img" \
+                 "/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/ref-a10/vendor.img"; do
+         if [ -s "$p" ]; then REFARG="$p"; break; fi
+       done
+       for p in "$A/archive/hu-stock-backup/boot.bin" "$A/../aospbuild-archive/hu-stock-backup/boot.bin" \
+                 "/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hu-stock-backup/boot.bin"; do
+         if [ -s "$p" ]; then BOOTARG="$p"; break; fi
+       done ;;
+  a11) for z in "$A/daisaita_a11.zip" "$REPO/../diatsia fw/update.zip"; do
+         if [ -s "$z" ]; then ZIPARG="$z"; break; fi
+       done ;;
+esac
+if [ "$SHAPE" = a10 ] && { [ -z "$REFARG" ] || [ -z "$BOOTARG" ]; }; then
+  echo "shape A needs the Android 10 reference vendor.img and the stock boot.bin in the archive" >> "$LOG"
+  exit 1
+fi
+export SHAPE REF_IMG="$REFARG" BOOT_IMG="$BOOTARG"
 ./scripts/prebuilt_vendor.sh "$ZIPARG" ../lineage21s >> "$LOG" 2>&1 || { echo "prebuilt_vendor failed at $(date)" >> "$LOG"; exit 1; }
 
 # ---- what /vendor has to contain -----------------------------------------------
@@ -115,10 +154,11 @@ run() {
 DEVMK=$REPO/device/rk3399-px6-hct4
 regen_staging() {
   # cwd is $TREE here (m runs from the build tree), so use absolute paths for the repo scripts.
-  python3 "$REPO/tools/gen_vendor_staging.py" "$TREE/vendor/hct4/tree/vendor" "$DEVMK" \
-    --src-prefix vendor/hct4/tree/vendor \
-    --build-prop "$TREE/vendor/hct4/prebuilt/vendor_build.prop.a11" \
-    --compat-matrix "$TREE/vendor/hct4/prebuilt/vendor_compat_matrix.a11.xml" \
+  python3 "$REPO/tools/gen_vendor_staging.py" "$VTREE" "$DEVMK" \
+    --src-prefix "$SRC" \
+    --reference-label "$LABEL" \
+    --build-prop "$TREE/vendor/hct4/prebuilt/vendor_build.prop.$SHAPE" \
+    --compat-matrix "$TREE/vendor/hct4/prebuilt/vendor_compat_matrix.$SHAPE.xml" \
     --skip-file "$DEVMK/vendor_props_skip.txt" \
     --dest-skip "$DEVMK/vendor_build_wins.txt" >> "$LOG" 2>&1 || return 1
   "$REPO/scripts/deploy_device.sh" "$TREE" >> "$LOG" 2>&1 || return 1
@@ -180,11 +220,16 @@ echo "=== injecting the vendor libraries no module installs ===" >> "$LOG"
 # dist builds the target_files package (including IMAGES/) and tries the OTA package. With vendor
 # staged from blobs (D15) the dist pass should now produce a VENDOR/ directory; if it does not, the
 # OTA step will assert on the missing BlockDifference, so check it here rather than deep in ninja.
-if ! m_retry dist; then
-  echo "dist failed - continuing; IMAGES/ is usually complete by the time the OTA step runs" >> "$LOG"
+if [ "$SKIP_DIST" = 1 ]; then
+  echo "=== m dist skipped (SKIP_DIST=1, SSData is tight): bootimage+recoveryimage+superimage only ===" >> "$LOG"
+else
+  if ! m_retry dist; then
+    echo "dist failed - continuing; IMAGES/ is usually complete by the time the OTA step runs" >> "$LOG"
+  fi
+  prune_dist
 fi
-prune_dist
 STAGE=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/lineage_rk3399-target_files
+if [ "$SKIP_DIST" != 1 ]; then
 {
   echo "--- vendor staging check ---"
   grep -n "building_vendor_image\|building_odm_image\|building_system_ext_image" \
@@ -196,6 +241,7 @@ STAGE=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/l
     echo "  ! no VENDOR/ directory in the target_files staging tree - otapackage will assert"
   fi
 } >> "$LOG" 2>&1
+fi
 
 # Re-run the closure now that dist has installed whatever device.mk asked for, and check the ABI of
 # the blobs that stay byte-for-byte copies: an Android 11 HAL whose symbols Android 14's libraries no
@@ -261,16 +307,29 @@ sync_vendor_image() {
     echo "  every injected file is already in ninja's vendor.img ($(stat -c %s "$prod") B)" >> "$LOG"
   fi
 }
-if ! sync_vendor_image; then echo "PACKAGING STOPPED on sync_vendor_image" >> "$LOG"; exit 1; fi
+if [ "$SKIP_DIST" = 1 ]; then
+  if [ -s "$DEVMK/vendor_dest_keep.txt" ]; then
+    echo "  ! vendor_dest_keep.txt is non-empty and dist is skipped: injected staging files are not install" >> "$LOG"
+    echo "    dependencies, so ninja's vendor.img omits them (pack25 lost libchrome.so exactly this way)." >> "$LOG"
+    echo "    Give each leftover a real module instead - vendor_libs.mk plus prebuilt_vendor_libs/Android.bp -" >> "$LOG"
+    echo "    or run dist. Shape A's libion/libaudioroute/libspeexresampler are modules for exactly this reason." >> "$LOG"
+    echo "PACKAGING STOPPED: vendor leftovers unresolved while dist is skipped" >> "$LOG"; exit 1
+  fi
+  echo "  nothing injected -> ninja's own vendor.img is authoritative ($(stat -c %s "$TREE/out/target/product/rk3399/vendor.img" 2>/dev/null || echo "not built yet") B)" >> "$LOG"
+else
+  if ! sync_vendor_image; then echo "PACKAGING STOPPED on sync_vendor_image" >> "$LOG"; exit 1; fi
+fi
 
-# Stage super from the IMAGES that dist just wrote, then check they really are fresh.
+# Stage super from the IMAGES that dist just wrote, then check they really are fresh. Without dist,
+# ninja builds super.img straight from out/target/product/rk3399/*.img, so the freshness check below
+# only applies to the dist route.
 if ! m_retry superimage; then echo "PACKAGING STOPPED on superimage" >> "$LOG"; exit 1; fi
 IMAGES=$TREE/out/target/product/rk3399/obj/PACKAGING/target_files_intermediates/lineage_rk3399-target_files/IMAGES
 if [ -f "$IMAGES/system.img" ] && [ "$(stat -c %Y "$IMAGES/system.img")" -lt "$START" ]; then
   echo "  ! WARNING: $IMAGES/system.img predates this pass - super would embed stale images" >> "$LOG"
 fi
 
-m_retry otapackage
+if [ "$SKIP_DIST" != 1 ]; then m_retry otapackage; fi
 
 prune_dist
 

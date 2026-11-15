@@ -52,14 +52,36 @@ fi
 #   and the vendor staging comes from scripts/prebuilt_vendor.sh + tools/gen_vendor_staging.py.
 dtb_count=$(find "$DEST/prebuilt/dtb" -name '*.dtb' 2>/dev/null | wc -l)
 [ "$dtb_count" = 1 ] || { echo "  ! need exactly 1 .dtb in $DEST/prebuilt/dtb (found $dtb_count)"; exit 1; }
+# SHAPE decides which staged tree and which prebuilt kernel the build consumes (D44/D46). Shape A is
+# the default because the owner made the proven OEM kernel the primary payload.
+SHAPE=${SHAPE:-a10}
+case "$SHAPE" in
+  a10) REF_IMG="$TREE/vendor/hct4/prebuilt/vendor_a10.img"; KERNEL="$TREE/vendor/hct4/prebuilt/kernel_a10"
+       VTREE="$TREE/vendor/hct4/tree_a10/vendor" ;;
+  a11) REF_IMG="$TREE/vendor/hct4/prebuilt/vendor_a11.img"; KERNEL="$TREE/vendor/hct4/prebuilt/kernel_a11"
+       VTREE="$TREE/vendor/hct4/tree/vendor" ;;
+  *) echo "  ! SHAPE must be a10 or a11"; exit 1 ;;
+esac
 for f in "$DEST/prebuilt/boot_second_logo.bin" \
-         "$TREE/vendor/hct4/prebuilt/kernel_a11" \
-         "$TREE/vendor/hct4/prebuilt/vendor_a11.img" \
-         "$TREE/vendor/hct4/tree/vendor/etc/vintf/manifest.xml" \
+         "$KERNEL" \
+         "$REF_IMG" \
+         "$VTREE/etc/vintf/manifest.xml" \
          "$DEST/vendor_staging.mk" "$DEST/vendor_props.mk" \
          "$DEST/vintf/vendor_manifest.xml" "$DEST/vintf/device_matrix.xml"; do
-  [ -s "$f" ] || { echo "  ! missing or empty: $f (run scripts/prebuilt_vendor.sh first)"; exit 1; }
+  [ -s "$f" ] || { echo "  ! missing or empty: $f (run SHAPE=$SHAPE scripts/prebuilt_vendor.sh first)"; exit 1; }
 done
+
+# The kernel and the modules must be from the same build, or every .ko refuses at insmod time
+# (WiFi/HID/iAP/virtual touchpad disappear with no visible cause, docs/findings.md). The kernel
+# banner carries its version and the .ko vermagic carries the same string, so compare them here.
+kver=$(LC_ALL=C strings "$KERNEL" 2>/dev/null | grep -m1 -o 'Linux version [0-9.]\+[^(]*' | sed 's/^Linux version //')
+mver=$(find "$VTREE/lib/modules" -name '*.ko' -exec LC_ALL=C strings {} \; 2>/dev/null | grep -m1 -o 'vermagic=[^ ]*' | sed 's/^vermagic=//')
+if [ -n "$mver" ] && [ "$kver" != "$mver" ]; then
+  echo "  ! kernel $KERNEL says '$kver', staged modules say vermagic '$mver'"
+  echo "  ! they must match: kernel, .ko vermagic and manifest target-level move together (D46)"
+  exit 1
+fi
+echo "  kernel/modules: kernel '$kver', modules vermagic '${mver:-none}' (shape $SHAPE)"
 
 # Flags the Makefile guards with `ifdef` must not be set to `false`: definedness is enough to emit
 # the flag, and mkbootimg then gets an empty argument (see docs/build-host.md).

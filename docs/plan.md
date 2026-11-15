@@ -256,7 +256,8 @@ itself.
 
 **W1 - offline coherence proof (partly DONE Nov 15; the closure runs need the NAS tree).** Done offline: the
 Android 10 vendor surface was read out of `analysis/daisaita_a10/vendor.img` (manifest `version="1.0"`,
-`target-level="4"`, `<sepolicy>29.0`, **no `<kernel>`**, 34 inline HAL declarations + 3 fragments, 21 files in
+`target-level="4"`, `<sepolicy>29.0`, **no `<kernel>`**, 26 inline HAL declarations (`<hal format="hidl">`
+blocks) + 3 fragments (`cas@1.1`, `weaver@1.0`, `rockit.hw@1.0`), 21 files in
 `/lib/modules`), its criterion-coupled blobs were read with `readelf -d` (`audio.primary.rk30board.so`,
 `hwcomposer.rk30board.so`, `android.hardware.mtc.mfi@1.0-service`, `librga.so`, the GPS trio), and Android 14's
 own contract was fetched from source (`compatibility_matrix.4.xml`, `system/libvintf/HalManifest.cpp`,
@@ -268,19 +269,24 @@ resize, no GPT write (**D11**/**D19**). Still owed: `tools/vendor_link_closure.p
 `tools/vendor_abi_check.py` against the restaged A10 tree, which need the Lineage tree on the NAS - they are
 the first thing W2 runs, before any build hours are spent.
 
-**W2 - NAS build host.** Upload the extracted A10 vendor tree (`analysis/daisaita_a10/vendor_tree/vendor`,
-1396 files / 321,049,467 B) into the NAS checkout, run `tools/gen_vendor_staging.py` against it (**D44**
-flipped to option A), keep the manifest's `target-level="4"` and drop only the `<sepolicy>` block and the
-fragment-duplicated HAL entries (**no `<kernel>` tag is added** - `docs/findings.md`), request the vendor
-variants the closure list produces, and inject the four libraries Android 14 does not build - `libion`,
-`libaudioroute`, `libaudioutils`, `libspeexresampler`, both arches - from
-`analysis/daisaita_a10/system.img` into `prebuilt_vendor_libs/<arch>/`. Then build `m superimage` and
-`m bootimage` under the load policy (`-j4`, `setsid nohup … > log 2>&1 < /dev/null &`); **`m dist` is skipped**
+**W2 - NAS build host (started Nov 15).** `SHAPE=a10` is now the default everywhere:
+`scripts/prebuilt_vendor.sh` takes `REF_IMG`/`BOOT_IMG` pointing at the archived Android 10 reference
+(`aospbuild-archive/ref-a10/vendor.img`) and stock boot backup (`aospbuild-archive/hu-stock-backup/boot.bin`)
+and extracts them into `vendor/hct4/prebuilt/vendor_a10.img` + `kernel_a10` and the tree into
+`vendor/hct4/tree_a10/vendor` (**D44** flipped to option A), `tools/gen_vendor_staging.py` keeps the manifest's
+`target-level="4"` and drops only the `<sepolicy>` block plus fragment-duplicated HAL entries (**no `<kernel>`
+tag** - `docs/findings.md`), and `BoardConfig.mk` reads `HCT4_KERNEL ?= vendor/hct4/prebuilt/kernel_a10`.
+`scripts/deploy_device.sh` now refuses to deploy when the kernel banner and the staged modules' vermagic
+disagree. The libraries shape A needs are declared as modules, not injected:
+`prebuilt_vendor_libs/Android.bp` imports `libion`, `libaudioroute`, `libspeexresampler` (both arches, byte-exact
+from `analysis/daisaita_a10/system.img`) and `vendor_libs.mk` also requests `libaudioutils.vendor(_32)`
+(Android 14 builds it in `system/media/audio_utils`). Then build `m bootimage recoveryimage superimage` under
+the load policy (`-j4`, `setsid nohup … > log 2>&1 < /dev/null &`); **`m dist` is skipped** (`SKIP_DIST=1`)
 because `SSData` has only 9.5 GB free and dist regrows ~7 GB (`docs/build-host.md`). Then
-`scripts/rebuild_boot_with_fstab.sh` for the shape-A boot image, `scripts/verify_artifacts.sh`,
-`scripts/smoke_recovery_installer.sh`, `dash -n` / `busybox ash -n` syntax checks, and
-`scripts/stage_hu_card.sh` with the shape-A payload + its card manifest digests (**D43** contract). Nothing
-touches `uboot`/`trust`/`dtb`/`dtbo`/`vbmeta`/`security` or the GPT (**D18**/**D19**).
+`scripts/rebuild_boot_with_fstab.sh`, `scripts/verify_artifacts.sh` (which now runs
+`tools/payload_coupling_check.py`), `scripts/smoke_recovery_installer.sh`, `dash -n` / `busybox ash -n` syntax
+checks, and `scripts/stage_hu_card.sh` with the shape-A payload + its card manifest digests (**D43** contract).
+Nothing touches `uboot`/`trust`/`dtb`/`dtbo`/`vbmeta`/`security` or the GPT (**D18**/**D19**).
 
 **W3 - kernel build track (NAS).** Clone `rockchip-linux/kernel` branch `develop-4.19` and build an `Image`
 with the config the unit ships (the embedded gzip dump - `analysis/hu_kernel_config_live-20261113.txt`),

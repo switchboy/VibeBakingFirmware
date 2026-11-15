@@ -4,9 +4,10 @@
 # Android 14's OTA packer needs a *built* vendor image (it wants a VENDOR/ staging directory,
 # vendor.map and a vendor build.prop), so the stock Android 11 blobs are staged through the build
 # instead of being used as BOARD_PREBUILT_VENDORIMAGE (docs/decisions.md D9 updated, docs/ota.md).
-# scripts/prebuilt_vendor.sh extracts the vendor partition into vendor/hct4/tree/vendor and
-# tools/gen_vendor_staging.py turns it into the two generated includes below. The blobs are copied
-# byte-for-byte; tools/vendor_diff.py checks the generated image against the stock reference.
+# scripts/prebuilt_vendor.sh extracts a stock vendor partition into the build tree (SHAPE=a10 ->
+# vendor/hct4/tree_a10/vendor, the Android 10 reference and shape A; SHAPE=a11 -> tree/vendor, the
+# fallback) and tools/gen_vendor_staging.py turns it into the two generated includes below. The blobs
+# are copied byte-for-byte; tools/vendor_diff.py checks the generated image against the stock reference.
 include device/rockchip/rk3399/vendor_staging.mk
 include device/rockchip/rk3399/vendor_props.mk
 
@@ -19,6 +20,16 @@ include device/rockchip/rk3399/vendor_props.mk
 # build_image.py's file filter is built from; a hand-written file in the staging dir is not.
 # The file is generated on the build host after a packaging pass, so `-include` (absent = nothing).
 -include device/rockchip/rk3399/vendor_modules_extra.mk
+
+# What Android 14 does not build at all: libion (system/core/libion is gone), libaudioroute (legacy
+# audio has no audio_route module anymore) and libspeexresampler (external/speexresampler is gone).
+# Those are imported byte-for-byte from the Android 10 reference as Soong modules in
+# prebuilt_vendor_libs/Android.bp, and libaudioutils is asked for as Android 14's own vendor variant
+# (system/media/audio_utils builds it with vendor_available: true). Module requests, not staging-dir
+# files, because shape A builds superimage/bootimage without `m dist` - only an install dependency is
+# guaranteed to survive build_image.py's file filter (pack25 lost an injected libchrome.so exactly this
+# way). See vendor_libs.mk for the measured dependency list.
+include device/rockchip/rk3399/vendor_libs.mk
 
 # The head-unit app layer (**D24**): the HCT/Microntek apks are Soong modules (apps/Android.bp) and the
 # control binaries, OEM libraries, init fragment, OEM config files and privapp whitelist are copy rules
