@@ -2035,3 +2035,42 @@ ELF carries none. `check_elf_files` is set to `false` on all three: the blobs ar
 install time, and Soong's ELF check runs before that. Fixed in
 `device/rk3399-px6-hct4/prebuilt_vendor_libs/Android.bp`; the pass was relaunched at 22:13 with
 `SHAPE=a10 SKIP_DIST=1`.
+
+## GPS survives because Android 14's `gnss@1.0` service is a legacy wrapper, not a fixture (Nov 15, source read)
+
+The shape-A restage produced a larger drop list than shape B's: 199 destinations the build installs
+itself (`device/rk3399-px6-hct4/vendor_build_wins.txt`), among them `bin/hw/android.hardware.gnss@1.0-service`,
+`lib/hw/android.hardware.gnss@1.0-impl.so`, `lib64/hw/android.hardware.gnss@1.0-impl.so`,
+`etc/init/android.hardware.gnss@1.0-service.rc`, and the same trio for `sensors@1.0` and
+`composer@2.1`. That looked like a GPS criterion break (**D49** says keep the OEM GNSS trio), so the
+question was measured in Android 14's source rather than assumed:
+
+* `out/soong/installs-lineage_rk3399.mk:57071` installs
+  `vendor/bin/hw/android.hardware.gnss@1.0-service` from
+  `hardware/interfaces/gnss/1.0/default` - Android 14 still builds the HIDL 1.0 GNSS service, and
+  `device.mk` asks for it (`android.hardware.gnss@1.0-service`, line 170), so the staged OEM binary at
+  that path collides and the stock copy loses (the collision rule in **D9**-era tooling: a module built
+  from upstream AOSP source wins).
+* Android 14's `android.hardware.gnss@1.0-impl` is the **legacy wrapper**:
+  `hardware/interfaces/gnss/1.0/default/Gnss.cpp:741` calls
+  `hw_get_module(GPS_HARDWARE_MODULE_ID, ...)` and opens the device at 745 - it is not the fixture
+  player. The fixture service is Android 14's **AIDL** default (`DeviceFileReader`/`FixLocationParser`),
+  which we do not request, and the earlier note in this file already says so.
+* The real GNSS comes from the staged OEM module: `lib/hw/gps.default.so` is **not** in the drop list
+  (Android 14 builds no `gps.hardware` module), so the wrapper opens the OEM HAL that talks to the
+  AP6476/glgps path. `bin/hw/mtc.mfi@1.0-service` (CANBUS), `librga.so` (screen), and
+  `lib/hw/audio.primary.rk30board.so` + `lib64/hw/audio.primary.rk30board.so` (sound input) are likewise
+  absent from the drop list - only `audio.primary.default.so` and `audio.effect.default.so`-style AOSP
+  defaults are replaced.
+
+So **D49**'s intent holds, with one wording correction: the shipped GNSS pair is *Android 14's*
+`@1.0-service` + `@1.0-impl` (built here, correct ABI for this framework) loading the *OEM*
+`gps.default.so`, not the OEM service binary. That is the stronger arrangement, and the coupling gate
+(`tools/payload_coupling_check.py`) checks the three files exist, not who built them; the criterion needs
+`gps.default.so` to be the OEM module, which it is. `libkeymaster4support`/`keystore` engine libraries
+stay, and the OEM `keymaster@3.0` service + impl + rc were dropped by ckati in this pass - Android 14's
+keystore2 cannot drive a keymaster HIDL blob, so the software KeyMint service
+(`android.hardware.security.keymint-service`, AOSP `hardware/interfaces/security/keymint/aidl/default`,
+linked against `libpuresoftkeymasterdevice`) was added to `device.mk` in the same pass; it installs its
+own VINTF fragments for keymint/sharedsecret/secureclock, so the staged Android 10 manifest keeps its
+`keymaster@3.0` entry untouched and the payload still declares no `<kernel>` tag.

@@ -199,6 +199,15 @@ PRODUCT_PACKAGES += \
     libkeymaster4support \
     libkeystore-engine-wifi-hidl \
     libkeystore-wifi-hidl \
+    # Android 14's keystore2 only speaks AIDL KeyMint; the OEM's keymaster@3.0 blob cannot serve it.
+    # This is AOSP's software KeyMint (hardware/interfaces/security/keymint/aidl/default/Android.bp:11,
+    # linked against libpuresoftkeymasterdevice), and the module installs its own /vendor/etc/vintf/
+    # manifest fragments for keymint + sharedsecret + secureclock plus the hardware_keystore permission -
+    # VINTF metadata comes from Soong's vintf_fragments, not from PRODUCT_COPY_FILES, so the staged
+    # Android 10 manifest keeps its keymaster@3.0 entry untouched. Test-only attestation, no HW-backed
+    # keys (docs/feasibility.md, strategy A).
+    android.hardware.security.keymint-service \
+    android.hardware.hardware_keystore.xml \
     libprotobuf-cpp-full-3.9.1-vendorcompat \
     libprotobuf-cpp-lite-3.9.1-vendorcompat \
     usb_modeswitch \
