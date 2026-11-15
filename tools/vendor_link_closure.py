@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """What /vendor must contain so the kept Rockchip blobs can load, and how to get it there.
 
-  tools/vendor_link_closure.py <lineage-tree> <device-dir> [options]
+  tools/vendor_link_closure.py <lineage-tree> <device-dir> [options]     (SHAPE picks the staged tree:
+  a10 -> vendor/hct4/tree_a10/vendor, a11 -> vendor/hct4/tree/vendor, tools/hct4_shape.py)
 
 Starting from every staged vendor ELF that is NOT in the drop list (the blobs we keep), walk the
 DT_NEEDED graph transitively and answer, for each soname, how Android 14 can put it where a vendor
 process can find it:
 
-  B. a staged blob that is not dropped         - PRODUCT_COPY_FILES already copies it (the Android 11
-     copy, which is the ABI the blob was compiled against; keep it rather than Android 14's newer lib)
+  B. a staged blob that is not dropped         - PRODUCT_COPY_FILES already copies it (the stock copy,
+     which is the ABI the blob was compiled against; keep it rather than Android 14's newer lib)
   C. a *public* library                         - listed in system/etc/linker.config.pb, and present in
      /system. linkerconfig builds the vendor namespace from that list, so /vendor processes load it
      straight out of /system: that is how Android 14 HALs get liblog.so, libc.so, libsync.so, libEGL.so
@@ -18,6 +19,10 @@ process can find it:
        /vendor/lib64 (or /vendor/lib for 32-bit). This is the preferred answer: same tree, same ABI, and
        requesting it makes the file an install dependency of vendor.img - which is what build_image.py's
        file filter is generated from, so the image really contains it.
+  D'. our own device tree declares a module that installs it into /vendor  - the imports in
+      prebuilt_vendor_libs/Android.bp (libion, libaudioroute, libspeexresampler, which Android 14 does
+      not build) are named by their soname, so they are requested as plain module names. Same reason as
+      D: only an install dependency survives build_image.py's file filter, and shape A builds without dist.
   A. already installed in /vendor              - nothing to do
   E. Android 14 builds it only for /system, it is not public, and no vendor variant exists
      - inject Android 14's compiled copy into the vendor staging directory
@@ -46,6 +51,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ext4_ls import walk  # noqa: E402
+from hct4_shape import staged_vendor_root  # noqa: E402  (SHAPE picks tree_a10 vs tree, D44/D46)
 
 BIONIC = {"libc.so", "libm.so", "libdl.so", "libpthread.so"}
 SYSTEM_PARTS = ("system", "system_ext", "product", "odm")
@@ -195,9 +201,10 @@ def main():
             raise SystemExit("no built product dir under %s - run scripts/package.sh first" % prod)
         pdir = os.path.join(prod, devices[0])
 
-    staged_root = os.path.join(tree, "vendor", "hct4", "tree", "vendor")
+    staged_root = staged_vendor_root(tree)   # SHAPE decides tree_a10 vs tree (D44/D46)
     if not os.path.isdir(staged_root):
-        raise SystemExit("no staged vendor tree: %s (run scripts/prebuilt_vendor.sh)" % staged_root)
+        raise SystemExit("no staged vendor tree: %s (run SHAPE=%s scripts/prebuilt_vendor.sh)"
+                         % (staged_root, os.environ.get("SHAPE", "a10")))
     dropped = read_list(os.path.join(device_dir, "vendor_build_wins.txt"))
     dropped |= read_list(os.path.join(device_dir, "vendor_dest_skip_extra.txt"))
     staged = tree_paths(staged_root)
@@ -265,6 +272,18 @@ def main():
             # Soong resolves the vendor variant's own DT_NEEDED through the same install rule, so there
             # is nothing further to walk: its dependencies land as dependencies of this rule too.
             continue                                       # D: Android 14's own vendor variant
+        # A module in our own device tree that installs this soname into /vendor - the
+        # cc_prebuilt_library_shared imports in prebuilt_vendor_libs/Android.bp (libion, libaudioroute,
+        # libspeexresampler) are named exactly by their soname, without a `.vendor` suffix. Requesting
+        # the module is what makes it an install dependency, which build_image.py's file filter is built
+        # from; a file dropped into the staging directory is not (pack25 lost an injected libchrome.so),
+        # and shape A builds without `m dist`, so injection has no fallback there.
+        plain_inst = [p for p in (graph.get(stem, {}).get("installed") or []) if "/vendor/" in p]
+        if plain_inst:
+            modules[stem] = plain_inst
+            if dest not in in_vendor:
+                not_installed.append(dest)
+            continue                                       # D': our device tree provides it as a module
         if dest in in_vendor or lib in in_vendor.values():
             continue                                       # A: already in /vendor
         if lib in built:
@@ -277,7 +296,9 @@ def main():
         pb_src = os.path.join(prebuilt, arch, lib)
         if os.path.isfile(pb_src):
             inject[dest] = (pb_src, "Android 14 does not build this; taken from the reference firmware "
-                                    "image in prebuilt_vendor_libs/")
+                                    "copy in prebuilt_vendor_libs/. Declare it as a vendor module in "
+                                    "prebuilt_vendor_libs/Android.bp instead: injection only survives "
+                                    "when `m dist` runs, and shape A builds without dist")
             todo.extend((dest, l) for l in elf_needed(pb_src))
             continue                                       # F
         unresolved.append((lib, from_rel))                 # G

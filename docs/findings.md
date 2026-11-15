@@ -1971,3 +1971,67 @@ The correct pair is mirrored on the NAS as `aospbuild-archive/ref-a10-live/` (`v
 `3fe2f53a…` 323,530,752 B, `system.img` `298e8a4c…` 1,275,330,560 B), byte-identical to the workstation
 copies. `scripts/package.sh`'s shape-A reference lookup now lists only `ref-a10-live/`, and the stale
 `ref-a10/` directory stays untouched as an archive of that other build. Nothing was written to the unit.
+
+## How this board actually loads its kernel modules, and what the OEM insmod step covers (Nov 15, offline)
+
+Read out of the stock Android 10 images rather than guessed, because `hu_insmod.sh` is our own invention
+and it has to load exactly what the OEM did:
+
+* The OEM's module list is `/vendor/etc/init.insmod.cfg` (Rockchip's patched init reads it). Measured from
+  `analysis/daisaita_a10/vendor.img`, uncommented lines: `bifrost_kbase.ko`, `midgard_kbase.ko`,
+  `mali_kbase.ko`, `rk30_mirroring.ko`, `rk29-ipp.ko`, `pvrsrvkm.ko`, `aic8800_bsp.ko` - GPU and
+  mirroring only. The commented lines (`ump.ko`, `mali.ko`, `/system/lib/modules/rtk_btusb.ko`,
+  `rk30xxnand_ko.ko`, `drmboot.ko`) point at files that do not exist in this partition.
+* So the WiFi / USB-HID / iAP modules are **not** loaded by that file. They load through kernel uevent
+  auto-loading: `/vendor/lib/modules/modules.dep` lists all 21 modules and `modules.alias` carries the
+  modalias strings (`usb:v0BDAp0179d*... 8188eu`, `sdio:c*v024CdF179* 8189fs`, `usbfunc:iap usb_f_iap`
+  and `usbfunc:iap usb_f_iap2`, `of:N*T*Carm,mali-midgard* mali_kbase`). Android's init resolves a uevent
+  against that alias table and insmod's the match - which is why the running unit has WiFi and an iAP
+  gadget without any explicit insmod.
+* Two modules have **no alias at all**, so nothing can autoload them: `virtual_tp.ko` (`description=viratul
+  tp`, module params `width`/`height`, exports `gaei_virtual_init`) and `sd_user_hid.ko`
+  (`drivers/mtc/sd_user_hid.c`, `description=hid driver`, author `xt`, `intree=Y`). Both are MTC-specific:
+  the virtual touchscreen device used for phone projection, and the MTCE's USB HID gadget. Neither is in
+  `configs/hu_insmod.sh`'s list except `sd_user_hid`, so `virtual_tp` stays unloaded here exactly as it is
+  unloaded on the stock firmware - no owner criterion depends on it (touch comes from the built-in
+  `CONFIG_TOUCHSCREEN_GT9XX=y` driver, buttons from the HID/CAN path), and it is listed as an unexplored
+  piece rather than a gap.
+* Our own loader is `configs/init.hu.rc` -> `service hu_insmod /vendor/bin/sh /vendor/etc/hu_insmod.sh`,
+  started on `post-fs-data`. LineageOS init does not carry Rockchip's patch, so the explicit list is
+  belt-and-braces on top of the uevent path: every load is best-effort and never fatal.
+
+## Soong rejects a prebuilt library that lists both architectures (Nov 15, first shape-A build)
+
+The first shape-A packaging pass died in Soong's bootstrap, before any compile work
+(`/srv/dev-disk-by-label-SSData/aospbuild/lineage21s/package.log`, 22:06):
+
+```
+error: device/rockchip/rk3399/prebuilt_vendor_libs/Android.bp:36:9: module "prebuilt_libion"
+        variant "android_vendor_arm64_armv8-a_shared": srcs: multiple prebuilt source files
+error: ... :52:9: module "prebuilt_libaudioroute" ...
+error: ... :68:9: module "prebuilt_libspeexresampler" ...
+fatal errors encountered
+```
+
+`cc_prebuilt_library_shared` takes **one file per variant** - `build/soong/cc/prebuilt.go:126` raises
+`multiple prebuilt source files` when a variant sees more than one, so listing `lib64/libion.so` and
+`lib/libion.so` together under `compile_multilib: "both"` is illegal. `Srcs` is declared
+`android:"path,arch_variant"` (`prebuilt.go:47`), so the supported form is one module named by its
+soname with per-arch srcs:
+
+```
+compile_multilib: "both",
+arch: {
+    arm64: { srcs: ["lib64/libion.so"] },
+    arm:   { srcs: ["lib/libion.so"] },
+},
+```
+
+Splitting into two modules instead would install the 32-bit copy under a different file name: none of
+these blobs has a `DT_SONAME` (measured during extraction: `lib/libion.so` 15,176 B and
+`lib64/libion.so` 15,184 B are "no DT_SONAME"), and Soong falls back to `<module name>.so` when the
+ELF carries none. `check_elf_files` is set to `false` on all three: the blobs are the Android 10 ABI and
+`DT_NEED` libtinyalsa / libcutils / libexpat, whose Android 14 vendor variants only become resolvable at
+install time, and Soong's ELF check runs before that. Fixed in
+`device/rk3399-px6-hct4/prebuilt_vendor_libs/Android.bp`; the pass was relaunched at 22:13 with
+`SHAPE=a10 SKIP_DIST=1`.

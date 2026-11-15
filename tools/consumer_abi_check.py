@@ -3,6 +3,9 @@
 
   tools/consumer_abi_check.py <lineage-tree> <device-dir> [soname]     (default: libdrm.so)
 
+Same SHAPE knob as vendor_abi_check.py: the staged tree it reads is the shape's tree (a10 ->
+vendor/hct4/tree_a10/vendor, a11 -> vendor/hct4/tree/vendor).
+
 tools/vendor_abi_check.py answers the question for the kept Rockchip blobs. This answers it for the
 other side of the same link edge: every ELF installed in /vendor - libraries and `bin/hw` daemons -
 whose DT_NEEDED names <soname>. When we patch an open-source library to export a Rockchip symbol,
@@ -17,6 +20,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hct4_shape import staged_vendor_root  # noqa: E402  (SHAPE picks tree_a10 vs tree, D44/D46)
 from vendor_abi_check import (BIONIC, arch_of, defined_symbols, elf_class, is_elf,  # noqa: E402
                               needed, public_libs, read_list, symbols_for, tree_symbols,
                               undefined_symbols)
@@ -31,7 +35,7 @@ def main():
         raise SystemExit("no built product dir under %s" % prod)
     pdir = os.path.join(prod, devices[0])
 
-    staged_root = os.path.join(tree, "vendor", "hct4", "tree", "vendor")
+    staged_root = staged_vendor_root(tree)   # SHAPE decides tree_a10 vs tree (D44/D46)
     dropped = read_list(os.path.join(device_dir, "vendor_build_wins.txt"))
     dropped |= read_list(os.path.join(device_dir, "vendor_dest_skip_extra.txt"))
     public = public_libs(pdir)

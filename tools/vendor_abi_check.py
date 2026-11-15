@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Does the Android 11 vendor blob actually resolve its symbols on Android 14?
+"""Do the kept stock vendor blobs actually resolve their symbols on Android 14?
 
-  tools/vendor_abi_check.py <lineage-tree> <device-dir> [<product-dir>]
+  tools/vendor_abi_check.py <lineage-tree> <device-dir> [<product-dir>]   (SHAPE picks the staged tree:
+  a10 -> vendor/hct4/tree_a10/vendor, a11 -> vendor/hct4/tree/vendor, tools/hct4_shape.py)
 
 A blob is kept (copied byte-for-byte) or replaced by an Android 14 module. Keeping it only works if
 every symbol it needs is defined by something the *vendor* namespace can load, for the architecture
@@ -36,6 +37,9 @@ import os
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hct4_shape import staged_vendor_root  # noqa: E402  (SHAPE picks tree_a10 vs tree, D44/D46)
 
 BIONIC = {"libc.so", "libm.so", "libdl.so", "libpthread.so"}
 
@@ -150,7 +154,7 @@ def main():
             raise SystemExit("no built product dir under %s" % prod)
         pdir = os.path.join(prod, devices[0])
 
-    staged_root = os.path.join(tree, "vendor", "hct4", "tree", "vendor")
+    staged_root = staged_vendor_root(tree)   # SHAPE decides tree_a10 vs tree (D44/D46)
     dropped = read_list(os.path.join(device_dir, "vendor_build_wins.txt"))
     dropped |= read_list(os.path.join(device_dir, "vendor_dest_skip_extra.txt"))
 
