@@ -14,6 +14,11 @@
 #   boot-a10k-a14rd.img  the coherent shape: OEM Android 10 kernel + OEM Android 10 `second` (which
 #                        carries the A10 DTB, header dtb_size = 0) + our Android 14 ramdisk with the
 #                        fstab + our own cmdline. No boot-chain partition is touched (D18).
+#                        CAVEAT measured Nov 15: this image pairs with the STOCK 4.19.111+ module set
+#                        (a14-work/hu-stock-backup/vendor-modules/), not with the 4.19.193 modules in
+#                        our super, and its kernel fails the FCM-5 kernel requirement list (19 unmet),
+#                        so it needs a vendor manifest declaring <kernel target-level="4"/>.
+#                        See docs/findings.md and docs/feasibility.md before flashing it.
 # Flashing the OEM boot-a10.img unchanged is NOT a path: its ramdisk fstab lists only
 # system/vendor/odm/product, no system_ext, which Android 14 needs.
 #

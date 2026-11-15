@@ -171,10 +171,18 @@ The operator-relevant consequences:
   (`First stage mount skipped (missing/incompatible/empty fstab in device tree)`,
   `failed to read default fstab for first stage mount`), then which DTB u-boot used (`Found DTB in <part>` vs
   `dtb size`/`dtb addr`), whether the `dtbo` overlay applied, then kernel panel/timing messages, then init
-  stage 2 and SurfaceFlinger. If a second payload is flashed, the safe shape is
-  **`boot-a10k-a14rd.img` (28,231,292 B, `455a9ac8…`) + our A14 `super`** - no boot-chain write. Do **not**
-  flash the OEM `boot-a10.img` unchanged: its ramdisk fstab has no `system_ext`, which Android 14 needs.
-  Writing the A11 chain is only acceptable once serial and a verified rescue card exist.
+  stage 2 and SurfaceFlinger. Which boot image the card/recovery flow actually writes is measured Nov 15:
+  `scripts/stage_hu_card.sh:36`, `scripts/stage_a14_payload.sh:21`,
+  `scripts/build_recovery_fallback_zip.sh:72` and the recovery installer all take
+  **`a14chk/a14-boot-fixed.img`** (kernel payload 30,455,816 B = the vendor **Android 11** kernel
+  `4.19.193 #24`), and our A14 super ships `.ko` files at `vermagic=4.19.193` - a coherent pair. The
+  Android 10 kernel variant **`boot-a10k-a14rd.img`** (28,231,292 B, kernel 25,671,688 B = `4.19.111+ #190`,
+  sha head `455a9ac8…`) is **not** interchangeable with it: it needs the stock `4.19.111+` module set (the
+  19 `.ko` in `a14-work/hu-stock-backup/vendor-modules/`) and a vendor manifest declaring
+  `<kernel target-level="4"/>`, because `#190` fails the FCM-5 kernel requirement list (19 unmet, measured
+  Nov 15, `docs/findings.md`). Do **not** flash the OEM `boot-a10.img` unchanged: its ramdisk fstab has no
+  `system_ext`, which Android 14 needs. Writing the A11 chain is only acceptable once serial and a verified
+  rescue card exist.
 
 ## Getting into the recovery
 

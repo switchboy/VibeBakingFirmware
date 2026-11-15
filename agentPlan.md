@@ -41,7 +41,8 @@ This file is the index plus the risk register, and it must not restate numbers -
 | Wireless CarPlay/AA needs 5 GHz, unit's WiFi is a USB **Realtek RTL8188E** dongle (2.4 GHz hardware) | feature cannot be used wirelessly | hardware fix: swap that USB module for a dual-band RTL8821CU/8822BU - the shipped vendor already carries `8821cu.ko`/`8822bu.ko`, so no kernel rebuild; needs module loading in `init.connectivity.rc` and a correct `iw reg` country code. Wired CarPlay/AA unaffected |
 | Payload signing / upgrade app rejects our zip | cannot install | resolved for the recovery path (**D25**): HCT's own cert is not ours, so the payload is flashed as raw images; the patched recovery (**D42**) removes the menu problem |
 | An installer bug discovered only at the bench | the flash silently refuses, or a corrupt payload is written | the installer is logic-tested offline first (`scripts/smoke_recovery_installer.sh`); its payload sizes and digests come from the card manifest (**D43**), not from arithmetic the recovery busybox cannot do |
-| Vendor `gt9xx` driver leaves `input_dev->phys` pointing at a dead stack frame | fatal kernel panic whenever an input device is re-opened after that page is unmapped (observed Nov 13 20:03, on a framework restart) | one-line vendor-source fix (`phys = "input/ts"` literal, mainline `goodix.c` already does this) — but the driver is built into the kernel, so it needs a kernel rebuild, which cuts against **D9**'s prebuilt-kernel stance. Options recorded in `docs/head-unit-findings.md` open questions; bug report drafted in `docs/upstream.md` (not posted) |
+| Kernel / modules / manifest must move together | flashing the wrong boot image makes every `.ko` refuse at load time (WiFi, USB HID, iAP, virtual touchpad), or the vendor manifest rejects the kernel | measured Nov 15 (`docs/findings.md`, "Which kernel Android 14's VINTF actually accepts"): the payload declares `<kernel target-level="5"/>`; `4.19.193 #24` meets the FCM-5 list (2 unmet), `4.19.111+ #190` does not (19 unmet). Our super ships `vermagic=4.19.193` modules, so `boot-a10k-a14rd.img` + our super is not a legal pair. `docs/flash.md` and the staging scripts/comments said "A10 kernel" - corrected Nov 15 |
+| Vendor `gt9xx` driver leaves `input_dev->phys` pointing at a dead stack frame | fatal kernel panic whenever an input device is re-opened after that page is unmapped (observed Nov 13 20:03, on a framework restart) | **Accepted as-is (D45, Nov 15)** - the OEM kernel stays unpatched: the driver is built into the kernel and the vendor kernel source is not in hand, so the 1-line literal fix would need a rebuild that cuts against **D9**. Touch/buttons/CANBUS work in a normal boot, so the criteria survive; it only fires on a framework restart. Reopens if restarts prove routine - then rebuild from vendor source, or remove the trigger. Bug report drafted in `docs/upstream.md`, not posted |
 
 ## D-status (one line each; reasoning in `docs/decisions.md`)
 
@@ -61,6 +62,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D38-D41 | decided | the unit's own board DTB lives in `boot`'s second stage, so flashing the OEM `boot.img` restores the display description without touching the chain; recovery is reachable through the owner's bootSD card; a byte-exact stock backup is taken before any further write; the recovery fallback zip carries no payload and dd's the images straight off the card |
 | D42-D43 | decided, then fixed Nov 13 | partition 8 is patched so recovery becomes the tool (it is not boot chain and AVB carries no descriptors); the card-driven installer runs only out of the ramdisk and reads payload size + digests from the card manifest. Nov 13's offline logic test found two bugs: a size check that divided by 1000 instead of 1024 and refused every write, and a digest check that matched manifest spellings no applet matched, so it verified nothing while reporting success |
 | D44 | open, Nov 14 - owner decision | vendor staging source: the firmware the unit runs today is byte-for-byte the **Android 10** reference (126/126 identical), while `vendor/hct4/tree/vendor` is staged from the **Android 11** dump (75 hashed paths differ, incl. audio/composer/sensors/gps/mtc/wifi). Re-staging from A10 revises D9/D15 |
+| D45 | decided Nov 15 (owner) | the Nov 13 kernel panic is **inherited, not fixed**: OEM kernel stays as shipped (the 1-line vendor `gt9xx` fix needs a kernel rebuild and the vendor kernel source is not in hand); upstream candidates 21/22 stay draft-only and are not posted; `iw reg` country stays `00` |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 13/14)
@@ -121,12 +123,26 @@ This file is the index plus the risk register, and it must not restate numbers -
    Touch works fine after a reboot, which is why earlier sessions never saw it. The kernel-side taint came
    from the Rockchip `rtl8188eu` fork's `rtw_warn_on(1)`. Full write-up: `docs/findings.md`; live-unit
    facts: `docs/head-unit-findings.md`.
-9. **Unit offline again (`192.168.1.120` unreachable), and a generic bug report is drafted but NOT posted.**
+9. **Unit offline again (`192.168.1.120` unreachable), and the owner answered Nov 15: nothing posted, risk accepted.**
    `docs/upstream.md` carries candidates 21 (gt9xx dangling `phys`, home = `rockchip-linux/kernel` GitHub
-   issue) and 22 (the fork's power-save `warn_on`), with issue text written and scrubbed of OEM identity.
-   Nothing has been submitted. Pending the owner's answers: whether to post, and which panic route to take
-   (rebuild just the kernel with the 1-line fix / keep the OEM kernel and accept the risk / chase the
-   sensors-HAL crash so the framework stops restarting).
-10. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
+   issue) and 22 (the fork's power-save `warn_on`) with issue text written and scrubbed of OEM identity -
+   kept **draft-only**, not posted (**D45**), and still nothing anywhere has been submitted. The panic route
+   chosen is **accept the inherited risk**: OEM kernel unpatched, because the fix needs a kernel rebuild and
+   the vendor kernel source is not in hand. `iw reg` country stays `00`. The measurement that keeps D45
+   tolerable is still owed on the next reachable session: `logcat -d` around a `vendor.sensors-hal-1-0`
+   exit, to see what kills the framework (the crash-loop is what re-opens the input devices).
+10. **Nov 15 kernel/vendor coupling assessment: the current plan stands, and one trap is fixed.** Two agents
+    argued both sides in turn (`docs/feasibility.md`, "Risk assessment Nov 15"); the deciding measurement is
+    in `docs/findings.md`: the payload declares `<kernel target-level="5"/>`, `4.19.193 #24` meets the
+    Android 14 FCM-5 kernel list (2 unmet) and `4.19.111+ #190` fails it (19 unmet), and our super's modules
+    are `vermagic=4.19.193` - so kernel, modules and manifest must move together, and
+    `boot-a10k-a14rd.img` + our super is not a legal pair. `docs/flash.md` and four staging comments said
+    "A10 kernel" for an image carrying the A11 kernel; corrected, and `goodix.ko` was dropped from
+    `configs/hu_insmod.sh` (GT9XX is built in on both kernels). Adopted from agent 1: the vendor kernels do
+    embed their config (gzip), so no `libvintf` patch is needed, and **D44** should lean Android 10 for the
+    criteria-coupled HALs. Next real step is not a flash: the offline vendor-closure run on the build host,
+    then a **card-only** console boot of `a14-boot-fixed.img` + our super (`docs/reanimation.md`), with the
+    stock backup and patched recovery as the rollback.
+11. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
    (touch + physical buttons + CANBUS). Bluetooth is a deliberate second pass (`docs/decisions.md`).
    One agent at a time.

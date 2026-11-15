@@ -25,11 +25,19 @@ Why:
 4. **Kernel.** Android 14 does not require GKI for an *upgrade* device; GKI applies to devices
    launching with Android 12+. VINTF kernel matching for our 4.19 kernel resolves to branch
    `4.19-q` (FCM 4) — which exists (`kernel/configs/q/android-4.19`) and requires kernel ≥ 4.19.42;
-   we have 4.19.111 ✓. **Caveat:** kernel config requirements are matched against `/proc/config.gz`,
-   and the shipped kernel has **no IKCONFIG embedded** (`strings` finds no `IKCONFIG_CONFIG_START`).
-   Options: rebuild the kernel with `CONFIG_IKCONFIG_PROC=y` (needs kernel source, see below), or
-   patch `libvintf`/`assemble_vintf` in our fork to skip kernel-config checks (acceptable for a
-   hobby ROM, breaks VTS).
+   we have 4.19.111 ✓. **Caveat resolved Nov 15 (re-measured, offline):** the earlier claim that the
+   shipped kernel has "no IKCONFIG embedded" was a bad method - `strings`/`grep -a` cannot see the
+   embedded config because it is **gzip-compressed**. A tolerant gzip scan of the kernel payload inside
+   the D40 stock backup's `boot.bin` (and inside the Nov 13 live `boot` dump) finds a gzip stream at
+   offset **14,471,104** that inflates to exactly **154,656 B**, byte-identical to
+   `analysis/daisaita_a10_kernel_config.txt` and to the live `/proc/config.gz` dump
+   (`analysis/hu_kernel_config_live-20261113.txt`). The older `analysis/boot/kernel` payload carries its
+   own blob at 14,403,520 inflating to 154,501 B (a third variant, differing from the Nov 4 dump by four
+   lines: `CONFIG_AIC_WLAN_SUPPORT`, `CONFIG_AIC8800_WLAN_SUPPORT`, `CONFIG_SND_ALOOP`). So **both**
+   vendor kernels ship their config, `/proc/config.gz` works on the kernel running today, and no
+   `libvintf`/`assemble_vintf` workaround is needed for kernel-config matching. Still open: *which* kernel
+   FCM branch the vendor manifest resolves to, and whether the pinned `kernel/configs` in our tree carries
+   it (see the Nov 15 risk assessment in this file and in `docs/findings.md`).
 5. **Boot image.** The shipped U-Boot reads Android boot header v2 with no DTB in `boot.img`.
    Android's `mkbootimg` can still emit header v2/v3 → keep the existing bootloader untouched.
 
@@ -106,3 +114,63 @@ Hard prerequisites: KeyMint service, vendor-local legacy lib copies, sepolicy re
 re-layout, and a VINTF/kernel-config workaround (or a rebuilt kernel). Unknowns that need the real unit:
 partition sizes, kernel config, MCU firmware version, whether `/proc/config.gz` exists, DTB, and the
 feature checklist (CAN/radio/AMP/AV-in/GPS/BT/CarPlay).
+
+## Risk assessment Nov 15 - kernel/vendor coupling (two-agent adversarial pass)
+
+Two agents argued the two positions in turn (one at a time, read-only). Agent 1 defended "keep the kernel
+this unit has actually executed (`4.19.111+ #190`) and shim Android 14 on top"; agent 2 defended the
+current plan ("ship the vendor A11 kernel `4.19.193 #24` with the staged A11-era vendor and its modules").
+Every claim below is either a repo artifact re-measured this session or marked inference. The measurement
+that decided it is in `docs/findings.md` ("Which kernel Android 14's VINTF actually accepts").
+
+**Verdict: keep the current kernel choice.** The A10 kernel is not the conservative option - it is the
+option that fails a contract the payload itself declares. Our staged vendor says
+`<kernel target-level="5"/>`, and against the Android 14 FCM-5 kernel requirement list (`kernel/configs`
+`android14-release/r/android-4.19`, base+conditional) `#190` is **19 unmet** while `#24` is **2** (both
+missing options that do not exist as symbols in that kernel). `#190` passes the FCM-4 list cleanly, so the
+A10 route is viable only by downgrading the vendor manifest to `target-level="4"`, which reopens the HAL
+generations the vendor strategy (**D15**/**D16**) is built around. On top of that, the shipped super's
+`.ko` files are `vermagic=4.19.193`; the stock `4.19.111+` set is a different 19 files. Kernel, modules
+and manifest move together - flashing `boot-a10k-a14rd.img` against our super would refuse WiFi, USB HID
+and the iAP gadget at load time.
+
+**What agent 1 got right, and we adopted:** the shipped kernels *do* embed their config (gzip-compressed,
+so `strings` never saw it) - VINTF kernel-config matching works and no `libvintf` patch is needed
+(`docs/feasibility.md` item 4 is corrected); the A10 vendor blobs are the only ones proven on this board
+and MCU, so **D44** should lean A10 for the criteria-coupled HALs (audio input, HWComposer, sensors,
+`mtc.mfi`); `goodix.ko` must not be insmod'd because `CONFIG_TOUCHSCREEN_GT9XX=y` is built in on both
+kernels (now removed from `configs/hu_insmod.sh`); and `mali_kbase.ko` is dead weight, the GPU is
+`CONFIG_MALI_MIDGARD=y` built-in - so the Mali module worry was never real.
+
+**What agent 2 overstated:** its "0 unmet of 250 / 14 unmet" numbers did not reproduce; the real counts are
+395 requirements with 2 and 19 unmet (base-only). Its "manifest proves the shape is coherent" argument holds,
+but coherence is not bootability: the A11 kernel on an A10 uboot/trust/dtbo chain, and the keymaster-4 OP-TEE
+TA pairing against the A10 `trust` (`7f2c4e52`), remain unmeasured.
+
+**Where both agreed (real, shared risk):** neither kernel fixes the Nov 13 `gt9xx` panic (**D45** accepted);
+`CONFIG_CGROUP_PIDS` is unset on both, so Android 14 task profiles degrade silently; the sensors-HAL crash-loop
+is a defect of the *stock* firmware and its cause is still unknown; no one has booted Android 14 userspace on
+either kernel; and Android 14's functional needs (binderfs, BPF JIT, fs-verity) are soft on this unit because
+AVB is inert and `/dev/binder` still works - the hard gate is VINTF, not runtime.
+
+**Experiments that would change the verdict, cheapest first:**
+1. Offline, build host: re-stage vendor from `analysis/daisaita_a10/vendor.img` and run
+   `tools/vendor_link_closure.py` + `tools/vendor_abi_check.py` + `check_vintf_compatible` with a
+   `target-level="4"` manifest. If the A10 blobs need materially fewer shims than the A11 tree *and* the
+   FCM-4 manifest resolves, D44 flips to A10 - and then the kernel question reopens with the stock module set.
+2. Offline, workstation: byte-diff the 75 differing vendor paths against the criteria (audio input,
+   HWComposer, sensors, `mtc.mfi`/CANBUS, WiFi userspace) to see how much of D44 actually touches the owner's
+   checklist.
+3. Unit, read-only, next reachable session: `ls -lZ /dev/ion /dev/binder* /dev/dma_heap`, `lsmod`,
+   `/proc/bus/input/devices`, `logcat -d` around a sensors-HAL exit, `/sys/fs/pstore` listing.
+4. Unit, one boot attempt, **card only - no eMMC write** (`docs/reanimation.md` bootSD route, stock backup +
+   patched recovery as rollback): boot the card with `a14-boot-fixed.img` + our super and read
+   `/dev/console` for init's fstab line, DTB source, dtbo application, panel timing, then `hu_insmod` lines.
+   That is the only experiment that answers "does Android 14 survive on the vendor kernel" without touching
+   the partitions. If it fails on `#24` cleanly and survives on `#190`, the whole kernel argument inverts.
+
+**Bottom line for the plan as it stands:** ship `a14-boot-fixed.img` + the A14 super as a coherent pair, keep
+the manifest at `target-level="5"`, prefer software KeyMint over the OP-TEE blob until the TA pairing is
+measured, keep the `gt9xx` risk accepted (**D45**), and settle **D44** with the vendor-closure run rather
+than with preference. The next thing that must happen is not a flash - it is the offline closure run and the
+card-only console boot.

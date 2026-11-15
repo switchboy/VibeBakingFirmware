@@ -1465,3 +1465,45 @@ not the vendor, so neither vendor base is proven to boot yet. Recommendation for
 first bring-up attempt (prove the hardware with the blobs proven on it), B as the second attempt if the A10
 HAL surface turns out to need too much wrapping - but this trades proven hardware against a cleaner
 framework interface, so it is the owner's call.
+
+**Added Nov 15 (measurement, not a new option):** the vendor choice is coupled to the kernel and module set,
+not free-standing. Our staged vendor declares `<kernel target-level="5"/>` and ships `.ko` files at
+`vermagic=4.19.193`; the Android 14 FCM-5 kernel requirement list is met by `4.19.193 #24` (2 unmet, both
+options that do not exist in that kernel) and failed by `4.19.111+ #190` (19 unmet), while the FCM-4 list is
+met by both. So option A in its pure form means kernel + modules + manifest all move to Android 10
+(`target-level="4"`, stock `4.19.111+` modules, `boot-a10k-a14rd.img`), which reopens **D15**/**D16**'s HAL
+generations; option B is internally coherent today. A middle shape (A10 userspace blobs + A11 kernel) is
+possible only if the WiFi/HID/iAP modules stay the 4.19.193 ones - numbers in `docs/findings.md`, argument
+in `docs/feasibility.md`. The deciding experiment is offline and cheap: re-stage vendor from
+`analysis/daisaita_a10/vendor.img` and run `tools/vendor_link_closure.py`, `tools/vendor_abi_check.py` and
+the VINTF check against a `target-level="4"` manifest.
+
+**D45 - the Nov 13 kernel panic is inherited, not fixed (Nov 15, owner decided).** The root cause is the
+vendor touch driver leaving `input_dev->phys` pointing at a dead kernel stack frame (record:
+`analysis/panic-20261113-2003-ramoops.txt`; write-up: `docs/findings.md`, "The Nov 13 20:03 kernel panic").
+The owner's answer on Nov 15: **keep the OEM kernel and accept the risk** - no kernel rebuild, no kernel
+patch. Reasons that hold for the record:
+
+* The fix is one line (`ts->input_dev->phys = "input/ts";`, which mainline's `goodix.c` already does), but
+  the driver is **built into** the kernel, so fixing it means a kernel rebuild - and the vendor kernel
+  source is not in hand (Nov 11 kernel/module story in `docs/findings.md`). A rebuild would also cut against
+  **D9**'s prebuilt-kernel stance and would need the **D38**/**D40** rollback path verified before `boot` is
+  written again.
+* What the risk actually is: it fires only when an input device is *re-opened* after that stack page has
+  been freed, i.e. on a **framework restart**. Touch, physical buttons and CANBUS all work in a normal boot
+  (they did after the Nov 13 reboot), so none of the owner's four criteria is broken in normal use; the
+  failure mode is panic + reboot when the framework restarts.
+* What reopens it: if framework restarts turn out to be routine rather than a one-off, accepted risk stops
+  being acceptable. Then the two routes are (a) obtain vendor kernel source and rebuild with the literal
+  fix, or (b) remove the trigger by fixing what kills the framework. The unexplained part is still the
+  trigger, not the crash: `vendor.sensors-hal-1-0` exits with status 255 twice in that boot and
+  system_server dies ~2 s later - logcat is not in pstore, so a reachable session must capture it.
+* Upstream stays **draft-only** (**D27** unchanged): candidates 21 and 22 in `docs/upstream.md` have written
+  issue text and are **not posted**. The RAMoops dump must never be attached verbatim to any report - it
+  names our board, our kernel build and our modules; the draft quotes upstream source only.
+* WiFi regulatory country stays `00` **on the stock firmware** (declined, not deferred): `iw reg get` reports
+  the world default, which already allows 2.4 GHz channels 1-13 at 20 dBm, so nothing is blocked today, and
+  this chip has no 5 GHz band to unlock. Note the distinction: our Android 14 vendor tree already carries the
+  plumbing (`device/rk3399-px6-hct4/configs/init.hu.rc`, `on property:ro.boot.wificountrycode=NL` →
+  `iw reg set NL`), because under the vendor CN map channels 12/13 are "no IR". The decline applies to
+  touching the *stock* Android 10 firmware; nothing there is changed.

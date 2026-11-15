@@ -32,8 +32,10 @@ body = script.read_bytes()
 notes = (
     b'Android 14 bring-up for the PX6 (RK3399 / HCT4 MTCE).\n'
     b'The images live next to this zip in the card root; recovery dd\'s them, it does not unpack them.\n'
-    b'Files expected: super-a14.img (logical super container), boot-a14.img (A10 kernel + A14 first-stage\n'
-    b'ramdisk). Nothing here touches uboot/trust/dtb/dtbo/vbmeta/security (D18) and no partition table is\n'
+    b'Files expected: super-a14.img (logical super container), boot-a14.img (vendor A11 kernel\n'
+    b'4.19.193 #24 + A14 first-stage ramdisk). The .ko files inside super-a14.img are vermagic\n'
+    b'4.19.193, so boot-a14.img and super-a14.img must always move together (docs/flash.md).\n'
+    b'Nothing here touches uboot/trust/dtb/dtbo/vbmeta/security (D18) and no partition table is\n'
     b'written (D19).\n'
 )
 p = out / 'update-unsigned.zip'

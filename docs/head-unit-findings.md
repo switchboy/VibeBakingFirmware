@@ -183,8 +183,11 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
 * `iw reg get` — **`country 00: DFS-UNSET`**. The country code has never been set, so the 2.4 GHz channels
   run under the world-regulatory default, and the kernel gates them via
   `CONFIG_CFG80211_REQUIRE_SIGNED_REGDB=y` + `CONFIG_CFG80211_USE_KERNEL_REGDB_KEYS=y` (see the
-  kernel-configuration section). Setting a real country code (`iw reg SE` for the owner's Netherlands
-  install, or country plumbing in `init.connectivity.rc`) is still owed.
+  kernel-configuration section). Setting a real country code was considered Nov 15 and **declined for the stock firmware** (**D45**):
+  the world default already allows ch 1-13 at 20 dBm, and this chip has no 5 GHz band to unlock. Our
+  Android 14 vendor tree does set one - `device/rk3399-px6-hct4/configs/init.hu.rc` reacts to
+  `ro.boot.wificountrycode=NL` with `iw reg set NL`, because the vendor CN map marks ch 12/13 "no IR"
+  (visible in the Nov 13 `iw list` output).
 * Live-only, read over `adb root` Nov 13 and **not** captured in the probe report: link quality ~99/99 at
   −44 dBm. Re-measure with `iw dev wlan0 link` on the next reachable session.
 * The loaded driver is Rockchip's fork and it taints the kernel: a `WARNING` at
@@ -214,16 +217,17 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
    (`adb root` → `uid=0`, `u:r:su:s0`), so `su` is not needed for our probing (**D28**).
 3. Wireless CarPlay/AA: accept swapping the USB WiFi module for a dual-band one, or keep wired
    CarPlay/AA only? (`iw list` confirms the present chip has no 5 GHz band at all.)
-4. **The kernel panic.** The fix is a one-line vendor source change (`gt9xx.c`: assign a literal to
-   `input_dev->phys`) plus a kernel rebuild, which replaces the prebuilt-kernel stance of **D9** for that
-   one driver. Options: (a) rebuild just the kernel and re-flash `boot` only (needs the rollback path of
-   **D38**/**D40** verified first); (b) keep the OEM kernel and accept that a framework restart can panic
-   the unit again; (c) chase the sensors-HAL/system_server crash so the framework does not restart. Which
-   do you want, and may we post the bug report upstream (see `docs/upstream.md`, draft written, nothing
-   posted)?
+4. ~~The kernel panic: which route?~~ Answered Nov 15 (**D45**): **accept the risk** - the OEM kernel stays
+   as shipped, no rebuild. The bug is one line in vendor `gt9xx.c` but the driver is built into the kernel,
+   and the vendor kernel source is not in hand. It only bites on a framework restart, so the criteria
+   (touch/buttons/CANBUS) survive normal use. Reopens if restarts prove routine; then the routes are
+   vendor-source rebuild with the literal fix, or removing the trigger.
 5. `vendor.sensors-hal-1-0` exits with status 255 and init loops on it. It is the nearest candidate for
    the framework restart that triggered the Nov 13 panic, and sensors are part of the criteria path. Next
-   reachable session: capture `logcat -d` plus the HAL's stderr around a crash.
+   reachable session: capture `logcat -d` plus the HAL's stderr around a crash. This is the measurement
+   D45 depends on staying acceptable.
+6. Posting upstream: **declined Nov 15** - candidates 21/22 stay draft-only in `docs/upstream.md`, nothing
+   posted. If you ever want it public, the draft is written to be pasted as-is.
 
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)

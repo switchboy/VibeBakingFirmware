@@ -7,7 +7,8 @@ head unit run, and to record what upstream would demand before any of it is pres
 Two research passes produced this: one inventorying the repo (candidate by file), one checking upstream
 facts online. URLs below were opened by that pass on Nov 9; where it could not verify something that is
 said plainly. Nov 14 added candidates **21** and **22** (kernel-side bugs found on the live unit) and a
-drafted issue text, **still not posted** - posting needs the owner's go-ahead.
+drafted issue text. On Nov 15 the owner answered: **nothing is posted** - the kernel candidates stay
+draft-only here (**D45**), so this file remains a register, not a submission queue.
 
 ## What upstream actually requires (verified Nov 9)
 
@@ -116,17 +117,19 @@ drafted issue text, **still not posted** - posting needs the owner's go-ahead.
   (`docs/findings.md`). It is generic - the same three lines are in all four branches - and it carries no
   OEM content, so it is upstreamable as a bug report *and* as a patch. The home is `rockchip-linux/kernel`
   (GitHub issues enabled; the repo is active, last push 2026-08-28). Lineage cannot take it: there is no
-  RK3399 kernel repo in the LineageOS org, and Lineage forbids prebuilt kernels anyway.
+  RK3399 kernel repo in the LineageOS org, and Lineage forbids prebuilt kernels anyway. We do **not** fix
+  it ourselves right now either - the owner accepted the inherited risk (**D45**), because the driver is
+  built into the kernel and the vendor kernel source is not in hand.
 * **22** must be phrased as a fork-specific report, not a mainline one: `drivers/staging/r8188eu/*` is
   gone upstream (404 on torvalds master), so the only audience is `rockchip-linux/kernel`. Keep it short -
   the ask is "a timing timeout should not `warn_on()`, it taints every boot".
 
-## Drafted, not posted (Nov 14)
+## Drafted Nov 14, NOT posted (owner declined Nov 15 — **D45**)
 
 ### Candidate 21 — issue text for `rockchip-linux/kernel`
 
 Nothing below names our board, our OEM firmware, our adb access or our build host; it quotes upstream
-source only. **Not posted.** Posting requires the owner's approval.
+source only. Kept here so it can be pasted verbatim if the owner ever decides to publish it.
 
 > **Title:** `gt9xx`: `input_dev->phys` points at a stack buffer, so re-opening the device panics the kernel
 >

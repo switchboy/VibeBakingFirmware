@@ -4,7 +4,8 @@
 #
 #   scripts/stage_a14_payload.sh [bootimg] [superimg]
 #     default bootimg  /run/media/Daan/Opslagmonster/a14-work/a14chk/a14-boot-fixed.img
-#                      (A10 kernel + A14 first-stage ramdisk, sha 933e2ecc4237..., 32,796,672 B)
+#                      (vendor A11 kernel 4.19.193 #24 + A14 first-stage ramdisk, sha 933e2ecc4237...,
+#                       32,796,672 B; pairs with the vermagic 4.19.193 modules inside super-a14.img)
 #     default superimg /run/media/Daan/Opslagmonster/a14-work/a14chk/raw-super.img
 #                      (our A14 logical super container, sha d4b4990931cc..., 3,263,168,512 B)
 #

@@ -1151,12 +1151,17 @@ answer. Measured:
   `twrp_device_vtech_uyt4`. There is **no RK3399 device tree** there, and its profile README states the repos
   are experimental and that "how to build" inquiries are reported and ignored. Useful analogy only: it shows
   the same shape we use (device tree + kernel prebuilts repo + vendor dump), not a tree we can build from.
-* Module payload for the A10-kernel variant is now staged: `adb pull /vendor/lib/modules` gave 21 `.ko`
-  (111,163,391 B) into `/var/tmp/hu-stock-backup/vendor-modules/modules/`. Vermagics: most `4.19.111`
-  (`8188eu`, `8188fu`, `8189fs`, `8723bu`, `8733bs`, `8821cs`, `8821cu`, `8822bu`, `8822cs`, `aic8800_*`,
-  `goodix`, `sd_user_hid`, `usb_f_iap`, `usb_f_iap2`, `virtual_tp`), `sprdwl_ng`/`bcmdhd` at `4.19.101`,
-  `mali_kbase` at `4.4.167`. Dropping these into our A14 vendor partition makes `boot-a10k-a14rd.img`
-  (kernel `4.19.111+`) coherent without building anything.
+* Module payload for the A10-kernel variant is now staged: `adb pull /vendor/lib/modules` gave 21 files
+  (19 `.ko` + `modules.alias`/`modules.dep`) into `/var/tmp/hu-stock-backup/vendor-modules/modules/`, now at
+  `a14-work/hu-stock-backup/vendor-modules/`. Vermagics, re-measured Nov 14 from those files: `4.19.111+`
+  for `8188eu`, `8188fu`, `8189fs`, `8723bu`, `8733bs`, `8733bs_ap`, `8821cs`, `8821cu`, `8821cu_ap`,
+  `8822bu`, `8822cs`, `aic8800_bsp`, `aic8800_fdrv`, `aic8800_fdrv_ap`, `sd_user_hid`, `usb_f_iap`,
+  `usb_f_iap2`, `virtual_tp`; `4.19.101+` for `sprdwl_ng` and `bcmdhd`; `mali_kbase` at `4.4.167`. **There
+  is no touch-driver module at all** - an earlier draft of this line named `goodix`, which is not in the
+  pulled set (and not in `debugfs -R ls /lib/modules` of `analysis/daisaita_a10/vendor.img`): the Goodix
+  driver is built into the kernel, so the Nov 13 panic cannot be fixed by swapping a module. Dropping these
+  modules into our A14 vendor partition makes `boot-a10k-a14rd.img` (kernel `4.19.111+`) coherent without
+  building anything.
 * Rebuilding a driver is possible if we ever need it: the running unit exposes `/proc/config.gz` (34,030 B),
   so the exact config of the shipped `4.19.111+ #190` kernel is available for out-of-tree builds.
 
@@ -1599,10 +1604,15 @@ is in every branch we checked: `develop-4.4` (lines 2047/2092/2094), `develop-4.
 `drivers/input/touchscreen/goodix.c` assigns literals: `input->phys = "input/pen"` (line 339) and
 `ts->input_dev->phys = "input/ts"` (line 1147). So the fix is one line in the vendor driver.
 
-The driver is **built into the kernel**: `gt9xx` is not in `/proc/config.gz`'s touchscreen list, there is no
-`gt9xx.ko`/`goodix.ko` in `/vendor/lib/modules`, and the boot log registers it directly
+The driver is **built into the kernel**: `CONFIG_TOUCHSCREEN_GT9XX=y` is in the config of the kernel that
+runs today (`analysis/hu_kernel_config_live-20261113.txt:2032`) **and** in the Android 11 kernel's config
+(`analysis/daisaita_a11_kernel_config.txt:2070`), the stock vendor partition carries no touch `.ko`
+(`a14-work/hu-stock-backup/vendor-modules/modules/` has 19 `.ko`, none touch-related - the Android 11
+package *does* ship a `goodix.ko` in `/lib/modules/modules.load`, which is worth checking against a kernel
+that already has the driver built in), and the boot log registers it directly
 (`input: goodix-ts as /devices/platform/ff3d0000.i2c/i2c-4/4-0014/input/input1`,
-`incoming/probe-20261113-2016.md:7472`). A module swap cannot fix this; the kernel source has to change.
+`incoming/probe-20261113-2016.md:7472`). So switching kernel generations does **not** dodge this bug, and a
+module swap cannot fix it; the kernel source has to change.
 
 **Why it only bites sometimes.** Android 10's `EventHub::openDevice_locked` asks the kernel for the three
 identity strings on every device open: `EVIOCGNAME` (`a10-EventHub.cpp:1203`), `EVIOCGPHYS` (`:1241`),
@@ -1664,3 +1674,74 @@ fires whenever an input device is re-opened after that stack page is freed. The 
 source patch (`ts->input_dev->phys = "input/ts";`) plus a kernel rebuild, which is a real build step
 (**D9**'s prebuilt-kernel stance) - recorded as a risk and an owner question, not decided here. See
 `docs/upstream.md` for the report we could send, which is written to be safe to post without our OEM data.
+
+## Which kernel Android 14's VINTF actually accepts - measured Nov 15 (offline, no unit touched)
+
+This settles the "keep the working A10 kernel vs ship the vendor A11 kernel" argument with numbers rather
+than preference. Method: fetched the Android 14 kernel requirement lists from
+`android.googlesource.com/kernel/configs` branch `android14-release` (`q/android-4.19`, `r/android-4.19`,
+`s/android-4.19`: `android-base.config`, `android-recommended.config`, `android-recommended-arm64.config`,
+`android-base-conditional.xml`) and diffed them against the two config dumps on disk
+(`analysis/hu_kernel_config_live-20261113.txt` = the running `4.19.111+ #190`,
+`analysis/daisaita_a11_kernel_config.txt` = `4.19.193 #24`). Parser: `/tmp/opencode/kc_check.py`; the
+conditional XML has multiple root elements, so it is wrapped before parsing. "BASE-ONLY" is the set libvintf
+enforces for compatibility (base + conditional, arm64 groups gated by `CONFIG_ARM`/`CONFIG_ARM64`);
+"WITH-RECOMMENDED" adds the recommended lists, which VTS checks and `check_vintf_compatible` does not.
+
+| kernel FCM branch | `minlts` | requirements | A10 `#190` unmet | A11 `#24` unmet |
+|---|---|---|---|---|
+| `q` (FCM 4) base-only | 4.19.42 | 372 | **0** | **0** |
+| `q` with recommended | 4.19.42 | 372 | 2 (`CONFIG_KPROBES`, `CONFIG_KPROBE_EVENTS`) | 3 (+ `CONFIG_SDCARD_FS`) |
+| `r` (FCM 5) base-only | 4.19.110 | 395 | **19** | **2** |
+| `r` with recommended | 4.19.110 | 395 | 20 | 4 |
+| `s` (FCM 6) base-only | 4.19.191 | 403 | 26 (+ fails `minlts`: 4.19.111 < 4.19.191) | 10 |
+
+The 19 unmet items on the A10 kernel (`r`): want `y` but absent - `CONFIG_ANDROID_BINDERFS`,
+`CONFIG_BPF_JIT`, `CONFIG_BPF_JIT_ALWAYS_ON`, `CONFIG_DM_SNAPSHOT`, `CONFIG_DUMMY`,
+`CONFIG_EXT4_FS_POSIX_ACL`, `CONFIG_F2FS_FS_POSIX_ACL`, `CONFIG_FS_VERITY`,
+`CONFIG_FS_VERITY_BUILTIN_SIGNATURES`, `CONFIG_HID_STEAM`, `CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG`,
+`CONFIG_STATIC_USERMODEHELPER`, `CONFIG_UTS_NS`, `CONFIG_VETH`; want `n` but present -
+`CONFIG_FW_CACHE`, `CONFIG_IP6_NF_NAT`, `CONFIG_MODULE_FORCE_UNLOAD`, `CONFIG_RT_GROUP_SCHED`; plus
+`CONFIG_ANDROID_LOW_MEMORY_KILLER`/`CONFIG_VHOST` absent as symbols. The A11 kernel's only two base-only
+misses are options that do not exist in that kernel at all (`CONFIG_ANDROID_LOW_MEMORY_KILLER`,
+`CONFIG_VHOST`).
+
+What the payload declares, read out of the staged vendor slice
+(`/run/media/Daan/Opslagmonster/a14-work/a14chk/vendor-slice.img`, `/etc/vintf/manifest.xml`):
+`<manifest version="8.0" type="device" target-level="5">`, `<sepolicy>` (202404) and
+**`<kernel target-level="5"/>`** (lines 5 and 61). So the payload demands kernel FCM 5 = branch `r`, which
+`#24` satisfies and `#190` does not. Downgrading the kernel means downgrading the manifest to
+`target-level="4"` (branch `q`, both kernels pass) - and that changes the HAL/interface expectations the
+whole vendor story is built on (**D15**/**D16**), not just the kernel.
+
+**Modules are kernel-specific, and they are coupled to the boot image.** Measured Nov 15 from the artifacts:
+
+| artifact | contents |
+|---|---|
+| payload vendor slice `/lib/modules` | 17 `.ko`: WiFi/aic8800/`sd_user_hid`/`usb_f_iap`/`usb_f_iap2`/`virtual_tp`/`goodix` at **`vermagic=4.19.193`**, `mali_kbase` at `4.4.167`; `modules.load` lists 17 services |
+| stock backup `vendor-modules/modules/` | 19 `.ko`: 18 at **`4.19.111+`**, `sprdwl_ng`/`bcmdhd` at `4.19.101+`, `mali_kbase` `4.4.167`; the stock A10 vendor image has **no `modules.load` file** (Rockchip's patched init + `init.insmod.cfg` did the loading, which Lineage init lacks - hence `device/rk3399-px6-hct4/configs/hu_insmod.sh`) |
+| boot images | `a14-boot-fixed.img` 32,796,672 B, kernel payload **30,455,816 B** = A11 `#24` (sha `933e2ecc…`); `boot-a10k-a14rd.img` 28,231,292 B, kernel payload **25,671,688 B** = A10 `#190` (sha `455a9ac8…`); `a14-fixed.img` also 30,455,816 B |
+
+So `a14-boot-fixed.img` + our super is a coherent pair, and `boot-a10k-a14rd.img` + our super is **not**:
+every loadable module would be refused on vermagic (WiFi, USB HID, iAP gadget, virtual touchpad).
+`mali_kbase.ko` is dead weight on both kernels: the GPU is built in
+(`CONFIG_MALI_MIDGARD=y`, `analysis/hu_kernel_config_live-20261113.txt:3282`, same in the A11 config), so
+`hu_insmod.sh` deliberately never attempts the Mali `.ko`s. `goodix.ko` is likewise never attempted now:
+`CONFIG_TOUCHSCREEN_GT9XX=y` is built in on both kernels (`:2032` and `:2070`), which is also why the Nov 13
+panic is inherited whichever kernel is shipped (**D45**).
+
+**DTB difference (contents measured, consequence inferred).** The Android 11 DTB our boot image embeds has a
+`/firmware/optee` node (`compatible = "linaro,optee-tz"`, `a14-work/a14chk/ours.dts:282-286`, plus
+`firmware_android`); the OEM Android 10 DTB embedded in `boot-a10k-a14rd.img` has only `/firmware/android`
+(`a14-work/a14chk/oem.dts:5698-5702`). Panel `timing0` is byte-identical in both (`clock-frequency 0x2349340`,
+`hactive 0x320`, `vactive 0x1e0`), so display bring-up is not a DTB delta. The consequence that matters is the
+OP-TEE binding: a `keymaster@4.0-service.optee` needs `/firmware/optee` and the matching TAs in `trust`, and we
+keep the A10 `trust` (`7f2c4e52`). That pairing is unmeasured; the software-KeyMint route in
+`docs/feasibility.md` sidesteps it.
+
+**Doc/script drift fixed Nov 15 (this is a real trap, not cosmetics).** `docs/flash.md` told the operator to
+flash `boot-a10k-a14rd.img` with our A14 super, while every staging path actually ships
+`a14-boot-fixed.img` (`scripts/stage_hu_card.sh:36`, `scripts/stage_a14_payload.sh:21`,
+`scripts/build_recovery_fallback_zip.sh:72`), and the comments in `stage_hu_card.sh`, `hu_recovery_install.sh`,
+`stage_a14_payload.sh` and the fallback-zip README said "A10 kernel" for an image that carries the A11 kernel.
+All five now state the kernel/module coupling. Nothing was flashed; both images remain unflashed (**D30**).

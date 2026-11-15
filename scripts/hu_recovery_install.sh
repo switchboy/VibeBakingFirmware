@@ -20,7 +20,8 @@
 #   hu-install.flag     - makes this script run at all
 #   hu-checksums.txt    - digest lines plus the payload sizes, see the manifest block below
 #   super-a14.img       - our logical super container (system/vendor/odm/product slices)
-#   boot-a14.img        - A10 kernel + Android 14 first-stage ramdisk
+#   boot-a14.img        - vendor A11 kernel (4.19.193 #24) + Android 14 first-stage ramdisk.
+#                         Must move with super-a14.img, whose .ko files are vermagic 4.19.193.
 #
 # Deliberately no awk and no grep: this busybox was measured to carry dd/stat/mount/umount/reboot/
 # sleep/wc/cut/sed/ls, but sha256sum and blockdev are absent and awk/grep are not certain applets.

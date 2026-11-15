@@ -9,7 +9,10 @@
 #                         busybox applet (sha256sum/sha1sum/md5sum) because the installer matches the
 #                         manifest against whichever applet it actually has
 #   super-a14.img       - raw-super.img, the logical super container
-#   boot-a14.img        - a14-boot-fixed.img, A10 kernel + Android 14 first-stage ramdisk
+#   boot-a14.img        - a14-boot-fixed.img: vendor A11 kernel (4.19.193 #24) + Android 14
+#                         first-stage ramdisk. It must move together with super-a14.img, whose .ko
+#                         files are vermagic 4.19.193; the A10 kernel variant (boot-a10k-a14rd.img)
+#                         needs the stock 4.19.111+ modules instead (docs/flash.md, docs/findings.md).
 #   update.zip          - the signed fallback package (recovery can install it by hand)
 #   hu-install.sh       - a readable copy of what the patched recovery runs
 #
