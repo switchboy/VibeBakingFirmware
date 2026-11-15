@@ -175,14 +175,25 @@ The operator-relevant consequences:
   `scripts/stage_hu_card.sh:36`, `scripts/stage_a14_payload.sh:21`,
   `scripts/build_recovery_fallback_zip.sh:72` and the recovery installer all take
   **`a14chk/a14-boot-fixed.img`** (kernel payload 30,455,816 B = the vendor **Android 11** kernel
-  `4.19.193 #24`), and our A14 super ships `.ko` files at `vermagic=4.19.193` - a coherent pair. The
-  Android 10 kernel variant **`boot-a10k-a14rd.img`** (28,231,292 B, kernel 25,671,688 B = `4.19.111+ #190`,
-  sha head `455a9ac8…`) is **not** interchangeable with it: it needs the stock `4.19.111+` module set (the
-  19 `.ko` in `a14-work/hu-stock-backup/vendor-modules/`) and a vendor manifest declaring
-  `<kernel target-level="4"/>`, because `#190` fails the FCM-5 kernel requirement list (19 unmet, measured
-  Nov 15, `docs/findings.md`). Do **not** flash the OEM `boot-a10.img` unchanged: its ramdisk fstab has no
-  `system_ext`, which Android 14 needs. Writing the A11 chain is only acceptable once serial and a verified
-  rescue card exist.
+  `4.19.193 #24`, sha `933e2ecc…`), and our A14 super ships `.ko` files at `vermagic=4.19.193` - a coherent
+  pair. That is **shape B**, the fallback (**D46**).
+
+  **Shape A** (the primary, Nov 15) ships `a14-work/a14chk-shapeA/boot-a10k-a14rd.img`: 28,233,728 B,
+  sha `3cf4012980d0a824c37ed3f24982a9c7e50d2c8c8497030be139e1184a647375`, kernel payload 25,671,688 B = the
+  OEM **Android 10** kernel `4.19.111+ #190`, our Android 14 first-stage ramdisk with
+  `first_stage_ramdisk/fstab.rk30board` (4,190 B), the OEM `second` stage 924,672 B carrying the HCT DTB
+  (`d0 0d fe ed` at 27,310,080, size 152,425), header v2 with `dtb_size 0`. It pairs with the stock
+  `4.19.111+` module set (the 19 `.ko` in `a14-work/hu-stock-backup/vendor-modules/`) and with a vendor
+  manifest at `target-level="4"` - and **no `<kernel>` tag** is added, because libvintf only checks kernel
+  compatibility when the manifest declares one (**D46**).
+
+  The earlier `a14chk/boot-a10k-a14rd.img` (sha head `455a9ac8…`, 28,231,292 B) is **malformed and unusable**:
+  `rebuild_boot_with_fstab.sh` sliced the components at the 1660-byte header size instead of at the page
+  boundary, so its `second` stage landed at 27,309,144 while a boot loader computes 27,308,032 and would read
+  padding instead of the DTB (**D38**). It is kept as `a14chk/boot-a10k-a14rd.img.stale-misplaced-second` for
+  the record; regenerate with the fixed script rather than reusing it. Do **not** flash the OEM `boot-a10.img`
+  unchanged: its ramdisk fstab has no `system_ext`, which Android 14 needs. Writing either chain is gated on
+  the offline gate set (**D47**), with the stock backup and rescue card staged first.
 
 ## Getting into the recovery
 

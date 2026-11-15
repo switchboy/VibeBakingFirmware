@@ -235,7 +235,7 @@ prebuilt binaries. Three shapes, never mixed:
 
 | shape | boot image | vendor slice | modules | vendor manifest | status |
 |---|---|---|---|---|---|
-| **A - proven shape (primary)** | `boot-a10k-a14rd.img` (kernel 25,671,688 B = `4.19.111+ #190`, sha `455a9ac8…`) + our Android 14 first-stage ramdisk/fstab | re-staged from `analysis/daisaita_a10/vendor.img` (the tree the unit has executed) | the stock 19 `.ko` at `vermagic=4.19.111+` (`a14-work/hu-stock-backup/vendor-modules/`) | **`target-level="4"`** (FCM-4: both kernels pass the kernel list, measured Nov 15) | to build |
+| **A - proven shape (primary)** | `a14-work/a14chk-shapeA/boot-a10k-a14rd.img` (kernel 25,671,688 B = `4.19.111+ #190`, sha `3cf40129…`, rebuilt Nov 15 with page-aligned components; the old `455a9ac8…` image misplaced the DTB-bearing `second` stage) + our Android 14 first-stage ramdisk/fstab | re-staged from `analysis/daisaita_a10/vendor.img` (the tree the unit has executed) | the stock 19 `.ko` at `vermagic=4.19.111+` (`a14-work/hu-stock-backup/vendor-modules/`) | **`target-level="4"`, no `<kernel>` tag** (libvintf only checks kernel compatibility when the manifest declares one) | boot image built and self-checked; vendor restage + super pending |
 | **B - staged A11 shape (fallback)** | `a14-boot-fixed.img` (kernel 30,455,816 B = `4.19.193 #24`, sha `933e2ecc…`) | current staged tree (A11-era blobs) | 17 `.ko` at `vermagic=4.19.193` | `target-level="5"` (what we ship today) | built, coherent, never booted |
 | **C - our own kernel build (new)** | our own `Image` from kernel source + our own modules | vendor userspace from shape A or B | modules built against **our** kernel | matches whichever kernel is used | needs source; card-tested only |
 

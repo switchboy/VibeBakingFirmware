@@ -16,8 +16,9 @@
 #                        fstab + our own cmdline. No boot-chain partition is touched (D18).
 #                        CAVEAT measured Nov 15: this image pairs with the STOCK 4.19.111+ module set
 #                        (a14-work/hu-stock-backup/vendor-modules/), not with the 4.19.193 modules in
-#                        our super, and its kernel fails the FCM-5 kernel requirement list (19 unmet),
-#                        so it needs a vendor manifest declaring <kernel target-level="4"/>.
+#                        our super. Its vendor manifest keeps target-level="4" and adds **no** <kernel>
+#                        tag: libvintf only checks kernel compatibility when the manifest declares one
+#                        (HalManifest.cpp:576, used at 554), and the stock Android 10 manifest has none.
 #                        See docs/findings.md and docs/feasibility.md before flashing it.
 # Flashing the OEM boot-a10.img unchanged is NOT a path: its ramdisk fstab lists only
 # system/vendor/odm/product, no system_ext, which Android 14 needs.
@@ -27,9 +28,12 @@
 #   scripts/rebuild_boot_with_fstab.sh
 #
 # mkbootimg --header_version 2 refuses a DTB-less build ("DTB image must not be empty") and no longer
-# takes --os-version/--os-patch-level, so the coherent image is assembled byte-wise instead. The boot
-# image layout measured here is: 1660-byte header, then kernel, ramdisk and `second` laid out
-# contiguously, tail padded to page_size (2048); dtb_size/dtb_addr sit at header offsets 1648/1652.
+# takes --os-version/--os-patch-level, so the coherent image is assembled byte-wise instead. The layout
+# measured Nov 15 from the stock backup's `boot.bin` and from our own `boot.img` is: a header block
+# padded to `page_size` (2048; the header struct itself is 1660 B, dtb_size/dtb_addr at 1648/1652), then
+# each component **aligned to page_size**: kernel at 2048, ramdisk at 2048+roundup(kernel_size,2048),
+# `second` at ramdisk_offset+roundup(ramdisk_size,2048). Slicing or writing components contiguously
+# shifts `second` and u-boot/init then read padding instead of the blob that carries the DTB (D38).
 set -u
 
 SRC_BOOT=${SRC_BOOT:?set SRC_BOOT to our Android 14 boot.img}
@@ -46,6 +50,10 @@ say() { printf '%s\n' "$1"; }
 export PATH="$HOST_BIN:$PATH"
 command -v repack_bootimg >/dev/null || { say "ABORT: repack_bootimg not in $HOST_BIN"; exit 1; }
 command -v unpack_bootimg >/dev/null || { say "ABORT: unpack_bootimg not in $HOST_BIN"; exit 1; }
+# repack_bootimg shells out to `toybox cpio`, not to the distro cpio. The workstation has the script in
+# /usr/bin but no toybox, so step 1 dies in the traceback *after* copying the source image, and step 2
+# would then ship a coherent image whose ramdisk has no fstab at all (D34). Require toybox up front.
+command -v toybox >/dev/null || { say "ABORT: repack_bootimg needs 'toybox' on PATH - run this on the build host (out/host/linux-x86/bin)"; exit 1; }
 [ -f "$SRC_BOOT" ] || { say "ABORT: no $SRC_BOOT"; exit 1; }
 [ -f "$OEM_A10_BOOT" ] || { say "ABORT: no $OEM_A10_BOOT"; exit 1; }
 [ -f "$FSTAB" ] || { say "ABORT: no $FSTAB"; exit 1; }
@@ -69,30 +77,69 @@ src, oem, out, hdr_size = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]
 d = open(src, 'rb').read()          # step 1 output: A14 init + first_stage_ramdisk/fstab.rk30board
 a = open(oem, 'rb').read()
 
-def sizes(b):
-    return (struct.unpack('<I', b[8:12])[0], struct.unpack('<I', b[16:20])[0],
-            struct.unpack('<I', b[24:28])[0])
+def page_of(b):
+    # pagesize sits in the header's reserved area (offset 56 in a v2 header); 0 means the 2048 default.
+    # Anything that is not a real page size is treated as the default, and the content self-check below
+    # catches a wrong guess, because a mis-read offset lands on padding instead of the payload.
+    p = struct.unpack('<I', b[56:60])[0]
+    return p if p in (2048, 4096, 8192, 16384, 32768) else 2048
 
-ks, rs, ss = sizes(d)
-ramdisk = d[hdr_size + ks:hdr_size + ks + rs]           # our A14 first-stage init + the fstab
-aks, ars, ass = sizes(a)
-kernel = a[hdr_size:hdr_size + aks]                     # OEM Android 10 kernel payload
-second = a[hdr_size + aks + ars:hdr_size + aks + ars + ass]  # OEM blob that carries the A10 DTB
+def offsets(b):
+    """Header block padded to page_size, then every component aligned to page_size."""
+    ks, rs, ss = (struct.unpack('<I', b[8:12])[0], struct.unpack('<I', b[16:20])[0],
+                  struct.unpack('<I', b[24:28])[0])
+    pg = page_of(b)
+    ko = pg
+    ro = ko + ((ks + pg - 1) // pg) * pg
+    so = ro + ((rs + pg - 1) // pg) * pg
+    if ks == 0 or ro + rs > len(b) or (ss and so + ss > len(b)):
+        raise SystemExit("boot image layout does not match its header sizes")
+    return pg, ks, rs, ss, ko, ro, so
 
-hdr = bytearray(d[:hdr_size])                           # keep our cmdline, addresses, page size, header v2
+def looks_like_payload(b):
+    return b[:2] == b'\x1f\x8b' or b[:4] in (b'0707', b'\x04\x22\x50\x44') or b[:8] != b'\x00' * 8
+
+pg, ks, rs, ss, ko, ro, so = offsets(d)
+ramdisk = d[ro:ro + rs]                       # our A14 first-stage init + the fstab
+if not looks_like_payload(ramdisk):
+    raise SystemExit("first-stage ramdisk at %d is padding - wrong ramdisk offset" % ro)
+
+_, aks, ars, ass, ako, aro, aso = offsets(a)
+kernel = a[ako:ako + aks]                     # OEM Android 10 kernel payload (#190)
+second = a[aso:aso + ass] if ass else b''     # OEM blob that carries the A10 DTB (D38)
+if kernel[:8] == b'\x00' * 8:
+    raise SystemExit("kernel payload at %d is padding - wrong kernel offset" % ako)
+if ass and second[:8] == b'\x00' * 8:
+    raise SystemExit("second stage at %d is padding; the DTB lives inside it (D38)" % aso)
+
+hdr = bytearray(d[:hdr_size])                 # keep our cmdline, addresses, page size, header v2
 struct.pack_into('<I', hdr, 8, len(kernel))
 struct.pack_into('<I', hdr, 16, len(ramdisk))
 struct.pack_into('<I', hdr, 24, len(second))
-struct.pack_into('<I', hdr, 1648, 0)                    # dtb_size -> 0, like the OEM A10 image (DTB lives in second)
-page = struct.unpack('<I', hdr[36:40])[0]
-body = kernel + ramdisk + second
-image = bytes(hdr) + body + b'\x00' * ((-len(body)) % page)
+struct.pack_into('<I', hdr, 1648, 0)          # dtb_size -> 0, like the OEM A10 image (the DTB lives in second)
+struct.pack_into('<I', hdr, 1652, 0)          # dtb_addr likewise
+
+po = page_of(d)
+pad = lambda n: b'\x00' * ((-n) % po)
+image = bytes(hdr) + b'\x00' * (po - len(hdr))
+image += kernel + pad(len(kernel)) + ramdisk + pad(len(ramdisk)) + second + pad(len(second))
 open(out, 'wb').write(image)
 
-dtbs = [m.start() for m in re.finditer(re.escape(b'\xd0\x0d\xfe\xed'), image)
-        if 200 < struct.unpack('>I', image[m.start() + 4:m.start() + 8])[0] < 4_000_000]
-print(f"kernel {len(kernel):,}B  ramdisk {len(ramdisk):,}B  second {len(second):,}B  DTB blobs {len(dtbs)} "
+# Read the finished image back exactly the way a boot loader computes its offsets, so a misplaced
+# component cannot be shipped: sizes are re-parsed from the image we just wrote, not from the inputs.
+chk = open(out, 'rb').read()
+p2, k2, r2, s2, k2o, r2o, s2o = offsets(chk)
+ok = (chk[k2o:k2o + k2] == kernel and chk[r2o:r2o + r2] == ramdisk
+      and (chk[s2o:s2o + s2] == second if s2 else True))
+if not ok:
+    raise SystemExit("self-check failed: kernel/ramdisk/second not readable at their computed offsets")
+
+dtbs = [m.start() for m in re.finditer(re.escape(b'\xd0\x0d\xfe\xed'), chk)
+        if 200 < struct.unpack('>I', chk[m.start() + 4:m.start() + 8])[0] < 4_000_000]
+print(f"kernel {len(kernel):,}B @{k2o}  ramdisk {len(ramdisk):,}B @{r2o}  "
+      f"second {len(second):,}B @{s2o}  page {po}  DTB blobs {len(dtbs)} "
       f"at {[f'{p:,}' for p in dtbs]}  -> {out}")
+print("self-check OK: kernel, ramdisk and second are readable at the offsets a boot loader computes")
 PY
 
 say "== 3. verify both images =="
@@ -115,5 +162,7 @@ done
 
 say "== shas (record these before any flash) =="
 (cd "$OUT" && sha256sum a14-fixed.img boot-a10k-a14rd.img fstab.rk30board 2>/dev/null | cut -c1-80)
-say "Nothing was written to the unit. Flashing either image pairs with the A14 super already on it and"
-say "touches no boot-chain partition (D18); D30 still requires a serial console reading first."
+say "Nothing was written to the unit. a14-fixed.img is shape B (kernel #24, modules vermagic=4.19.193, target"
+say "level 5); boot-a10k-a14rd.img is shape A (kernel #190, stock 4.19.111+ modules, target level 4). Neither"
+say "goes to eMMC until the offline gate set passes (D47), and a kernel we build ourselves is card-booted first."
+say "Neither image touches uboot/trust/dtb/dtbo/vbmeta/security or the GPT (D18/D19)."

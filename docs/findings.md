@@ -1841,3 +1841,54 @@ cold storage (`cold/vibe-baking/aosp-out-nov15/`: `out-dist`, `out-target-produc
 dumps, `out-logs`) with a `payload-sha256.txt` manifest recorded **before** the move, `rc=0` - SSData now has
 **9.5 GB free**, which is not enough for a `m dist` pass (dist regrows ~7 GB), so the shape-A build plan
 skips `m dist` and builds `superimage`/`bootimage` directly.
+
+## The shape-A boot image was malformed: components are page-aligned, not header-contiguous (Nov 15)
+
+`scripts/rebuild_boot_with_fstab.sh` assembled the coherent image by slicing and writing components
+**contiguously from the 1660-byte header size** (`kernel` at 1660, `second` after the previous component).
+That is wrong: the layout measured Nov 15 out of four images on disk (`a14-work/hu-stock-backup/boot.bin`,
+`a14-work/a14chk/a14-fixed.img`, `a14-work/a14chk/a14-boot-fixed.img`,
+`a14-work/a14chk-shapeA/boot-a10k-a14rd.img`) is a header block **padded to `page_size`** (the header struct
+is 1660 B, page size 2048 - the pagesize field itself reads 0, meaning the default), then each component
+aligned to `page_size`:
+
+| image | kernel | ramdisk | `second` | filesize |
+|---|---|---|---|---|
+| stock `boot.bin` (`#190`) | 25,671,688 B @ 2,048 | 803,440 B @ 25,675,776 | 924,672 B @ 26,480,640 | 33,554,432 |
+| `a14-fixed.img` (A11 kernel) | 30,455,816 B @ 2,048 | 1,631,944 B @ 30,459,904 | 544,768 B @ 32,092,160 | 32,796,672 |
+| old `boot-a10k-a14rd.img` | 25,671,688 B @ 2,048 | 1,631,944 B @ 25,675,776 | 924,672 B @ **27,309,144** | 28,231,292 |
+| regenerated `boot-a10k-a14rd.img` | 25,671,688 B @ 2,048 | 1,631,866 B @ 25,675,776 | 924,672 B @ **27,308,032** | 28,233,728 |
+
+The offsets were verified by content, not by trusting the header: the gzip ramdisk (`1f 8b`) and the OEM
+`second` blob (`52 53 43 45`) sit exactly at the aligned offsets in the stock and A11 images, while the old
+coherent image had `00 00 00 00 00 00 00 00` at the offset a boot loader computes (27,308,032) and the real
+blob 1,112 B later. So the shipped shape-A image would have handed u-boot/init padding where the **DTB
+inside `second`** lives (**D38**) - a black-screen-class failure, the same family as the missing first-stage
+fstab (**D34**). `dtb_size` stays 0 at header offset 1648, like the OEM Android 10 image.
+
+The script now computes `page_of()` (offset 56, default 2048), derives
+`ko = page`, `ro = ko + roundup(kernel_size, page)`, `so = ro + roundup(ramdisk_size, page)` for both input
+images, refuses padding-looking payloads, and **reads the finished image back** the way a boot loader would
+before declaring success. Step 1 (`repack_bootimg`) needs `toybox`, which only exists in the AOSP host bin, so
+the run happens on the NAS: `HOST_BIN=/srv/dev-disk-by-label-SSData/aospbuild/lineage21s/out/host/linux-x86/bin`
+(`out/host/linux-x86/bin/toybox`, 2,476,056 B). Locally `/usr/bin/repack_bootimg` aborts with
+`FileNotFoundError: 'toybox'`, which silently left the fstab out of step 1's ramdisk - worth remembering,
+because step 2 inherits step 1's output and would then ship a boot image with no fstab.
+
+Regenerated Nov 15 on the NAS (`OUT=/tmp/hu-shapeA-nov15`, log `/tmp/hu-shapeA-nov15.log`, launched
+`setsid nohup … > log 2>&1 < /dev/null &`), inputs `pristine-a14-boot.img` `83fd2a15…` and the stock
+`boot.bin` `3d2741f04f3185a20f6b3956bff31ff4ce205f1be78e543c7acf79e47be8711f` (byte-identical to the
+workstation copy and the NAS archive copy):
+
+* `a14-work/a14chk-shapeA/a14-fixed.img` - 32,796,672 B, sha `933e2ecc42375a3bcac71c23aac610c0c3236ea1448bf05e5ddd3ac03b96e441`
+  (the A11 kernel `#24`, shape B; reproduces the sha already recorded in `docs/flash.md`).
+* `a14-work/a14chk-shapeA/boot-a10k-a14rd.img` - 28,233,728 B, sha `3cf4012980d0a824c37ed3f24982a9c7e50d2c8c8497030be139e1184a647375`.
+  `unpack_bootimg` reports kernel 25,671,688 / `0x10008000`, ramdisk 1,631,866, `second` 924,672 / `0x10f00000`,
+  page 2048, header v2, `dtb size: 0`, and the ramdisk carries `first_stage_ramdisk/fstab.rk30board` (4,190 B,
+  all five logical entries with `first_stage_mount`). The kernel payload is byte-identical to
+  `a14-work/a14chk/oem-kernel.bin` and still reads `Linux version 4.19.111+ … #190 SMP PREEMPT Fri Jul 5 2024`
+  (`root@meng_book2`) at offset 14,420,096; `second` is byte-identical to the OEM stock second stage and its DTB
+  magic `d0 0d fe ed` sits at 27,310,080 with a size field of 152,425.
+
+The old malformed image is kept, renamed `a14-work/a14chk/boot-a10k-a14rd.img.stale-misplaced-second`
+(28,231,292 B, sha head `455a9ac8…`) so the mistake stays auditable; nothing was written to the unit.
