@@ -225,7 +225,7 @@ Two caveats before baking GApps in:
 5. M10 app layer: re-add the HCT apps, decide whether to bake GApps in; then M4 vendor-side gaps,
    M5 packaging, M7 hardening, M6 kernel rebuild. M9 stays parked (D12).
 
-## M11 - the proven-kernel shape, plus a kernel build (Nov 15, owner direction - NOT STARTED)
+## M11 - the proven-kernel shape, plus a kernel build (Nov 15, owner direction - STARTED after the poll)
 
 Owner direction Nov 15: the **proven working kernel on this hardware with the current disk layout** is the
 risk-averse primary - i.e. the OEM Android 10 kernel `4.19.111+ #190` and the layout as it exists today
@@ -244,47 +244,70 @@ agree (`docs/findings.md`, "Which kernel Android 14's VINTF actually accepts"). 
 matching module set and manifest level is not a small change - it refuses WiFi/HID/iAP at insmod time and
 fails VINTF.
 
+Coverage of the owner criteria (**D49**): shapes A and B keep GPS (Android 14's GNSS JNI still fetches
+`IGnss@1.0`, so the OEM GNSS blobs work) and CANBUS (the OEM ships its own
+`android.hardware.mfi@1.0.so` interface lib + impl, staged as blobs). Shape C keeps touch/buttons/screen/WiFi/GPS
+only if the public BSP tree provides the GPS device path, and loses **CANBUS, AV-in and the tuner**, because
+`rockchip-linux/kernel` has no `drivers/input/misc/mtc-car.c` (**D48**). The MFi interface lib the CANBUS/MFi
+service links is `android.hardware.mtc.mfi@1.0.so`, which Android 14 never defines and the OEM vendor ships
+itself.
+
 ### Work items
 
-**W1 - offline, workstation, no NAS and no unit.** Prove shape A is coherent before spending build hours:
-dump the A10 vendor tree out of `analysis/daisaita_a10/vendor.img` (`debugfs -R dump`, the method already in
-`tools/vendor_blob_check.py`), list its modules + manifest, run `tools/vendor_link_closure.py` and
-`tools/vendor_abi_check.py` against it, and compute the super fit (A14 system 1,012,817,920 + product
-456,159,232 + odm 811,008 + A10 vendor 298,737,664 ≈ 1.77 GB inside group 3,258,974,208 - spare ~1.49 GB,
-no resize needed). Also fetch from AOSP `main`: whether `compatibility_matrix.4.xml` still ships in Android 14
-(agent 1 read it on `android14-release`: audio 5.0, composer 2.1-3, mapper 2.1, allocator 2.0, keymaster 3.0,
-wifi 1.0-3), whether the platform ships a SELinux **mapping** file for a vendor sepolicy of version 29, and
-whether a `target-level="4"` vendor manifest may declare AIDL HALs (our KeyMint) while the FCM-4 matrix does
-not require them. Write the manifest edit shape A needs, with no OEM prose.
+**W1 - offline coherence proof (partly DONE Nov 15; the closure runs need the NAS tree).** Done offline: the
+Android 10 vendor surface was read out of `analysis/daisaita_a10/vendor.img` (manifest `version="1.0"`,
+`target-level="4"`, `<sepolicy>29.0`, **no `<kernel>`**, 34 inline HAL declarations + 3 fragments, 21 files in
+`/lib/modules`), its criterion-coupled blobs were read with `readelf -d` (`audio.primary.rk30board.so`,
+`hwcomposer.rk30board.so`, `android.hardware.mtc.mfi@1.0-service`, `librga.so`, the GPS trio), and Android 14's
+own contract was fetched from source (`compatibility_matrix.4.xml`, `system/libvintf/HalManifest.cpp`,
+`services/core/jni/gnss/Gnss.cpp`, `media/libaudiohal/Android.bp`, `external/tinyalsa`,
+`hardware/libhardware_legacy`, `system/libhidl`, `system/sepolicy/private/compat`). Numbers in
+`docs/findings.md`. Super fit: A14 `system` 1,012,834,304 + `system_ext` 384,802,816 + `product` 456,159,232 +
+`odm` 811,008 + the A10 vendor content 321,049,467 ≈ 2.17 GB inside group 3,263,168,512 - spare ~1.09 GB, no
+resize, no GPT write (**D11**/**D19**). Still owed: `tools/vendor_link_closure.py` and
+`tools/vendor_abi_check.py` against the restaged A10 tree, which need the Lineage tree on the NAS - they are
+the first thing W2 runs, before any build hours are spent.
 
-**W2 - NAS build host.** Switch the vendor staging source (**D44** flips to option A), rebuild the device
-manifest at `target-level="4"`, run `m dist` / `m superimage` / `m bootimage` under the load policy, then
-`scripts/rebuild_boot_with_fstab.sh` for the shape-A boot image, `scripts/verify_artifacts.sh` gates,
-`scripts/smoke_recovery_installer.sh` offline logic test, `dash -n` / `busybox ash -n` syntax checks, and
+**W2 - NAS build host.** Upload the extracted A10 vendor tree (`analysis/daisaita_a10/vendor_tree/vendor`,
+1396 files / 321,049,467 B) into the NAS checkout, run `tools/gen_vendor_staging.py` against it (**D44**
+flipped to option A), keep the manifest's `target-level="4"` and drop only the `<sepolicy>` block and the
+fragment-duplicated HAL entries (**no `<kernel>` tag is added** - `docs/findings.md`), request the vendor
+variants the closure list produces, and inject the four libraries Android 14 does not build - `libion`,
+`libaudioroute`, `libaudioutils`, `libspeexresampler`, both arches - from
+`analysis/daisaita_a10/system.img` into `prebuilt_vendor_libs/<arch>/`. Then build `m superimage` and
+`m bootimage` under the load policy (`-j4`, `setsid nohup … > log 2>&1 < /dev/null &`); **`m dist` is skipped**
+because `SSData` has only 9.5 GB free and dist regrows ~7 GB (`docs/build-host.md`). Then
+`scripts/rebuild_boot_with_fstab.sh` for the shape-A boot image, `scripts/verify_artifacts.sh`,
+`scripts/smoke_recovery_installer.sh`, `dash -n` / `busybox ash -n` syntax checks, and
 `scripts/stage_hu_card.sh` with the shape-A payload + its card manifest digests (**D43** contract). Nothing
 touches `uboot`/`trust`/`dtb`/`dtbo`/`vbmeta`/`security` or the GPT (**D18**/**D19**).
 
 **W3 - kernel build track (NAS).** Clone `rockchip-linux/kernel` branch `develop-4.19` and build an `Image`
 with the config the unit ships (the embedded gzip dump - `analysis/hu_kernel_config_live-20261113.txt`),
 patching the `gt9xx` `phys` literal (the Nov 13 bug, candidate 21) and keeping `CONFIG_IKCONFIG_PROC=y`.
-Then measure what the public tree lacks versus the OEM kernel: the MTC/CAN/AV-in/tuner drivers are **not**
-in the public tree (`drivers/input/misc/mtc-car.c` returns 404), so the gap list decides whether shape C can
-serve the criteria (touch yes, CANBUS/AV/radio probably no). The durable route is the vendor's own GPL source
-(`docs/feasibility.md` K2 leverage); the public-tree build is an experiment, and it is validated by a
-**card boot**, never by flashing eMMC.
+Then measure what the public tree lacks versus the OEM kernel: the MTC/CAN/AV-in/tuner drivers are **not** in
+the public tree (`drivers/input/misc/mtc-car.c` returns 404), so the gap list decides whether shape C can
+serve the criteria - touch/buttons/screen/WiFi yes, **CANBUS no**, and GPS only if whatever device
+`gps.default.so` reads exists in the public kernel too (**D49**). The durable route is the vendor's own GPL
+source (`docs/feasibility.md` K2 leverage), pursued in parallel (**D48**); the public-tree build is an
+experiment, validated by a **card boot**, never by flashing eMMC.
 
 **W4 - unit, read-only, next reachable session.** `ls /sys/fs/pstore` (the earlier record is `Panic#2`, so a
 first panic record may exist uncollected), `/proc/bus/input/devices`, `ls -lZ /dev/ion /dev/binder*
-/dev/dma_heap`, `lsmod`, `logcat -d` around a `vendor.sensors-hal-1-0` exit (the trigger of the Nov 13
-panic, and the measurement **D45** depends on staying acceptable), `iw dev wlan0 link`. Also the pending
+/dev/dma_heap`, `lsmod`, `logcat -d` around a `vendor.sensors-hal-1-0` exit (the trigger of the Nov 13 panic,
+and the measurement **D45** depends on staying acceptable), `iw dev wlan0 link`, and the **GPS** measurement
+**D49** needs: the GNSS service running, a real fix, and the satellite list. Also the pending
 `scripts/pull_stock_backup.sh` refresh (**D40**, fresh dir `hu-stock-backup-refresh`) and the unfinished
 `system` logical-slice byte compare.
 
-**W5 - card-only validation, no eMMC write.** Boot the bootSD card into the patched recovery (**D39**/**D42**),
-read `/dev/console` for the `hu-install:` banner and `/tmp/hu-install.log` (**D43**), then boot the shape-A
-image from the card and read the console through the documented order (`docs/reanimation.md`): init fstab
-line, DTB source, dtbo application, panel timing, `hu_insmod` lines, SurfaceFlinger. This is the only way to
-test a kernel or a vendor shape on real hardware without touching the eMMC.
+**W5 - validation gate, as decided (**D47**).** The owner chose raw `dd` once the offline gates pass, so
+**the offline gate set is the safety net**: closure + ABI check clean, VINTF compatible at level 4, module
+vermagics matching `4.19.111+`, the four injected libs present for both arches, the first-stage fstab in the
+boot image, `verify_artifacts.sh`, the installer logic test, and the rollback staged (stock backup **D40**,
+rescue card **D39**/**D42**). The card route stays built and tested because it is the rescue path and because
+**shape C** (our own kernel, never executed on this board) is validated by card boot before its `boot` image is
+written - reading `/dev/console` in the documented order (`docs/reanimation.md`): init fstab line, DTB source,
+dtbo application, panel timing, `hu_insmod` lines, GNSS/audio/SurfaceFlinger.
 
 **W6 - the flash decision point.** Only after W5 is green and the rollback is re-verified: raw `dd` of
 `super` + `boot` over TCP adb root (**D28**, `adbon`), or the card-driven installer. Rollback = the stock
@@ -305,20 +328,23 @@ NAS jobs must be `setsid nohup ... > log 2>&1 < /dev/null &` (ssh sessions over 
 `envsetup.sh`), and directory verification is one ssh call comparing `find . -type f -printf '%P %s\n' |
 LC_ALL=C sort` rather than per-file calls. Full procedure: `docs/build-host.md`.
 
-### Decisions the owner must make (polled Nov 15, nothing starts before the OK)
+### Decisions polled Nov 15 - all answered, so M11 is STARTED
 
-1. **What "a kernel build" means**: public BSP `develop-4.19` experiment, vendor GPL source then rebuild,
-   both, or defer kernel building until after bring-up.
-2. **D44**: flip vendor staging to the Android 10 reference (implied by shape A) - yes/no.
-3. **Manifest level**: accept `target-level="4"` under the Android 14 framework (FCM-4 matrix + vendor-local
-   `libion`/HIDL shims), which is what shape A requires.
-4. **Validation gate**: card-only console boot before any eMMC write (recommended), or go straight to raw dd.
-5. **KeyMint**: software KeyMint (test-only attestation, simplest, avoids the OP-TEE TA pairing question) or
-   a wrapper over the `keymaster@3.0` blob.
-6. **NAS credential**: how the password is re-supplied (restore `build_host.env`, or a key, or the owner runs
-   the builds themselves).
+1. **Kernel build** → public BSP `develop-4.19` build now, vendor GPL source pursued in parallel (**D48**).
+2. **D44** → vendor staging flips to the Android 10 reference (`analysis/daisaita_a10/vendor.img`).
+3. **Manifest level** → `target-level="4"` accepted (FCM-4 matrix is all-optional, and no `<kernel>` tag is
+   added because libvintf only checks kernel compatibility when the manifest declares one).
+4. **Validation gate** → raw `dd` once the offline gates pass (**D47**), overriding the recommended card-only
+   boot; the card route stays staged as the rescue path and gates shape C.
+5. **KeyMint** → Android 14 software KeyMint service built from AOSP source.
+6. **NAS credential** → password wrappers restored outside the repo (`build_host.env` mode 600,
+   `askpass.sh` mode 700, `omv.sh`), verified by a live ssh call.
+7. **GPS added as a hard criterion** (**D49**), which is why the GNSS blobs are kept rather than replaced.
 
 ### Limits that stay fixed through all of this
+
+Owner criteria: **not bricked**, **boot**, **WiFi**, **screen**, **sound input** (touch + physical buttons +
+CANBUS), **GPS** (**D49**); Bluetooth deliberately a second pass.
 
 One unit, so nothing is flashed without a verified rollback path (**D38**/**D40**/**D42**/**D43**); never
 write `uboot`/`trust`/`dtb`/`dtbo`/`vbmeta`/`security` or the GPT (**D18**/**D19**); super group stays

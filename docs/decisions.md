@@ -134,10 +134,12 @@ Android 14 ROM instead of shimming the Android 10 vendor:
   `android.hardware.mtc.mfi@1.0` (the HU control plane) is still declared.
 - Android 14 still accepts keymaster@4.0 HIDL; if KeyMint turns out to be mandatory, wrap it on top
   of the optee keymaster 4.0 service rather than rewriting the TA (same reasoning as D4).
-- Keep the Daisaita A10 zip as the known-good rollback (D8/M2b). The unit's own kernel (#277) and the
+- Keep the Daisaita A10 zip as the known-good rollback (D8/M2b). The unit's own restored kernel (`#190`,
+  measured Nov 15 from the stock backup's `boot.bin`; the pre-restore firmware carried `#277`) and the
   A11 kernel (#24, 4.19.193, IKCONFIG recovered to `analysis/daisaita_a11_kernel_config.txt`) are both
   usable; the A11 kernel is the better starting point because it ships binderfs, ION CMA heap and
-  POSIX ACL, which Android 14 wants.
+  POSIX ACL, which Android 14 wants - which is why shape B stays the fallback and shape A is the
+  proven-kernel choice (**D46**).
 
 
 ## D10 - install medium: SD card, applied by an updater app (decided)
@@ -1478,6 +1480,14 @@ in `docs/feasibility.md`. The deciding experiment is offline and cheap: re-stage
 `analysis/daisaita_a10/vendor.img` and run `tools/vendor_link_closure.py`, `tools/vendor_abi_check.py` and
 the VINTF check against a `target-level="4"` manifest.
 
+**Decided Nov 15 (owner):** option A - vendor staging moves to the Android 10 reference
+(`analysis/daisaita_a10/vendor.img`), because the owner made the proven kernel + current layout the primary
+(**D46**) and the two are coupled: `#190` only passes the kernel requirement list at `target-level="4"`. The
+closure run is still owed before the build, and it now has a concrete dependency list to check against
+(`docs/findings.md`, "Shape A checked against Android 14's actual code"): the four libraries Android 14 does
+not build get injected from the Android 10 reference system image, while Android 14's own vendor variants cover
+tinyalsa, hardware_legacy, expat, drm, ui, hidlbase and hidltransport.
+
 **D45 - the Nov 13 kernel panic is inherited, not fixed (Nov 15, owner decided).** The root cause is the
 vendor touch driver leaving `input_dev->phys` pointing at a dead kernel stack frame (record:
 `analysis/panic-20261113-2003-ramoops.txt`; write-up: `docs/findings.md`, "The Nov 13 20:03 kernel panic").
@@ -1524,3 +1534,50 @@ manifest at **`target-level="4"`** - `#190` passes the FCM-4 kernel list (0 unme
 build" means (public BSP `develop-4.19` experiment vs the vendor's GPL source vs deferred), the manifest
 level, the KeyMint route, the validation gate (card-only console boot before any eMMC write), and how the NAS
 credential is re-supplied. Nothing has been built, staged or flashed under **D46**.
+
+**Answers received Nov 15 (same poll):** kernel build = public BSP `develop-4.19` build now, vendor GPL
+source pursued in parallel (**D48**); **D44** flips vendor staging to the Android 10 reference; manifest
+`target-level="4"` accepted; KeyMint = Android 14 software service; NAS credential = password wrappers
+restored outside the repo (done: `/tmp/opencode/build_host.env` mode 600, `askpass.sh` mode 700, `omv.sh`,
+verified with a live ssh call). The validation gate came back as **raw `dd` once the offline gates pass**,
+which overrides the recommended card-only boot - recorded separately as **D47**. GPS came back as a **hard
+criterion**, recorded as **D49**.
+
+**D47 - the validation gate is the offline gate set, not a card boot (Nov 15, owner decided).** The owner
+chose straight raw `dd` of `super` + `boot` over TCP adb root once the offline gates pass, instead of the
+card-only console boot recommended in `docs/feasibility.md`. Consequences that must be honoured:
+
+* The offline gates are the only safety net before the first eMMC write, so they must cover everything shape
+  A depends on, not just packaging: `tools/vendor_link_closure.py` + `tools/vendor_abi_check.py` clean on the
+  restaged A10 tree, VINTF compatible at `target-level="4"`, `.ko` vermagics matching `4.19.111+`, the
+  injected legacy libs present for both arches (`docs/findings.md`), the first-stage fstab inside the boot
+  image (the Nov 9 black screen was exactly this, **D34**), `scripts/verify_artifacts.sh`, and the installer
+  logic test (`scripts/smoke_recovery_installer.sh`).
+* No console output is read before the payload is written, so a first-boot failure is diagnosed from the
+  rescue route rather than from a card boot: the rescue card (**D39**/**D42**) and the byte-exact stock
+  backup (**D40**) stay staged before the write, and partition 8 alone rolls back with `recovery.bin
+  1fdf5ea7…`.
+* This covers the **prebuilt** shape-A payload. A kernel we build ourselves (**shape C**) has never executed
+  on this board, so it is validated by a card boot before its `boot` image reaches eMMC - that is the ordinary
+  "untested binary never goes to eMMC" rule, not a card test of shape A.
+
+**D48 - kernel build: public BSP experiment now, vendor GPL source in parallel (Nov 15, owner decided).**
+Build an `Image` from `rockchip-linux/kernel` branch `develop-4.19` using the config the unit ships
+(`analysis/hu_kernel_config_live-20261113.txt`, byte-identical to the gzip-embedded config in the stock
+`boot.bin`), patch the `gt9xx` `phys` literal (candidate 21, **D45**), keep `CONFIG_IKCONFIG_PROC=y`. The
+public tree lacks the head-unit drivers - `drivers/input/misc/mtc-car.c` returns 404 on
+`rockchip-linux/kernel` - so a public-tree kernel serves touch/buttons/screen/WiFi/GPS but **not** CANBUS,
+AV-in or the tuner; the durable route for those is the vendor's own GPL source, pursued at the same time.
+Shape C's modules must be built against that kernel (vermagic coupling, `docs/findings.md`), and shape C is
+never flashed without the card-boot validation in **D47**.
+
+**D49 - GPS is a hard criterion (Nov 15, owner decided).** The success list is now: not bricked, boots,
+WiFi, screen, sound input (touch + buttons + CANBUS), **GPS**; Bluetooth stays a deliberate second pass.
+GPS is satisfiable on shape A with no new HAL code: Android 14's GNSS JNI still resolves HIDL services down to
+`IGnss@1.0` (`platform/frameworks/base/+/android14-release/services/core/jni/gnss/Gnss.cpp:140-165`) and
+Android 14 still builds the `android.hardware.gnss@1.0` interface, so the OEM stack
+(`android.hardware.gnss@1.0-service`, `android.hardware.gnss@1.0-impl.so`, `gps.default.so`) is kept as
+staged blobs and the manifest keeps its `gnss@1.0` declaration. Android 14's AIDL `gnss` default service is a
+fixture player (`DeviceFileReader`/`FixLocationParser`) and must not be installed - it would report a
+synthetic fix instead of satellites. The measurement owed on the next reachable session is a real location
+fix plus the satellite list (`docs/head-unit-findings.md`).

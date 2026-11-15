@@ -174,3 +174,37 @@ the manifest at `target-level="5"`, prefer software KeyMint over the OP-TEE blob
 measured, keep the `gt9xx` risk accepted (**D45**), and settle **D44** with the vendor-closure run rather
 than with preference. The next thing that must happen is not a flash - it is the offline closure run and the
 card-only console boot.
+
+## Shape A adopted Nov 15 - what Android 14 needs from the Android 10 vendor (supersedes the bottom line above)
+
+The owner chose the proven-kernel shape (**D46**) and added GPS as a hard criterion (**D49**), so shape A is
+primary and shape B (`a14-boot-fixed.img`, A11 kernel, `target-level="5"`) is the documented fallback. The
+contract check is in `docs/findings.md` ("Shape A checked against Android 14's actual code"). In short,
+Android 14 accepts this vendor surface because FCM-4 is all-optional, the manifest carries no `<kernel>` tag,
+and the framework still links the HIDL clients this vendor ships (audio@5.0, composer@2.1, mapper@2.1,
+power@1.0, sensors@1.0, drm@1.0/1.2, usb@1.1, bluetooth@1.0, gatekeeper@1.0, **gnss@1.0**).
+
+What must be added to the restaged Android 10 vendor, all of it in our own partitions:
+
+| Android 14 needs | Route | Why |
+|---|---|---|
+| `libion.so`, `libaudioroute.so`, `libaudioutils.so`, `libspeexresampler.so` | inject both arches from `analysis/daisaita_a10/system.img` into `prebuilt_vendor_libs/<arch>/` (closure option F), or rebuild them from upstream source in the device tree | Android 14 does not build them; `librga.so` (composer/camera/OMX) needs `libion`, `audio.primary.rk30board.so` needs the audio trio |
+| `libtinyalsa.so`, `libhardware_legacy.so`, `libexpat.so`, `libdrm.so`, `libui.so`, `libcutils.so`, `libutils.so`, `libhidlbase.so`, `libhidltransport.so` vendor variants | add the `<name>.vendor` modules to `PRODUCT_PACKAGES` via `vendor_modules_extra.mk` (closure option D) | they exist in Android 14 with `vendor_available: true`; only the request makes them land in `/vendor` |
+| the OEM custom HAL interface lib `android.hardware.mtc.mfi@1.0.so` (+ impl) | staged as blobs | Android 14 never defines that interface; this is the CANBUS/MFi surface |
+| GPS stack: `gnss@1.0-service`, `gnss@1.0-impl.so`, `gps.default.so` | staged as blobs, `gnss@1.0` kept in the manifest | Android 14's GNSS JNI walks HIDL down to `IGnss@1.0`; the AIDL example service is a fixture player and must not be shipped |
+| KeyMint | build Android 14's software KeyMint service from AOSP source | the vendor has `keymaster@3.0` and the A10 `trust` (`7f2c4e52`) has no keymaster@4 TAs; software keys avoid the OP-TEE pairing question (**D46**) |
+| WiFi stack | already in tree (**D21**): AIDL wifi service + AIDL supplicant/hostapd + `libwifi-hal-rtk`, with the 32-bit `libwifi-hal` patch | the vendor's `wifi@1.0-service` blob cannot serve Android 14's AIDL framework alone |
+| vendor sepolicy | built from AOSP/Lineage policy in our build (stock `<sepolicy>` block dropped) | Android 14 ships compat maps for vendor policy 29.0-33.0 anyway; bring-up stays permissive (**D5**) |
+
+Dead ends that do not cost the criteria: `radio@1.1` (Android 14's RIL only speaks `V1_4`+), `health@2.0`
+(healthd links 2.1), `soundtrigger@2.0`, `cas@1.1`, `weaver@1.0`, `rockit.hw@1.0`, camera provider (not a
+criterion). `CONFIG_CGROUP_PIDS` is unset on the OEM kernel, so Android 14 task profiles degrade silently -
+accepted, same as shape B.
+
+**Gate change:** the owner chose raw `dd` of `super` + `boot` once the offline gates pass (**D47**), instead
+of a card-only console boot. That makes the offline gates the only safety net, so they must cover everything
+this table lists: link closure + ABI check clean on the restaged A10 tree, VINTF compatible at level 4, module
+vermagics matching the kernel (`4.19.111+` set), the four injected libs present in both arches, boot image
+carrying the first-stage fstab, installer logic test, and the rollback verified (stock backup **D40**, rescue
+card **D39**/**D42**). A kernel we build ourselves (**shape C**) is never written to `boot` without a card
+boot first, because our own kernel has never executed on this board.

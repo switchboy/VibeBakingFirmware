@@ -42,6 +42,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | Payload signing / upgrade app rejects our zip | cannot install | resolved for the recovery path (**D25**): HCT's own cert is not ours, so the payload is flashed as raw images; the patched recovery (**D42**) removes the menu problem |
 | An installer bug discovered only at the bench | the flash silently refuses, or a corrupt payload is written | the installer is logic-tested offline first (`scripts/smoke_recovery_installer.sh`); its payload sizes and digests come from the card manifest (**D43**), not from arithmetic the recovery busybox cannot do |
 | Kernel / modules / manifest must move together | flashing the wrong boot image makes every `.ko` refuse at load time (WiFi, USB HID, iAP, virtual touchpad), or the vendor manifest rejects the kernel | measured Nov 15 (`docs/findings.md`, "Which kernel Android 14's VINTF actually accepts"): the payload declares `<kernel target-level="5"/>`; `4.19.193 #24` meets the FCM-5 list (2 unmet), `4.19.111+ #190` does not (19 unmet). Our super ships `vermagic=4.19.193` modules, so `boot-a10k-a14rd.img` + our super is not a legal pair. `docs/flash.md` and the staging scripts/comments said "A10 kernel" - corrected Nov 15 |
+| Shape A's criteria depend on libraries Android 14 no longer builds | screen, audio input, CANBUS or GPS silently fail at HAL load time (`ldnvdl` in the log) with no visible cause | measured Nov 15 by `readelf -d` on the reference blobs: `librga.so` → `libion.so`, `audio.primary.rk30board.so` → `libtinyalsa`/`libaudioutils`/`libaudioroute`/`libhardware_legacy`/`libspeexresampler`, `mtc.mfi@1.0-service` → `libhardware_legacy` + the OEM `android.hardware.mtc.mfi@1.0.so`. Android 14 has vendor variants for tinyalsa/hardware_legacy/expat/drm/ui/hidltransport but builds **no** libion/audioroute/audioutils/speexresampler, so those four are injected for both arches from `analysis/daisaita_a10/system.img` (sizes listed in `docs/findings.md`); GPS stays working because Android 14's GNSS JNI still fetches HIDL `IGnss@1.0` |
 | Vendor `gt9xx` driver leaves `input_dev->phys` pointing at a dead stack frame | fatal kernel panic whenever an input device is re-opened after that page is unmapped (observed Nov 13 20:03, on a framework restart) | **Accepted as-is (D45, Nov 15)** - the OEM kernel stays unpatched: the driver is built into the kernel and the vendor kernel source is not in hand, so the 1-line literal fix would need a rebuild that cuts against **D9**. Touch/buttons/CANBUS work in a normal boot, so the criteria survive; it only fires on a framework restart. Reopens if restarts prove routine - then rebuild from vendor source, or remove the trigger. Bug report drafted in `docs/upstream.md`, not posted |
 
 ## D-status (one line each; reasoning in `docs/decisions.md`)
@@ -99,19 +100,23 @@ This file is the index plus the risk register, and it must not restate numbers -
    to be rebuilt, and the vendor slice may have to be re-staged - both run on the NAS (`
    `scripts/patch_recovery_autorun.sh`, `scripts/prebuilt_vendor.sh`, a packaging pass, the `dash -n` /
    `busybox ash -n` checks). The access wrapper lives outside the repo (`/tmp/opencode/omv.sh` reading
-   `/tmp/opencode/build_host.env`) and `/tmp` was cleared, so the NAS credential has to be re-supplied.
-   Nothing was flashed today.
+   `/tmp/opencode/build_host.env`) and was restored Nov 15, so the NAS is reachable again; `SSData` is nearly
+   full (9.5 GB free after moving the Nov 8 pass to cold storage), which is why the shape-A build skips
+   `m dist` and logs go to the NAS's `/tmp`. Nothing was flashed.
 6. **The route once those are done:** flash the rebuilt patched recovery over TCP adb (**D28**), stage the
-   roomy card with `scripts/stage_hu_card.sh`, boot the bootSD into recovery, watch `/dev/console` for the
-   `hu-install:` banner (that line is the proof partition 8 is ours), read `/tmp/hu-install.log`, deep
-   power-cycle afterwards, then check the four owner criteria: boot, WiFi, screen, sound input (touch,
-   physical buttons, CANBUS). Partition 8 alone rolls back by dd'ing `hu-stock-backup/recovery.bin`
-   `1fdf5ea77fc6…` back; the whole firmware rolls back with the stock backup or the OEM zip.
-7. **Still open before Android 14 can be believed:** the mixed-generation boot (**D33**), the composer
-   question (Android 14 may need AIDL `composer3`/`allocator`/`mapper` wrappers around the OEM blobs
-   rather than the declared HIDL `composer@2.1::IComposer/default`), whether Android 14 userspace survives
-   on the OEM A10 kernel, and a serial console reading (`console=ttyFIQ0`, 115200 8N1, 3.3 V) which
-   `docs/reanimation.md` drives from the bench.
+   roomy card with `scripts/stage_hu_card.sh`, then - per **D47** - write `super` + `boot` with raw `dd` once the
+   offline gates pass, and check the owner criteria: boot, WiFi, screen, sound input (touch, physical buttons,
+   CANBUS) and **GPS** (**D49**). The rescue card stays staged because it is the recovery route, not a test:
+   watch `/dev/console` for the `hu-install:` banner (that line is the proof partition 8 is ours), read
+   `/tmp/hu-install.log`, deep power-cycle afterwards. Partition 8 alone rolls back by dd'ing
+   `hu-stock-backup/recovery.bin` `1fdf5ea77fc6…` back; the whole firmware rolls back with the stock backup or
+   the OEM zip.
+7. **Still open before Android 14 can be believed:** whether Android 14 userspace survives on the OEM A10 kernel
+   (never booted yet), the two Android 10 kernel defects we accept (**D45**), and a serial console reading
+   (`console=ttyFIQ0`, 115200 8N1, 3.3 V) which `docs/reanimation.md` drives from the bench. The old composer
+   worry is settled: Android 14 keeps HIDL `composer@2.1`/`mapper@2.1` clients (`libui/Gralloc2.cpp` uses
+   `mapper::V2_1::IMapper`), so no AIDL composer wrapper is needed - what shape A needs instead is the four
+   injected libraries and the vendor variants listed in `docs/feasibility.md`.
 8. **The Nov 13 20:03 kernel panic is root-caused, offline, from the RAMoops record.**
    `analysis/panic-20261113-2003-ramoops.txt` shows a fatal `strlen()` inside `evdev_ioctl_handler` from
    the `InputReader` thread (`pc __pi_strlen+0x60`, fault address 4.7 MB past the kernel image, `pte=0`).
@@ -143,6 +148,18 @@ This file is the index plus the risk register, and it must not restate numbers -
     criteria-coupled HALs. Next real step is not a flash: the offline vendor-closure run on the build host,
     then a **card-only** console boot of `a14-boot-fixed.img` + our super (`docs/reanimation.md`), with the
     stock backup and patched recovery as the rollback.
-11. Owner's success criteria stay: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
-   (touch + physical buttons + CANBUS). Bluetooth is a deliberate second pass (`docs/decisions.md`).
-   One agent at a time.
+11. Owner's success criteria: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
+    (touch + physical buttons + CANBUS), and **GPS added Nov 15** (**D49**). Bluetooth is a deliberate second
+    pass (`docs/decisions.md`). One agent at a time.
+12. **Nov 15 owner answers: shape A is primary and M11 is started.** `docs/plan.md` M11 now records the
+    answers: vendor staging flips to the Android 10 reference (**D44**), manifest stays `target-level="4"` with
+    **no `<kernel>` tag** (libvintf only checks kernel compatibility when the manifest declares one), KeyMint is
+    Android 14's software service, kernel build = public BSP `develop-4.19` now with vendor GPL source pursued
+    alongside (**D48**), and the validation gate is **raw `dd` once the offline gates pass** (**D47**) rather
+    than a card boot - which makes the offline gate set the only safety net, so closure/ABI/VINTF/vermagic/fstab
+    checks must all pass before the first eMMC write, with the rescue card and stock backup staged. GPS is
+    satisfied by keeping the OEM GNSS blobs (Android 14's GNSS JNI fetches `IGnss@1.0`), not by Android 14's AIDL
+    example service. Four libraries Android 14 does not build must be injected for both arches from the Android 10
+    reference system image: `libion`, `libaudioroute`, `libaudioutils`, `libspeexresampler`. The NAS credential
+    wrappers are restored and the host is reachable, but `SSData` is nearly full (9.5 GB free after moving the Nov
+    8 pass to cold storage), so the shape-A build skips `m dist` and logs go to the NAS's `/tmp`.

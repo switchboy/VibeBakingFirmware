@@ -39,7 +39,30 @@ Nothing else was changed on the NAS: no OMV config, no service restarts, no shar
 
 Password authentication through a wrapper that lives **outside** the repo (so the credential is never
 committed): `/tmp/opencode/omv.sh`, which reads the credential from `/tmp/opencode/build_host.env`
-(mode 600) via `SSH_ASKPASS` and never puts it in argv.
+(mode 600) via `SSH_ASKPASS` and never puts it in argv. `askpass.sh` must be executable (`700`) - ssh execs
+it, and a non-executable askpass makes ssh fall back to interactive prompts and fail with
+`Permission denied (publickey,password)`.
+
+Restored Nov 15 after `/tmp` was cleared, and verified live: `sh /tmp/opencode/omv.sh 'echo NAS_OK'` returns
+`NAS_OK` from host `apollo` (Debian 13, kernel 6.12.107). The three files are `build_host.env` (600),
+`askpass.sh` (700) and `omv.sh` (700); nothing credential-bearing is in the repo.
+
+## Host state Nov 15
+
+`/srv/dev-disk-by-label-SSData` measured at restore time: **100% full, 0 free** - `lineage21s/out` 124 GB,
+`prebuilts` 60 GB, `lineage21s/.repo` 35 GB, `docker-root` 35 GB. The incomplete `lineage21/` tree is already
+gone. The Nov 8 build pass was moved to cold storage
+(`cold/vibe-baking/aosp-out-nov15/`: `out-dist`, `out-target-product`, the `aospbuild/tmp` packaging dumps,
+`out-logs`), with `payload-sha256.txt` recorded **before** the move, and the job finished `rc=0`. SSData now
+has **9.5 GB free**. Two consequences for the shape-A build:
+
+* **`m dist` is skipped.** dist regrows ~7 GB and the images another ~4 GB, so a dist pass would refill the
+  filesystem mid-build; the shape-A build produces `superimage` + `bootimage` directly, and packaging that
+  needs otatools re-runs dist only after more space is reclaimed.
+* **Logs go to the NAS root filesystem, not `aospbuild/tmp`.** `aospbuild/tmp` is on SSData, which is the full
+  filesystem - a redirected log there can fail mid-build. Use `/tmp` on the NAS (sda2, ~23 GB free) for
+  long-job logs, launched as `setsid nohup … > log 2>&1 < /dev/null &` (never `systemd-run`, whose unit env
+  breaks `envsetup.sh`).
 
 ## Build notes
 

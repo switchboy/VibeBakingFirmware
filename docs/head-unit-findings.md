@@ -240,7 +240,7 @@ rewrite the GPT - that matters for M2b (see docs/plan.md).
 
 | | unit right now | Daisaita A10 zip | Daisaita A11 zip |
 |---|---|---|---|
-| kernel | 4.19.111+ **#277** | 4.19.111+ **#190** (2024-07-05) | 4.19.193 **#24** |
+| kernel | 4.19.111+ **#190** (the restored stock `boot.bin`, built Fri Jul 5 2024 by `root@meng_book2`) | 4.19.111+ **#190** (2024-07-05) | 4.19.193 **#24** |
 | vendor HALs matching the unit | - | **99 identical / 15 differ / 0 extra** | 1 identical / 68 differ |
 | graphics allocator/mapper | 2.0 / 2.1 (ION, needs libion) | 2.0 / 2.1 (ION) | **4.0 / 4.0-midgard (dmabuf)** |
 | audio | 5.0 | 5.0 | **6.0** |
@@ -251,3 +251,18 @@ rewrite the GPT - that matters for M2b (see docs/plan.md).
 
 So the installed firmware is a Daisaita Android 10 build, and the Android 11 package proves a >3 GiB
 super group works on this SoC family - it just needs the GPT grown first (D8/M2b).
+
+**Three 4.19.111+ kernel builds have been seen on this board, and only one is running now.** Re-measured Nov
+15 by reading the `Linux version …` string out of each artifact: the stock backup's `boot.bin` (pulled from the
+unit on Nov 11 after the restore) and therefore `a14chk/boot-a10k-a14rd.img` and `a14chk/oem-kernel.bin` are
+`#190`, built Fri Jul 5 2024 by `root@meng_book2`; the firmware captured on Nov 4 before the restore was
+`#277` (built 2022-03-31 by `chun@r930`), whose config dump is `analysis/hu_kernel_config.txt`; and the older
+extracted `analysis/boot/kernel` blob is `#2929` (built Tue Mar 2 2021 by `rocky@r940`). Shape A therefore
+ships the **#190** kernel, which is also the kernel the stock `4.19.111+` modules were built for.
+
+**GPS is now a hard criterion (**D49**), so its measurement is owed.** Known facts from the Nov 13 probe
+(`docs/head-unit-findings.md`, control-plane props): `ro.factory.hasGPS=true`, GPS on `/dev/ttyS0`, Bluetooth on
+`/dev/ttyS1`, `ro.rk.bt_enable=true`, and the vendor tree names **AP6476** as the GPS module with a `glgps`
+process. The HAL chain is Android 14-legal as measured in `docs/findings.md` (Android 14's GNSS JNI fetches HIDL
+`IGnss@1.0`). On the next reachable session: `ps -A | grep glgps`, the GNSS service process, who holds
+`/dev/ttyS0`, and a real fix with a satellite list - not just "GNSS declared in the manifest".

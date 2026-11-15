@@ -1745,3 +1745,99 @@ flash `boot-a10k-a14rd.img` with our A14 super, while every staging path actuall
 `scripts/build_recovery_fallback_zip.sh:72`), and the comments in `stage_hu_card.sh`, `hu_recovery_install.sh`,
 `stage_a14_payload.sh` and the fallback-zip README said "A10 kernel" for an image that carries the A11 kernel.
 All five now state the kernel/module coupling. Nothing was flashed; both images remain unflashed (**D30**).
+
+## Shape A checked against Android 14's actual code - Nov 15 (offline; no unit, no build run)
+
+Owner direction Nov 15 (**D46**, answers received): shape A (OEM Android 10 kernel + Android 10 vendor
+restaged + Android 14 framework) is primary, manifest at `target-level="4"`, software KeyMint, raw `dd` once
+the offline gates pass (**D47**), public BSP kernel build now with vendor source pursued alongside (**D48**),
+and **GPS added as a hard criterion** (**D49**). A research agent argued the FCM-4 contract; two of its
+claims did not reproduce and are corrected below, so every line here is either fetched from Android 14 /
+Lineage 21 source or measured out of the reference images on disk.
+
+**FCM-4 cannot block boot.** `compatibility_matrix.4.xml` fetched from
+`android.googlesource.com/platform/frameworks/native/+/refs/heads/android14-release` (the matrix data lives
+under `libs/vintf/data/compatibility/`): 61 HAL entries, **all `optional="true"`, zero mandatory**, no AIDL
+entries, no `<sepolicy>`, no `<kernel>`. The gap list is therefore advisory: 41 optional HALs the vendor does
+not declare (`gnss@2.0`, `radio@1.4`, `thermal@2.0`, `usb@2.0`, `configstore@1.1`, `media.c2`,
+`keymaster@4.0::strongbox`, …) and none of them is required to boot.
+
+**No `<kernel>` tag must be added.** `platform/system/libvintf/+/android14-release/HalManifest.cpp`:
+kernel compatibility is only checked when the manifest declares `<kernel>` (`shouldCheckKernelCompatibility()`
+at line 576, used at 554), and `inferredKernelLevel()` (844-857) only infers for release ≥ S/R. The stock
+Android 10 manifest (`/tmp/opencode/a10-manifest.xml`, dumped from `analysis/daisaita_a10/vendor.img`)
+declares `manifest version="1.0" target-level="4"`, `<sepolicy><version>29.0</version>` and **no `<kernel>`**
+- so shape A keeps `target-level="4"` verbatim, drops the `<sepolicy>` block (the generator already does that),
+and adds nothing. That also removes the FCM-5 kernel requirement list entirely, which is the point: `#190`
+fails FCM-5 by 19 items and passes FCM-4 by 0 (**D46**).
+
+**GPS is recoverable as shipped - the agent's "gnss dead" inference was wrong.** Android 14's framework
+GNSS JNI still walks the HIDL service chain: `platform/frameworks/base/+/android14-release/services/core/jni/gnss/Gnss.cpp`
+lines 140-165 try `IGnss_V2_1::getService()`, then `IGnss_V2_0`, then `IGnss_V1_1`, then `IGnss_V1_0`, with
+`Gnss.h` including `<android/hardware/gnss/1.0/IGnss.h>` … `2.1/IGnss.h`. Android 14 also still builds the
+`android.hardware.gnss@1.0` interface (`hardware/interfaces/gnss/1.0/Android.bp`, non-updatable `hidl_interface`
+→ vendor variant installed into `/vendor/lib64`). The OEM Android 10 GPS stack is intact and loadable:
+
+| file in the A10 reference vendor | size | DT_NEEDED (measured, `readelf -d`) |
+|---|---|---|
+| `/bin/hw/android.hardware.gnss@1.0-service` | 11,656 B | liblog, libcutils, libbase, libutils, libhardware, libbinder, libhidlbase, **libhidltransport**, `android.hardware.gnss@1.0`, libc++ |
+| `/lib/hw/android.hardware.gnss@1.0-impl.so` | 96,744 B | liblog, libhidlbase, **libhidltransport**, libutils, `android.hardware.gnss@1.0`, libhardware, libc++ |
+| `/lib/hw/gps.default.so` | 37,168 B | liblog, libcutils, libutils, libc++ |
+
+`libhidltransport.so` really exists in Android 14 (`platform/system/libhidl/+/android14-release/Android.bp:121-122`,
+`vendor_available: true`), and `libhardware`/`libcutils`/`libutils`/`libbase` all have vendor variants - so GPS
+needs **no new HAL code**, only the three files above kept in the restaged vendor. The AIDL `IGnss` interface
+exists in Android 14 too (`hardware/interfaces/gnss/aidl/`), and its `default` service is the fixture-based
+example (`Gnss.cpp` → `DeviceFileReader`/`FixLocationParser`), i.e. it would report a fake fix, not real
+satellites - we do not ship that one.
+
+**Audio input needs four injected libraries, and the agent overstated the shortage.** Measured
+DT_NEEDED of `/lib64/hw/audio.primary.rk30board.so` **and** `/lib/hw/audio.primary.rk30board.so` (both arches
+are identical): `liblog libcutils libtinyalsa libaudioutils libaudioroute libhardware_legacy libspeexresampler
+libc++ libc libm libdl`. Android 14 *does* build three of those as vendor variants (the agent said four were
+gone): `libtinyalsa` (`external/tinyalsa/Android.bp:19-21`, `vendor_available: true`), `libhardware_legacy`
+(`hardware/libhardware_legacy/Android.bp:72-74`, `vendor_available: true`), plus `libexpat`
+(`external/expat/Android.bp:42`) and `libdrm` (`external/libdrm/Android.bp:81,91`) which the composer path
+needs. Android 14 does **not** build: `libion` (`system/core/libion` is gone - directory 404), `libaudioroute`,
+`libaudioutils`, `libspeexresampler`. Byte-exact copies of all four exist in the Android 10 reference system
+image (`analysis/daisaita_a10/system.img`, which carries `/system/lib(64)/` rather than a VNDK APEX):
+
+| soname | 64-bit | 32-bit | its own DT_NEEDED (all resolvable on Android 14) |
+|---|---|---|---|
+| `libion.so` | 15,184 B | 15,176 B | liblog, libc++, libc, libm, libdl |
+| `libaudioroute.so` | 23,680 B | 19,460 B | liblog, libcutils, libutils, libexpat, libtinyalsa, libc++ |
+| `libaudioutils.so` | 87,376 B | 75,864 B | libcutils, liblog, libspeexresampler, libc++ |
+| `libspeexresampler.so` | 24,208 B | 24,108 B | libc++, libc, libm, libdl |
+
+None of them pulls an Android-10-only ABI, so injecting both arches through
+`device/rk3399-px6-hct4/prebuilt_vendor_libs/<arch>/` (**option F** of `tools/vendor_link_closure.py`) is the
+route; the alternative is rebuilding those four from upstream sources in our device tree.
+
+**Screen and CANBUS are the same class of problem, and both are covered.** `/lib64/hw/hwcomposer.rk30board.so`
+(and the 32-bit copy) needs `librga.so`, and `/lib64/librga.so` needs **`libion.so`** - hence the libion
+injection above is what protects the display path. `libsync_vendor.so`, `libdrm.so`, `libui.so` (vendor variant)
+and the public `libEGL`/`libGLESv2` cover the rest. For CANBUS: `/bin/hw/android.hardware.mtc.mfi@1.0-service`
+needs `libhardware_legacy` (Android 14 vendor variant ✓) and `android.hardware.mtc.mfi@1.0.so` - an OEM-custom
+interface Android 14 never defines, which the OEM vendor ships itself: `/lib64/android.hardware.mtc.mfi@1.0.so`
+167,832 B, `/lib/…` 127,308 B, plus `/lib(64)/hw/android.hardware.mtc.mfi@1.0-impl.so` 33,920 B / 29,124 B.
+Those are staged as blobs, not built.
+
+**Audio/composer clients exist in Android 14:** `frameworks/av/media/libaudiohal/Android.bp` keeps
+`required: [libaudiohal@4.0, @5.0, @6.0, @7.0, @7.1, @aidl]` with HIDL impls (`DeviceHalHidl.cpp`,
+`DevicesFactoryHalHidl.cpp`) in `impl/`, so an audio@5.0 vendor service is still consumable; SurfaceFlinger
+keeps composer@2.1 (`HidlComposerHal.cpp`). Not on the owner's criteria and genuinely unusable: `radio@1.1`
+(Android 14's RIL types the proxy as `V1_4` - telephony dead), `health@2.0` (healthd links 2.1 only), and the
+`soundtrigger`/`cas`/`weaver`/`rockit.hw` entries with no Android 14 client.
+
+**SELinux:** Android 14 ships compat maps for vendor policy versions `29.0` … `33.0`
+(`platform/system/sepolicy/+/android14-release/private/compat/` lists exactly those five), so a vendor policy
+at 29 maps cleanly. Our build builds its own vendor policy (the generator drops the stock `<sepolicy>` block),
+and bring-up stays permissive (**D5**), so neither shape needs the OEM policy file.
+
+**Build-host state measured Nov 15:** the credential wrappers outside the repo were restored (see
+`docs/build-host.md`) and the NAS answered (`apollo`, Debian 6.12.107). `SSData` was **100% full** (0 free):
+`lineage21s/out` 124 GB, `prebuilts` 60 GB, `.repo` 35 GB, `docker-root` 35 GB. The Nov 8 pass was moved to
+cold storage (`cold/vibe-baking/aosp-out-nov15/`: `out-dist`, `out-target-product`, `aospbuild-tmp` packaging
+dumps, `out-logs`) with a `payload-sha256.txt` manifest recorded **before** the move, `rc=0` - SSData now has
+**9.5 GB free**, which is not enough for a `m dist` pass (dist regrows ~7 GB), so the shape-A build plan
+skips `m dist` and builds `superimage`/`bootimage` directly.
