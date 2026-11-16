@@ -2411,3 +2411,55 @@ so the staged copies are dropped), so requesting them cannot collide.
   a DT_NEEDED scan over every staged vendor ELF that is not dropped returns 0 files linking either,
   and Android 14's built supplicant/hostapd link the AIDL wifi libs instead (full NEEDED lists in
   `vendor_dest_deviations.txt`). Both are declared.
+
+
+## After the D52 requests: what the same audits say now, and two more gaps (Nov 16, D52b)
+
+The pass launched at 23:06 with the new device.mk (bootimage rc=0, recoveryimage rc=0, superimage rc=0;
+`vendor.img` 556,789,760 B sha `62e65d3509...`, `super.img` 2,401,638,464 B sha `a03cb8a8ba...`,
+`boot.img` unchanged at 28,012,544 B sha `9605fb9fe6...`). Partition sizes fit the group: system
+1,012,871,168 + vendor 556,789,760 + product 456,159,232 + system_ext 384,802,816 + odm 811,008 =
+2,411,433,984 against `super_hct_dynamic_partitions_group_size=3258974208`
+(`super_super_device_size=3263168512` unchanged, D18/D19 hold - nothing was resized).
+
+* `vendor.img` now contains the restored chain, both arches:
+  `bin/hw/android.hardware.graphics.allocator@2.0-service` + `etc/init/android.hardware.graphics.
+  allocator@2.0-service.rc`, `lib*/hw/android.hardware.graphics.allocator@2.0-impl.so`,
+  `lib*/hw/android.hardware.graphics.mapper@2.0-impl-2.1.so`, `lib*/libprotobuf-cpp-lite.so`
+  (alongside Android 14's own `lib*/libprotobuf-cpp-lite-3.9.1.so` and `-21.12.so`, different
+  destinations), `lib*/libstagefright_softomx_plugin.so`, and
+  `bin/hw/android.hardware.power@1.0-service` + rc + `lib*/hw/android.hardware.power@1.0-impl.so`.
+  The gatekeeper files are gone from the image (declared), and the closure shrank to 110 requested
+  modules because those blobs are no longer kept (kept staged 137 -> 131, dropped staged 126 -> 132).
+* `tools/vendor_dropped_check.py`: 202 dropped destinations, 161 present, 41 absent, **31 of them
+  declared deviations**, and the sentence at the end is "every dropped destination is present,
+  substituted, or declared as a deviation" - the LOST-with-no-replacement category is empty.
+  The tool needed one fix: the "built OUTSIDE /vendor by Android 14" category did not consult
+  `vendor_dest_deviations.txt`, so the two declared `android.hardware.audio.common@5.0-util.so` paths
+  were still reported as "needs a vendor variant or an injection"; it now skips declared paths
+  (`p not in accepted`).
+* `tools/vendor_abi_check.py` reports **5 blobs that would not load** (down from the protobuf +
+  gatekeeper set, which is resolved):
+  * `bin/hw/android.hardware.health@2.0-service` - needs
+    `_ZN7android7String8C1ENS0_13StaticLinkageE`, Android 10's libutils `String8(StaticLinkage)`
+    constructor, which Android 14's libutils does not export. Provenance measured: the destination is
+    staged (copy entry present, `vendor_build_wins.txt` has no line for it), so this is the OEM blob
+    really running - init would start it, fail at load and restart it on backoff. Android 14's own
+    `android.hardware.health@2.1-service` (+ `lib*/hw/android.hardware.health@2.0-impl-2.1.so`) is
+    installed and serves battery info, so the blob is declared (2 paths).
+  * `lib*/libomxvpu_enc.so` / `lib*/libomxvpu_dec.so` - need Android 10's libui legacy gralloc1
+    exports `GraphicBufferMapper::lock(const native_handle_t*, uint32_t, const Rect&, void**, int*)`
+    and `GraphicBufferMapper::unlock`, which Android 14's libui does not have. `libui.so` is public and
+    loaded from /system, so injecting an Android 10 libui into /vendor would give a process two copies
+    of libui - worse than losing the codec. Their support components are used only by them
+    (DT_NEEDED scan over every staged, non-dropped vendor ELF: `libOMX_Core.so` -> 0 consumers;
+    `libRkOMX_Resourcemanager.so` -> only `lib*/libOMX_Core.so` + the two plugins;
+    `libgralloc_priv_omx.so` -> only the plugins), so the whole Rockchip OMX component set is declared
+    (10 paths). Android 14's own OMX service + soft-OMX + the requested software codecs replace it,
+    which is why the OMX service and plugin stay restored.
+  * The VPU itself is not lost for JPEG: `lib*/libvpu.so` has 6 consumers
+    (`lib*/hw/camera.rk30board.so`, `lib*/libjpeghwenc.so`, `lib*/librk_vpuapi.so`), so
+    `lib*/libvpu.so` and `lib*/librk_vpuapi.so` remain staged.
+
+Total declared deviations: 48 paths in 16 groups (the Nov 6 owner-accepted RIL/recovery/wifi groups
+plus the D52 and D52b engineering groups).

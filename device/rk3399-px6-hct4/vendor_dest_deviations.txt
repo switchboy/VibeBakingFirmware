@@ -136,3 +136,50 @@ lib64/hw/android.hardware.drm@1.0-impl.so
 # blob additionally needs libprotobuf-cpp-full.so, which the stock Android 10 firmware never shipped,
 # so CAS was already dead there.
 etc/init/android.hardware.cas@1.1-service.rc
+
+
+# ---- no Android 10 health service blob (**D52b**) -----------------------------
+# `tools/vendor_abi_check.py` measured that the kept blob cannot load on Android 14:
+# `bin/hw/android.hardware.health@2.0-service` needs
+# `_ZN7android7String8C1ENS0_13StaticLinkageE`, Android 10-era libutils' String8 StaticLinkage
+# constructor, which Android 14's libutils does not export (String8's StaticLinkage API became
+# inline). Android 14 defines no install rule for this service path (`vendor_staging.mk` has a copy
+# entry for it, `vendor_build_wins.txt` has none), so the blob really runs - init would start it, see
+# the unresolved symbol at dlopen/ld.so time, and restart it on backoff, while battery info is
+# served anyway by Android 14's own `android.hardware.health@2.1-service` +
+# `android.hardware.health@2.1-impl` (requested in device.mk; the image carries
+# `bin/hw/android.hardware.health@2.1-service` and `lib*/hw/android.hardware.health@2.0-impl-2.1.so`,
+# which is Android 14's 2.0-compatible impl). Declaring the gap also stops the OEM manifest's
+# `health@2.0` declaration from pointing at a service that cannot start.
+bin/hw/android.hardware.health@2.0-service
+etc/init/android.hardware.health@2.0-service.rc
+
+# ---- no Rockchip OMX VPU components (**D52b**) --------------------------------
+# These five components cannot load on Android 14: `lib*/libomxvpu_enc.so` and
+# `lib*/libomxvpu_dec.so` need `_ZN7android19GraphicBufferMapper4lockEPK13native_handlejRKNS_4RectEPPvPiS9_`
+# and `_ZN7android7String8...`-era `GraphicBufferMapper::unlock`, i.e. the legacy gralloc1 lock/unlock
+# exports of Android 10's libui. Android 14's libui has no such symbols (buffer locking moved into the
+# mapper interface, and `libui.so` is a public library loaded from /system - shadowing it with a
+# /vendor copy would give one process two libui copies, which is worse than losing a codec).
+# `lib*/libOMX_Core.so`, `lib*/libRkOMX_Resourcemanager.so` and `lib*/libgralloc_priv_omx.so` exist
+# only to serve those two plugins: a DT_NEEDED scan over every staged, non-dropped vendor ELF finds
+# libOMX_Core.so and libRkOMX_Resourcemanager.so used solely by lib*/libOMX_Core.so + the plugins, and
+# libgralloc_priv_omx.so solely by the plugins. Nothing in Android 14 loads them either: the OMX
+# service this ROM ships is Android 14's own `android.hardware.media.omx@1.0-service`, whose component
+# table is AOSP's (soft-OMX), and the plugins are dlopened by name rather than linked, so the
+# DT_NEEDED walk never saw them.
+# Consequence, stated plainly: hardware VPU encode/decode through OMX is lost. Software codecs
+# (libstagefright_softomx + the requested encoders/decoders) and MediaCodec's AIDL/C2 path replace it,
+# and the VPU is still usable for JPEG encode: `lib*/libjpeghwenc.so` and
+# `lib*/hw/camera.rk30board.so` link `lib*/libvpu.so` directly (measured: 6 consumers), which is why
+# `lib*/libvpu.so` and `lib*/librk_vpuapi.so` stay staged.
+lib/libomxvpu_enc.so
+lib64/libomxvpu_enc.so
+lib/libomxvpu_dec.so
+lib64/libomxvpu_dec.so
+lib/libOMX_Core.so
+lib64/libOMX_Core.so
+lib/libRkOMX_Resourcemanager.so
+lib64/libRkOMX_Resourcemanager.so
+lib/libgralloc_priv_omx.so
+lib64/libgralloc_priv_omx.so

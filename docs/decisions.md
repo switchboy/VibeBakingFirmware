@@ -1699,3 +1699,28 @@ consumers, the audio@5.0 impls, are replaced by 6.0; zero consumers measured); `
 the protobuf symbol counts per consumer and the hwservicemanager/system_ext correction:
 `docs/findings.md`. Nothing was written to the unit; the gate set stays offline-only until the owner
 green-lights the raw `dd` (D47/D43).
+
+
+**D52b - declare the Android 10 health blob and the Rockchip OMX VPU components (Nov 16,
+engineering, pending owner review).** After the D52 requests the audits came back clean on the
+protobuf and gatekeeper chains and the LOST category is empty, but `tools/vendor_abi_check.py` still
+lists 5 blobs that cannot load, and both are declared rather than patched:
+  * `bin/hw/android.hardware.health@2.0-service` (+ its rc): it needs Android 10's
+    `String8::StaticLinkage` constructor, which Android 14's libutils no longer exports, and the
+    destination is a staged copy (Android 14 defines no rule for it), so init would start a service
+    that fails at load and restart it on backoff. Android 14's own `health@2.1-service` is installed
+    and serves battery info, so the OEM 2.0 service is dropped.
+  * the Rockchip OMX components `lib*/libomxvpu_{enc,dec}.so`, `lib*/libOMX_Core.so`,
+    `lib*/libRkOMX_Resourcemanager.so`, `lib*/libgralloc_priv_omx.so` (10 paths): the plugins need
+    Android 10's legacy gralloc1 `GraphicBufferMapper::lock/unlock` exports, which Android 14's libui
+    does not export, and libui is a public library loaded from /system - shadowing it with an Android 10
+    copy in /vendor would hand one process two libui copies, which is a worse failure than losing a
+    codec. Nothing else links the support components (measured), and Android 14's own OMX service uses
+    AOSP's soft-OMX component table, so declaring them removes 14 files that could never load.
+This costs hardware VPU encode/decode through OMX (software codecs + MediaCodec C2 replace it); JPEG
+encode keeps the VPU, because `lib*/libjpeghwenc.so` and `lib*/hw/camera.rk30board.so` link
+`lib*/libvpu.so` directly and that lib stays staged. `tools/vendor_dropped_check.py` also learned to
+skip declared paths in its "built OUTSIDE /vendor" category, so the two declared
+`android.hardware.audio.common@5.0-util.so` paths no longer look like an open fix. Full measurements
+(including the partition sizes against the unchanged super group): `docs/findings.md`. Nothing was
+written to the unit.

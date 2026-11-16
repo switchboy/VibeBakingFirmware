@@ -181,7 +181,8 @@ def main():
     # liblog/libeffectsconfig/... exist in both /system and /vendor: their name is in /system, but the
     # vendor variant is installed, so they are not listed here.
     shifted = sorted((p, sorted(moved[os.path.basename(p)])) for p in dropped
-                     if os.path.basename(p) in moved and p not in built_in_vendor)
+                     if os.path.basename(p) in moved and p not in built_in_vendor
+                     and p not in accepted)
 
     real_loss, substituted = [], []
     for p in lost:
