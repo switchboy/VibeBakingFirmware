@@ -2545,3 +2545,16 @@ at Gralloc4 there instead of through the 2.0/2.1 passthrough wrappers over the s
 library exists in no Android 14 tree. So the conclusion is: shape B is internally coherent
 (kernel/modules/manifest agree), but it is not D52-current and must be rebuilt from a `SHAPE=a11`
 packaging pass before it is offered as the fallback.
+
+* **The super gate runs now, and passes.** With `TREE=lineage21s` and `WORK` on the cold-storage archive
+  (SSData had 5.2 GiB free then, the script peaks ~5.3 GiB), `scripts/check_super.py` on the Nov 16 pass
+  printed, per partition, `embedded_matches=True size_matches_extent=True ext4_magic_offset=1080
+  debugfs_parses=True` with the offsets `system 1,048,576 / vendor 1,013,972,992 / product 1,570,766,848
+  / system_ext 2,027,945,984 / odm 2,412,773,376` and extents exactly equal to the image sizes
+  (1,012,871,168 / 556,072,960 / 456,159,232 / 384,802,816 / 811,008), then
+  `used inside super: 2,413,584,384 ; spare 849,584,128 (810 MiB)`, `group spare 845,389,824`,
+  `group fits inside super_partition_size: True` and `ALL LOGICAL PARTITIONS VERIFIED: True`. It also
+  says `no dist target_files zip (...) - comparing against the product dir / staging IMAGES only`, which
+  is the new honest note instead of a traceback. The two "used" figures differ from the content total
+  2,410,717,184 B because the first partition starts after the super metadata header (system is at
+  offset 1,048,576 = sector 2048), so the script counts that region as used.

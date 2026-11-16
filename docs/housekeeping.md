@@ -81,3 +81,28 @@ source produced `rkresearch-nov11/rkresearch/...`, so the lists never matched.
 `SSData` remaining at 100% is the one thing still worth fixing before the next build: `lpmake` and
 `repack_bootimg` need scratch space, which is why scratch now lives on the repo volume
 (`/run/media/Daan/Opslagmonster/`, 442 GiB free) instead.
+
+
+## Scratch that the gates need, measured Nov 17
+
+Two of the offline gates need more room than SSData currently has (5.2 GiB free on `sda4`):
+
+* `scripts/check_super.py` simg2img's the whole sparse `super.img` into `<WORK>/super_raw.img`
+  (3,263,168,512 B, kept after the run) and then, per partition, holds a staged copy plus a carved
+  copy - the system partition alone is 1,012,871,168 B each, so the peak is ~5.3 GiB. Run it with
+  `WORK` pointed somewhere roomy; Nov 17 used the cold-storage archive
+  (`WORK=/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hucheck`, 869 GiB free) and it
+  passed all five partitions. `verify_artifacts.sh` passes `WORK=${WORK:-…SSData/aospbuild/tmp}`, so
+  invoke it as `WORK=<roomy dir> scripts/verify_artifacts.sh <tree>` while SSData is tight.
+* `scripts/smoke_recovery_installer.sh` needs ~7 GiB free in its `${TMPDIR:-/tmp/opencode}` scratch
+  dir (a real payload copy plus a `dd`-filled fake super partition, peaking near 6.6 GiB). Nov 17 used
+  `TMPDIR=/run/media/Daan/Opslagmonster/a14-work/smoke-tmp` on the repo volume (~439 GiB free). It
+  leaves its scratch behind afterwards; that directory is disposable - nothing in it is a payload.
+
+Scratch left behind on Nov 17, all regenerable and none of it payload-critical: NAS `/tmp/raw-super-a14.img`
+(the shape-A container, kept deliberately because it is the staged payload source), plus the workstation's
+`a14-work/shapeB-check/vendor-carved.img` (430,514,176 B, carved from the shape-B container with `dd`,
+regenerable in one command). NAS `aospbuild/tmp/super_raw.img` (3,263,168,512 B, written by the run that
+crashed before the fix) and the two 0-byte leftovers `probe_v26b_raw.img` and `vendor_raw.img` were
+deleted after the fixed run finished, which put SSData back to 7.5 GiB free; `check_super.py` recreates
+`super_raw.img` in `WORK` on every run, so nothing was lost.

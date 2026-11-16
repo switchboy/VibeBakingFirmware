@@ -67,6 +67,13 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
    extents (unit = 512 B sectors): system 1,978,264 / vendor 1,086,080 / product 890,936 /
    system_ext 751,568 / odm 1,584 sectors = 4,708,432 sectors, i.e. exactly the five image sizes above,
    and the group name and maximum are still `hct_dynamic_partitions` / 3,258,974,208 B.
+   `scripts/check_super.py` (run Nov 17, scratch pointed at the roomy archive volume because SSData is
+   tight) verifies each partition byte-for-byte inside the container and reads its ext4 super block:
+   `embedded_matches=True`, `size_matches_extent=True`, `ext4_magic_offset=1080`,
+   `debugfs_parses=True` for all five, `ALL LOGICAL PARTITIONS VERIFIED: True`. Its own bookkeeping is
+   one region larger, because the first partition starts after the super metadata header (system is at
+   offset 1,048,576 = sector 2048): it reports `used inside super: 2,413,584,384 ; spare 849,584,128
+   (810 MiB)` and a group spare of 845,389,824 B - the same headroom counted with the metadata region.
  * **The shape-A payload pair actually staged** (Nov 17, `a14-work/a14chk-shapeA/`):
    `boot-a10k-a14rd.img` 28,233,728 B sha256 `3cf40129…` plus `raw-super.img` 3,263,168,512 B sha256
    `d81f913aee9162d7cb948db63528200b94ba6e6c6a50f78795174ce5bf19fdb8` - the flattened container
