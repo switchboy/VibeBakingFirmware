@@ -234,6 +234,79 @@ PRODUCT_PACKAGES += \
     usb_dongle \
     vulkan.pastel
 
+# ---- the legacy chains Android 14 defines a rule for but never pulls in (D52) ------
+# tools/vendor_dropped_check.py measured 26 staged destinations that the vendor partition would
+# lack: Android 14 *defines* an install rule for them but no module of this product asks for the
+# module, so nothing installs them. Four of those chains are restored here (comments above the
+# block, because kati rejects a comment line inside a `\`-continued assignment); the rest are
+# declared gaps in vendor_dest_deviations.txt. Measured numbers: docs/findings.md.
+#
+# * graphics allocator + mapper. The screen criterion depends on these. Android 14's libui
+#   GraphicBufferMapper::GraphicBufferMapper (frameworks/native/libs/ui/GraphicBufferMapper.cpp:60-77)
+#   tries Gralloc5/4/3 and then Gralloc2, and dies with "gralloc-mapper is missing";
+#   GraphicBufferAllocator's ctor then aborts on LOG_ALWAYS_FATAL_IF(!mAllocator->isLoaded())
+#   (GraphicBufferAllocator.cpp:68-70) - SurfaceFlinger would exit and the HU would show nothing.
+#   Neither impl was in /vendor (only the staged Mali blob gralloc.rk30board.so was, and nothing
+#   wrapped it). Android 14's own impls are passthrough wrappers over the legacy gralloc HAL
+#   (hardware/interfaces/graphics/{allocator/2.0,mapper/2.1}/default/passthrough.cpp both call
+#   GrallocLoader::load()), so adding them makes the staged gralloc.rk30board.so usable again:
+#   mapper@2.0-impl-2.1 for the mapper, allocator@2.0-impl for the allocator, and the standalone
+#   allocator service - the stock Android 10 init script runs it too
+#   (`service vendor.gralloc-2-0 /vendor/bin/hw/android.hardware.graphics.allocator@2.0-service`,
+#   class hal animation, user system, group graphics drmrpc), which is what lets a /system process
+#   (SurfaceFlinger, mediacodec, an app) reach the allocator through hwservicemanager instead of
+#   dlopening a vendor library it cannot see. Android 14's sysprop default
+#   ro.surface_flinger.start_graphics_allocator_service is false
+#   (SurfaceFlingerProperties.cpp:151), so SurfaceFlinger does not register its own in-process copy;
+#   the stock service is what serves the interface, exactly as on the OEM firmware. None of these
+#   modules installs a vintf fragment (grep for vintf_fragments in hardware/interfaces/graphics/
+#   allocator/2.0 and .../mapper is empty), so the OEM manifest's graphics.allocator@2.0 and
+#   graphics.mapper@2.0 blocks stay the only declaration and cannot collide.
+#
+# * libprotobuf-cpp-lite.so. The kept Android 10 blobs ask for the plain soname: the DRM clearkey
+#   service (35 protobuf symbols), libwvhidl.so and libwvdrmengine.so (54 each),
+#   libwebrtc_audio_preprocessing.so (47). Android 14 builds protobuf 3.9.1 and 21.12 and installs
+#   them only under the *versioned* sonames (vendor/lib64/libprotobuf-cpp-lite-3.9.1.so and
+#   -21.12.so), and neither satisfies those blobs - measured against the two files pulled out of
+#   vendor.img: 13 of 36 symbols missing against 21.12, 10 against 3.9.1. Lineage's
+#   hardware/lineage/compat module `libprotobuf-cpp-lite-vendorcompat` is an Android 10 VNDK v29
+#   blob installed at exactly /vendor/lib(64)/libprotobuf-cpp-lite.so; measured missing=0 for all
+#   four consumers. Android 14's own `<name>.vendor` variant installs the versioned file, so it is
+#   not a substitute, and no staged copy of the plain soname exists in either reference firmware -
+#   the stock Android 10 vendor partition has no protobuf at all, which is why these blobs were
+#   already dead there.
+#
+# * libstagefright_softomx_plugin.so. `android.hardware.media.omx@1.0-service` (kept, restored
+#   above) dlopens this plugin, so it is invisible to the DT_NEEDED walk that
+#   tools/vendor_link_closure.py walks - the closure could not find it. Android 14 builds the plugin
+#   with vendor_available: true, so the `.vendor` / `.vendor_32` variants put it where a vendor
+#   process searches.
+PRODUCT_PACKAGES += \
+    android.hardware.graphics.allocator@2.0-service \
+    android.hardware.graphics.allocator@2.0-impl \
+    android.hardware.graphics.allocator@2.0-impl_32 \
+    android.hardware.graphics.mapper@2.0-impl-2.1 \
+    android.hardware.graphics.mapper@2.0-impl-2.1_32 \
+    libprotobuf-cpp-lite-vendorcompat \
+    libprotobuf-cpp-lite-vendorcompat_32 \
+    libstagefright_softomx_plugin.vendor \
+    libstagefright_softomx_plugin.vendor_32
+
+# * power. Android 14's PowerHalLoader still accepts the HIDL power HAL as a fallback after AIDL
+#   (frameworks/native/services/powermanager/PowerHalLoader.cpp:59-125 loads V1_0 and casts up to
+#   1.1/1.2/1.3), so restoring the service keeps CPU hinting alive instead of silently degrading to
+#   a no-op wrapper. Android 14's default impl is a passthrough over the legacy `power` HAL
+#   (HAL_POWER_MODULE_ID "power"), and the legacy blob the HU ships is reachable by that lookup:
+#   lib*/hw/power.default.so is staged and lands in vendor.img (the lookup tries
+#   `power.rk30board.so` first, then `power.default.so`). light is NOT restored - see
+#   device/rk3399-px6-hct4/vendor_dest_deviations.txt. Neither default installs a vintf fragment
+#   (hardware/interfaces/power/1.0/default/ has no .xml), so the OEM manifest's power@1.0 block stays
+#   the only declaration.
+PRODUCT_PACKAGES += \
+    android.hardware.power@1.0-service \
+    android.hardware.power@1.0-impl \
+    android.hardware.power@1.0-impl_32
+
 # The OMX service is restored on purpose: the stock manifest declares android.hardware.media.omx@1.0
 # (IOmx + IOmxStore), the staged blob carries the Rockchip VPU plugin (libomxvpu_enc/dec.so), and
 # Android 14 still builds the OMX service and its soft-OMX/helper libraries. Whether the VPU plugin
@@ -262,5 +335,8 @@ PRODUCT_PACKAGES += \
 #     `/vendor/bin/usb_modeswitch -W -v ... -p ... -c /vendor/etc/usb_modeswitch.d/...` invocation,
 #     against Android 14's own libsysutils. Its blob copies are dropped in vendor_dest_skip_extra.txt.
 #
-# One deviation is declared, not restored: the RIL daemon and its libraries, because this unit has no
-# cellular modem. See device/rk3399-px6-hct4/vendor_dest_deviations.txt.
+# Deviations are declared, not restored: the RIL daemon and its libraries (no cellular modem), plus
+# the Android 14-era gaps measured on Nov 16 - keymaster@3.0, the whole Gatekeeper chain, light@2.0,
+# drm@1.0, the cas@1.1 rc, soundtrigger@2.0-impl, audio.common@5.0-util and libwpa_client. All of
+# them, with the measurement that justifies each, are in
+# device/rk3399-px6-hct4/vendor_dest_deviations.txt (**D52**).

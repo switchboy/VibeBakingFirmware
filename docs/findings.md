@@ -2264,3 +2264,150 @@ So the OEM's `target-level="4"` is kept (it is what the Android 10 firmware ship
 lowering it changes which HIDL HALs the HU declares); what it costs is diagnostic/CTS accuracy -
 `check_vintf`, `lshal` and CTS will report an unsupported FCM level, which is expected for a
 vendor staged from Android 10 firmware onto an Android 14 framework.
+
+
+## Closing the legacy vendor chains: 26 lost destinations, measured one by one (Nov 16)
+
+The three audits run after the converged pass (`SHAPE=a10`) gave the picture, and every line was
+re-measured before deciding:
+
+* `tools/vendor_dropped_check.py`: 194 dropped destinations, 150 present in `vendor.img`, 44 absent.
+  6 are the already-declared deviations, 12 are "substituted by another provider of the same
+  interface" (the HIDL wifi service, the audio 5.0 impls, drm/gatekeeper/keymaster/light/power/cas
+  service binaries, `bin/wpa_cli`), and **26 are LOST with no replacement**. Two of those are
+  "built OUTSIDE /vendor by Android 14" (`android.hardware.audio.common@5.0-util.so` in `lib/` and
+  `lib64/`). 12 of the 26 say "soong defines an install rule, but the module is not in this
+  product's install closure"; the remaining 14 say "no module installs this path at all".
+* `tools/vendor_abi_check.py`: 28 unresolved symbols on kept blobs - 13 protobuf symbols
+  (`_ZN6google8protobuf...`) for `android.hardware.drm@1.2-service.clearkey`, `lib*/libwvhidl.so`,
+  `lib*/mediadrm/libwvdrmengine.so`, `lib*/libwebrtc_audio_preprocessing.so`, plus 8
+  `gatekeeper::` symbols for `lib*/hw/gatekeeper.rk30board.so` and `lib*/librkgatekeeper.so`.
+* `tools/vendor_link_closure.py`: 112 vendor-variant modules requested, 2 not installed -
+  `lib/libprotobuf-cpp-lite.so` and `lib64/libprotobuf-cpp-lite.so`.
+
+### Graphics: the screen criterion was silently broken (fixed, D52)
+
+`vendor.img` had `lib*/hw/gralloc.rk30board.so` (the staged Mali blob) but **no mapper and no
+allocator impl** - Android 14 defines install rules for
+`vendor/lib64/hw/android.hardware.graphics.mapper@2.0-impl-2.1.so`,
+`vendor/lib64/hw/android.hardware.graphics.allocator@2.0-impl.so`,
+`vendor/bin/hw/android.hardware.graphics.allocator@2.0-service` and its `.rc`, and no module of this
+product asks for them, so `vendor_conflicts.py` dropped the staged copies and nothing replaced them.
+Android 14's libui then has nothing to talk to:
+
+* `frameworks/native/libs/ui/GraphicBufferMapper.cpp:60-77` tries Gralloc5, Gralloc4, Gralloc3,
+  Gralloc2 in order and ends in `LOG_ALWAYS_FATAL("gralloc-mapper is missing")`. None of 5/4/3 is
+  installed (Android 14's minigbm AIDL mapper has rules - `vendor/lib64/hw/mapper.minigbm.so`,
+  `vendor/etc/init/allocator.rc`, `vendor/etc/vintf/manifest/mapper.minigbm.xml` - but none is in
+  the closure), so the HIDL 2.0/2.1 route is the only one that can work with the staged Mali gralloc.
+* `frameworks/native/libs/ui/GraphicBufferAllocator.cpp:68-70`:
+  `LOG_ALWAYS_FATAL_IF(!mAllocator->isLoaded(), "Failed to load matching allocator for mapper
+  version %d")`. SurfaceFlinger aborts in its singleton ctor, so the HU would boot black.
+* The impls Android 14 builds are passthrough wrappers over the legacy gralloc HAL:
+  `hardware/interfaces/graphics/allocator/2.0/default/passthrough.cpp` and
+  `hardware/interfaces/graphics/mapper/2.1/default/passthrough.cpp` both do
+  `GrallocLoader::load()`. So installing them wraps the staged `gralloc.rk30board.so` - exactly the
+  OEM arrangement, and nothing else needs to change.
+* Neither module installs a vintf fragment: `grep -rn vintf_fragments hardware/interfaces/graphics/
+  allocator/2.0 hardware/interfaces/graphics/mapper` is empty, and
+  `hardware/interfaces/graphics/{allocator/2.0,mapper/2.1}/default/` contains no `.xml`. The OEM
+  manifest's `graphics.allocator@2.0` / `graphics.mapper@2.0` blocks stay the only declaration, so
+  `assemble_vintf` cannot hit "Conflicting FqInstance".
+* The standalone allocator service is restored rather than relying on SurfaceFlinger registering one:
+  `frameworks/native/services/surfaceflinger/main_surfaceflinger.cpp:44-63` only calls
+  `registerPassthroughServiceImplementation<...IAllocator>()` when
+  `android::sysprop::start_graphics_allocator_service(false)` is true
+  (`SurfaceFlingerProperties.cpp:151-157`), and nothing in this build sets it
+  (`grep -c surface_flinger device/rockchip/rk3399/vendor_props.mk` -> 0). The stock Android 10 init
+  script runs the service itself (`vendor/etc/init/android.hardware.graphics.allocator@2.0-service.rc`
+  in the staged tree: `service vendor.gralloc-2-0 ...`, `class hal animation`, `user system`,
+  `group graphics drmrpc`), which is what lets a /system process reach the allocator through
+  hwservicemanager instead of dlopening a vendor library its namespace cannot see. No sysprop is
+  added: that would register a second instance of the same interface.
+* The HIDL machinery really is running, so the registration is reachable: Android 14 installs
+  hwservicemanager in **system_ext**, not system - `find` over target_files gives
+  `SYSTEM_EXT/bin/hwservicemanager`, `SYSTEM_EXT/etc/init/hwservicemanager.rc` and
+  `SYSTEM_EXT/etc/vintf/manifest/hwservicemanager.xml` - and `SYSTEM/etc/init/hw/init.rc:488-489`
+  does `start hwservicemanager` / `start vndservicemanager`. (The D51 note above said
+  `system/bin/hwservicemanager`; the binary is in system_ext.)
+
+### protobuf: Android 14 only ships versioned sonames, Lineage's vendorcompat blob is the match
+
+Measured against files dumped out of `vendor.img` with `debugfs -R dump`:
+
+| consumer | protobuf symbols asked for | `libprotobuf-cpp-lite-21.12.so` | `libprotobuf-cpp-lite-3.9.1.so` | Lineage vendorcompat |
+|---|---|---|---|---|
+| `bin/hw/android.hardware.drm@1.2-service.clearkey` | 36 | 13 missing | 10 missing | **0 missing** |
+| `lib64/libwvhidl.so` | 55 | (same lib) | 15 missing | **0 missing** |
+| `lib64/mediadrm/libwvdrmengine.so` | 54 | - | - | **0 missing** |
+| `lib64/libwebrtc_audio_preprocessing.so` | 47 | - | - | **0 missing** |
+
+* Android 14's vendor variant `libprotobuf-cpp-lite.vendor` installs
+  `vendor/lib64/libprotobuf-cpp-lite-**21.12**.so` (module-info: `installed` -> that path), not the
+  plain `libprotobuf-cpp-lite.so` the blobs ask for - which is why the closure reported 2 modules
+  requested but not installed. Requesting `libprotobuf-cpp-lite-vendorcompat` (and `_32`) instead
+  installs `/vendor/lib64/libprotobuf-cpp-lite.so` and `/vendor/lib/libprotobuf-cpp-lite.so`
+  (`hardware/lineage/compat/Android.bp:514-528`, `cc_prebuilt_library_shared` over the Android 10
+  VNDK v29 blob at `hardware/lineage/compat/vndk/v29/{arm,arm64}/libprotobuf-cpp-lite.so`), so the
+  two requests do not collide: different destinations.
+* The stock Android 10 firmware ships **no protobuf at all**: `debugfs` over
+  `analysis/daisaita_a10/{vendor,system,product,odm}.img` (including `/lib64`, `/lib`,
+  `/lib64/vndk-sp`, `/lib/vndk-sp`) returns zero `libprotobuf*`; `vendor_tree` has none either. So
+  widevine, clearkey and CAS were already non-functional on the OEM unit. Restoring the soname makes
+  the kept blobs loadable on our ROM; it does not resurrect anything that worked there.
+* `lib*/mediacas/libclearkeycasplugin.so` asks for both `libprotobuf-cpp-lite.so` and
+  `libprotobuf-cpp-full.so` (53 symbols, 23 of them only in *full*: `DescriptorPool::generated_pool`,
+  `InternalAddGeneratedFile`). That blob is build-owned (Android 14 installs its own copy), so its
+  symbol gap does not apply to us - and no kept blob asks for `libprotobuf-cpp-full.so`
+  (scan over every staged, non-dropped ELF: 0 consumers).
+
+### OMX plugin: invisible to the DT_NEEDED walk
+
+`android.hardware.media.omx@1.0-service` (kept and requested) **dlopen`s**
+`lib*/libstagefright_softomx_plugin.so`, so it is not a DT_NEEDED entry and
+`tools/vendor_link_closure.py` could not see it. Android 14 builds the plugin with
+`vendor_available: true`, so `libstagefright_softomx_plugin.vendor` / `.vendor_32` put it in
+`/vendor/lib64` and `/vendor/lib`. Neither destination is staged (Android 14 defines rules for both,
+so the staged copies are dropped), so requesting them cannot collide.
+
+### Gatekeeper: a real gap, not a missing library
+
+* `lib*/hw/gatekeeper.rk30board.so` and `lib*/librkgatekeeper.so` need `libgatekeeper.so`;
+  `nm -D --undefined-only` shows the 8 `gatekeeper::` symbols (`EnrollRequest`, `VerifyRequest`
+  (j/y variants), `EnrollResponse`, `VerifyResponse` ctors/dtors). No file in the Android 14 tree,
+  the Android 10 reference firmware or the Android 11 reference firmware defines them.
+* `libgatekeeper.so` is not in the stock Android 10 system partition either
+  (`debugfs -R "ls /lib" analysis/daisaita_a10/system.img` has no gatekeeper/keymaster/protobuf
+  entry; the image has no `/lib64` at all), so Gatekeeper was already dead on the OEM firmware.
+* `libteec.so` (Trusty TEE client) *is* staged and kept, so the TEE half would load - it is
+  `libgatekeeper.so` that decides. Android 14 removed Gatekeeper in favour of KeyMint, so the whole
+  chain (service rc, `android.hardware.gatekeeper@1.0-impl.so`, `gatekeeper.rk30board.so`,
+  `librkgatekeeper.so`, `libRkTeeGatekeeper.so`, x2 arches = 9 paths) is declared in
+  `vendor_dest_deviations.txt` instead of shipping files that cannot be dlopened. `libRkTeeWeaver.v1.so`
+  and `libRkTeeKeymaster.so` also link `libteec.so` and stay staged.
+
+### light vs power: the legacy HAL lookup decides which one can come back
+
+* power is restored: Android 14's `frameworks/native/services/powermanager/PowerHalLoader.cpp:59-125`
+  still loads `IPower` V1_0 and casts up to 1.1/1.2/1.3 after trying AIDL, so the HIDL HAL is a live
+  fallback rather than dead code. Android 14's default impl is a passthrough over the legacy `power`
+  HAL, and the lookup does find a provider on this unit: it tries `power.<ro.hardware>.so`
+  (`power.rk30board.so`, absent) then `power.default.so`, which is staged and present in
+  `vendor.img` (`debugfs -R "ls /lib64/hw"` lists `power.default.so` and `power.rk3399.so`).
+* light is declared: Android 14's lights are AIDL
+  (`frameworks/base/core/java/android/hardware/lights/SystemLightsManager.java`,
+  `frameworks/base/services/core/java/com/android/server/lights/LightsService.java`; a grep for
+  `light@2` in frameworks/native + frameworks/base finds only tests/jni/Watchdog/VintfObject), and the
+  legacy lookup would look for `lights.rk30board.so` or `lights.default.so` while the staged blob is
+  `lights.rk3399.so` - nothing opens it, so `light@2.0-service` would fail at impl load and init would
+  restart it. Same check for `android.hardware.drm@1.0-impl.so`: the kept DRM services are the 1.2
+  ones and Android 14's libmediadrm still has `DrmHalHidl.cpp`/`CryptoHalHidl.cpp`, so a 1.2 factory
+  covers 1.0/1.1 instances; the 1.0 service is declared. `cas@1.1-service.rc` likewise: Android 14's
+  `cas@1.2-service` (requested) installs its own rc and registers `ICasFactory` at 1.2.
+* weaver is **not** a gap: Android 14 builds its own service and impl, and both are already in
+  `vendor.img` (`bin/hw/android.hardware.weaver@1.0-service`, `lib*/hw/android.hardware.weaver@1.0-impl.so`),
+  so the OEM rc/impl gap is only "Android 14's own copy replaced it".
+* `lib*/libwpa_client.so` and `lib*/android.hardware.audio.common@5.0-util.so` have zero consumers:
+  a DT_NEEDED scan over every staged vendor ELF that is not dropped returns 0 files linking either,
+  and Android 14's built supplicant/hostapd link the AIDL wifi libs instead (full NEEDED lists in
+  `vendor_dest_deviations.txt`). Both are declared.

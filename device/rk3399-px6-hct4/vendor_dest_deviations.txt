@@ -1,6 +1,8 @@
 # Vendor destinations deliberately NOT restored - neither the staged blob nor an Android 14 module.
 # Accepted by the owner on Nov 6 (v1). tools/vendor_dropped_check.py
 # reports them but never fails on them, so the verification gate stays meaningful for everything else.
+# The block added on Nov 16 (**D52**) is declared by engineering, not accepted by the owner yet; it is
+# the same mechanism, so the gate keeps reporting it and keeps passing for everything else.
 # Paths are partition-relative (`bin/hw/rild` for /vendor/bin/hw/rild). Comments give the reason.
 
 # ---- no cellular modem --------------------------------------------------------------
@@ -37,3 +39,100 @@ bin/hw/android.hardware.wifi@1.0-service
 etc/init/android.hardware.wifi@1.0-service.rc
 lib64/librkwifi-ctrl.so
 lib/librkwifi-ctrl.so
+
+
+# ---- no HIDL keymaster (**D52**) ------------------------------------------------
+# Android 14's keystore2 only speaks AIDL KeyMint (`frameworks/native/keystore2` has no HIDL
+# keymaster client; the Software KeyMint service `android.hardware.security.keymint-service` is
+# requested in device.mk and installs its own keymint/sharedsecret/secureclock manifest fragments).
+# `android.hardware.keymaster@3.0-impl.so` wraps the legacy `keystore` HAL, which no Android 14
+# process opens, so restoring it would add a service nothing talks to. The staged service binary and
+# rc are already dropped because Android 14 defines install rules for those paths.
+etc/init/android.hardware.keymaster@3.0-service.rc
+lib/hw/android.hardware.keymaster@3.0-impl.so
+lib64/hw/android.hardware.keymaster@3.0-impl.so
+
+# ---- no Gatekeeper at all (**D52**) --------------------------------------------
+# Android 14 removed Gatekeeper (keystore2 attestation goes through KeyMint), so no module installs
+# the service or the impl. The Rockchip stack cannot be carried over either: the DT_NEEDED walk of
+# the kept blobs shows `gatekeeper.rk30board.so` and `librkgatekeeper.so` need `libgatekeeper.so`,
+# and `nm -D --undefined-only` shows 8 `gatekeeper::` symbols (EnrollRequest/VerifyRequest/
+# EnrollResponse/VerifyResponse ctors+dtors) that no file in this build tree, in the Android 10
+# reference firmware or in the Android 11 reference firmware defines. `libgatekeeper.so` is not in
+# the stock Android 10 system or vendor partition either - Gatekeeper was already non-functional on
+# the OEM firmware. `libteec.so` (Trusty TEE client) IS staged, so the TEE layer alone would load;
+# the missing libgatekeeper.so is what decides it. Shipping nine files that cannot be dlopened is
+# worse than declaring the gap, so these blobs are dropped as well.
+etc/init/android.hardware.gatekeeper@1.0-service.rc
+lib/hw/android.hardware.gatekeeper@1.0-impl.so
+lib64/hw/android.hardware.gatekeeper@1.0-impl.so
+lib/hw/gatekeeper.rk30board.so
+lib64/hw/gatekeeper.rk30board.so
+lib/librkgatekeeper.so
+lib64/librkgatekeeper.so
+lib/libRkTeeGatekeeper.so
+lib64/libRkTeeGatekeeper.so
+
+# ---- no standalone HIDL soundtrigger impl (**D52**) ----------------------------
+# Android 14 builds no module that installs this path at all (`vendor_dropped_check.py`: "no module
+# installs this path at all"), i.e. the HIDL soundtrigger impl is gone from the tree. Sound
+# detection reaches the staged audio.primary.rk30board.so through Android 14's own audio stack,
+# which device.mk requests (android.hardware.audio.service + audio@6.0-impl + audio.effect@6.0-impl
+# + audio.common@6.0-util). Not a sound-input criterion gap: touch, buttons and CANBUS are read by
+# the MTC/CarPlay layer, not by SoundTriggerHw.
+lib/hw/android.hardware.soundtrigger@2.0-impl.so
+lib64/hw/android.hardware.soundtrigger@2.0-impl.so
+
+# ---- audio.common@5.0-util: no consumer left (**D52**) ------------------------
+# Android 14 builds it for /system only (the audit lists it as "built OUTSIDE /vendor"), and its two
+# consumers - `android.hardware.audio@5.0-impl.so` and `android.hardware.audio.effect@5.0-impl.so` -
+# are dropped because Android 14's audio@6.0 impls replace them. A DT_NEEDED scan of every staged
+# vendor ELF that is not dropped finds zero files linking it.
+lib/android.hardware.audio.common@5.0-util.so
+lib64/android.hardware.audio.common@5.0-util.so
+
+# ---- libwpa_client: nothing links it (**D52**) --------------------------------
+# Android 14's supplicant and hostapd are the AIDL ones (external/wpa_supplicant_8) and do not link
+# libwpa_client.so: `readelf -d` on the built /vendor/bin/hw/wpa_supplicant lists libcutils, liblog,
+# libcrypto, libssl, libkeystore-engine-wifi-hidl, libnl, android.hardware.wifi.supplicant-V3-ndk,
+# android.system.keystore2-V1-ndk, libutils, libbase, libbinder_ndk, libc++, libc, libm; hostapd
+# lists libnl, android.hardware.wifi.hostapd-V2-ndk and android.hardware.wifi.common-V1-ndk. No
+# module installs the path either, and a scan of the kept vendor blobs finds zero consumers (the OEM
+# `bin/wpa_cli` was already dropped as build-owned). WiFi (**D21**) is unaffected.
+lib/libwpa_client.so
+lib64/libwpa_client.so
+
+# ---- no HIDL light HAL (**D52**) ----------------------------------------------
+# Android 14's lights are AIDL: frameworks/base/core/java/android/hardware/lights/SystemLightsManager.java
+# and frameworks/base/services/core/java/com/android/server/lights/LightsService.java, and a grep for
+# `light@2` in frameworks/native and frameworks/base finds no service code (only tests, jni, Watchdog
+# and VintfObject). Android 14's light@2.0 default impl is a passthrough over the legacy `lights` HAL,
+# and the legacy lookup never opens the blob this unit ships: it tries `lights.<ro.hardware>.so`
+# (lights.rk30board.so - absent) and then `lights.default.so` (absent), while the staged file is named
+# `lights.rk3399.so`. Starting the service would fail at impl load and init would restart it, so it is
+# declared rather than restored. If LED control ever becomes a criterion, the fix is a provider named
+# lights.default.so (or a ro.hardware.lights override), not this blob.
+etc/init/android.hardware.light@2.0-service.rc
+lib/hw/android.hardware.light@2.0-impl.so
+lib64/hw/android.hardware.light@2.0-impl.so
+
+# ---- no drm@1.0 service/impl (**D52**) ----------------------------------------
+# The kept Android 10 DRM services are the 1.2 ones (android.hardware.drm@1.2-service.clearkey and
+# .widevine, both restored and both registered in their own init scripts), and Android 14's
+# libmediadrm still carries the HIDL path (frameworks/av/drm/libmediadrm/DrmHalHidl.cpp and
+# CryptoHalHidl.cpp), so a 1.2 factory - which casts down to 1.1 and 1.0 instances - already covers
+# every version the framework asks for. Android 14's drm@1.0 default impl is a passthrough over the
+# legacy `drm` HAL, which the HU does not ship separately; adding a second service would compete for
+# the same interface names without adding a plugin.
+etc/init/android.hardware.drm@1.0-service.rc
+lib/hw/android.hardware.drm@1.0-impl.so
+lib64/hw/android.hardware.drm@1.0-impl.so
+
+# ---- no cas@1.1 service rc (**D52**) ------------------------------------------
+# Android 14's CAS service is `android.hardware.cas@1.2-service` (requested in device.mk), which
+# installs its own init script and registers ICasFactory at 1.2 - castable to 1.1 and 1.0 - so the
+# OEM 1.1 service would be a second provider of the same interface. The CAS plugin itself
+# (lib*/mediacas/libclearkeycasplugin.so) is build-owned (Android 14's own copy); note that the OEM
+# blob additionally needs libprotobuf-cpp-full.so, which the stock Android 10 firmware never shipped,
+# so CAS was already dead there.
+etc/init/android.hardware.cas@1.1-service.rc

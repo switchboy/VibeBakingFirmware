@@ -1653,3 +1653,49 @@ does not use libvintf, and AIDL `servicemanager` reads manifests rather than mat
 (`ServiceManager.cpp:58-70`). Level 4 therefore costs diagnostic/CTS accuracy, not boot or HAL
 availability, so it is left as the OEM value rather than moved to 5. The generator comment that
 claimed matrix 4 ships is corrected. Full measurements: `docs/findings.md`.
+
+
+**D52 - four lost vendor chains are restored by module request; eleven are declared gaps
+(Nov 16, engineering, pending owner review).** The post-build audits found 26 vendor destinations
+with no replacement. Restored, because Android 14 builds the component and only the *request* was
+missing (comments sit above the `PRODUCT_PACKAGES` blocks, since kati rejects a comment inside a
+`\`-continued list):
+  * graphics allocator + mapper - `android.hardware.graphics.allocator@2.0-service`,
+    `allocator@2.0-impl`/`_32`, `mapper@2.0-impl-2.1`/`_32`. Without them Android 14's libui aborts:
+    `GraphicBufferMapper.cpp:60-77` ("gralloc-mapper is missing") and
+    `GraphicBufferAllocator.cpp:68-70` (`LOG_ALWAYS_FATAL_IF(!mAllocator->isLoaded())`), i.e. the
+    screen criterion. Android 14's impls are passthrough wrappers that `GrallocLoader::load()` the
+    legacy gralloc HAL, so they wrap the staged `gralloc.rk30board.so`; the standalone service is
+    restored because SurfaceFlinger only registers its own instance when
+    `ro.surface_flinger.start_graphics_allocator_service` is true and nothing sets it, while the
+    stock Android 10 init script starts the service (`vendor.gralloc-2-0`, `user system`,
+    `group graphics drmrpc`). hwservicemanager runs (Android 14 installs it in system_ext;
+    init.rc:488 starts it), and no graphics module installs a vintf fragment, so the OEM manifest
+    cannot get a duplicate FqInstance.
+  * protobuf - `libprotobuf-cpp-lite-vendorcompat`/`_32`. The kept Android 10 blobs ask for the plain
+    soname and Android 14 installs only versioned ones (`libprotobuf-cpp-lite.vendor` installs
+    `-21.12.so`); measured against the files in `vendor.img`: 13 symbols missing against 21.12, 10
+    against 3.9.1, 0 against Lineage's VNDK v29 blob for clearkey, libwvhidl.so, libwvdrmengine.so
+    and libwebrtc_audio_preprocessing.so. Different destination, so no "overriding commands" with
+    Android 14's vendor variant.
+  * OMX soft plugin - `libstagefright_softomx_plugin.vendor`/`.vendor_32`: the kept OMX service
+    dlopen's it, so no DT_NEEDED walk can find it.
+  * power - `android.hardware.power@1.0-service` + `impl`/`_32`: Android 14's PowerHalLoader still
+    accepts HIDL (`PowerHalLoader.cpp:59-125`) and the legacy lookup finds the staged
+    `power.default.so`, so CPU hinting keeps working instead of degrading to a no-op.
+Declared instead of restored (`vendor_dest_deviations.txt`, 11 groups, 24 paths): the keymaster@3.0
+rc+impls (Android 14 keystore2 speaks AIDL KeyMint, Software KeyMint ships); the whole Gatekeeper
+chain incl. the Rockchip blobs (Android 14 removed it, and `libgatekeeper.so` - 8 `gatekeeper::`
+symbols - exists in no tree, not even in the stock Android 10 firmware, where Gatekeeper was already
+dead); light@2.0 rc+impls (Android 14's lights are AIDL and the legacy lookup cannot open the staged
+`lights.rk3399.so`, so the service would restart-loop); drm@1.0 rc+impls (the kept 1.2 DRM services
+provide 1.0/1.1 factories, and Android 14's libmediadrm still has `DrmHalHidl.cpp`);
+`cas@1.1-service.rc` (Android 14's `cas@1.2-service` ships); `soundtrigger@2.0-impl` x2 (Android 14
+builds no HIDL impl at all; detection goes through the audio@6.0 stack, and sound input on the HU is
+touch/buttons/CANBUS, not SoundTriggerHw); `android.hardware.audio.common@5.0-util` x2 (its only
+consumers, the audio@5.0 impls, are replaced by 6.0; zero consumers measured); `libwpa_client.so` x2
+(zero consumers; Android 14's supplicant/hostapd use the AIDL wifi libs). weaver is neither: Android
+14 installs its own service and impl, already present in `vendor.img`. Full measurements, including
+the protobuf symbol counts per consumer and the hwservicemanager/system_ext correction:
+`docs/findings.md`. Nothing was written to the unit; the gate set stays offline-only until the owner
+green-lights the raw `dd` (D47/D43).
