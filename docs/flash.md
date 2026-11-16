@@ -51,21 +51,54 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
    packages are signed with HCT's own cert `cf2ab3…`, and `/system/etc/security/otacerts.zip` in both
    stock system images contains only that cert. If this recovery bundle is only that cert, our testkey
    signature is rejected again and the fallback below is the route.
- * **Fallback images**, for `scripts/flash_from_android.sh` from the Android 11 root shell (rebuilt Nov 8
-   20:32 so they carry the same probe + adb key): `super.img` 2,275,747,780 B, sha256
-   `2045af9c2d730aa5cb76df48e8a081b677ccf74a3272dbd1d2419aaf8162ff69`, and `boot.img` 32,796,672 B,
-   sha256 `83fd2a15c74424e8a6c9663dfa89339a77de8ea53b9659e7e3e58819609104f8` (NAS
-   `lineage21s/out/target/product/rk3399/`, workstation copies in `out-hu/`). Recovery stays untouched in
-   both routes, which is what keeps the stock package installable as the rollback.
+ * **Fallback images**, for `scripts/flash_from_android.sh` from the Android 10 root shell. Measured on
+   the Nov 16 23:42 pass (shape A staging, `SHAPE=a10 SKIP_DIST=1`), NAS
+   `lineage21s/out/target/product/rk3399/`: `super.img` (Android sparse) 2,400,917,568 B sha256
+   `bb79874ce476f33ac9c7afa1934a3719b861685c04b0f253711e8c27d6a674bc`, `vendor.img` 556,072,960 B
+   `7a5ce939be0f893c0cf00ca0c55ded5ecfc9f27fca43348fe7ae4a705ff4e8c2`, `boot.img` 28,012,544 B
+   `9605fb9fe63e815fa7fb71f41f3f9ef33b4c1672f6240fe5b3ebc75df0788f26` (unchanged since Nov 15),
+   `recovery.img` 39,905,280 B `728d72ef1cae1353a47c7008b515b9861be8e5c6b2de6872d7ecbbf4646ead1a`, and
+   the stale Nov 8 `lineage_rk3399-ota.zip` 1,012,957,295 B `931bbb45cff126ccc91b9133dcf3d4a27c0b208edeea9af02c29db748e4ab7ac`
+   (`m dist` stays skipped, SSData is tight, so the OTA zip is NOT this pass's output). Logical content
+   is system 1,012,871,168 + vendor 556,072,960 + product 456,159,232 + system_ext 384,802,816 +
+   odm 811,008 = **2,410,717,184 B** inside the unchanged `hct_dynamic_partitions` group of
+   3,258,974,208 B, so **848,257,024 B (~809 MiB) spare** - no partition resize (**D19**/**D11**),
+   super device size still 3,263,168,512 B (**D18**). `lpdump` on the flattened container confirms the
+   extents (unit = 512 B sectors): system 1,978,264 / vendor 1,086,080 / product 890,936 /
+   system_ext 751,568 / odm 1,584 sectors = 4,708,432 sectors, i.e. exactly the five image sizes above,
+   and the group name and maximum are still `hct_dynamic_partitions` / 3,258,974,208 B.
+ * **The shape-A payload pair actually staged** (Nov 17, `a14-work/a14chk-shapeA/`):
+   `boot-a10k-a14rd.img` 28,233,728 B sha256 `3cf40129…` plus `raw-super.img` 3,263,168,512 B sha256
+   `d81f913aee9162d7cb948db63528200b94ba6e6c6a50f78795174ce5bf19fdb8` - the flattened container
+   (`out/host/linux-x86/bin/simg2img` on `super.img`; the file is exactly the partition size, never
+   larger). `tools/payload_coupling_check.py` on that pair: kernel banner `4.19.111+`, layout
+   kernel 25,671,688 B @2048 / ramdisk 1,631,866 B @25,675,776 / `second` 924,672 B @27,308,032 with the
+   DTB at +2048 (size 152,425), header `dtb_size 0`, 21 `.ko` in `vendor.img` at vermagic
+   `4.19.101+`/`4.19.111+`/`4.4.167`, the 14 `hu_insmod.sh` modules all present with correct vermagic,
+   and the restored chain present (`libion.so`, `libaudioroute.so`, `libaudioutils.so`,
+   `libspeexresampler.so`, `libprotobuf-cpp-lite.so`, `libstagefright_softomx_plugin.so`, the
+   allocator/mapper impls, `gps.default.so`, `audio.primary.rk30board.so`, `gralloc.rk30board.so`) in
+   both arches - PASS, "boot image and vendor partition in this payload agree". Recovery stays untouched
+   in both routes, which is what keeps the stock package installable as the rollback.
 
 ## Pre-flight
 
 1. `scripts/verify_artifacts.sh <tree>` must pass: `VENDOR/` + `vendor.map`, the injected vendor
-   libraries, super layout, VINTF `COMPATIBLE`, boot header, OTA zip. The Nov 8 pass flagged
-   `flashable = NO` only on the parity flags (`vendor_diff.py` / `vendor_dropped_check.py` exit
-   non-zero) - `docs/findings.md`, packaging pass Nov 8, records why those are intentional
-   Android 14 drops plus one real gap (`libstagefright_softomx_plugin.so`, legacy OMX soft codecs
-   only). Read that section before flashing.
+   libraries, super layout, VINTF parsing, boot header, the kernel/module/manifest coupling gate, the
+   recovery installer and the OTA zip. **The Nov 17 run exits 1 with exactly two `!` lines, and both
+   are about the *raw* `boot.img` the build produces, not about the payload we flash**: its ramdisk has
+   no `/first_stage_ramdisk/fstab.rk30board` (**D34**), and `payload_coupling_check.py` exiting
+   non-zero on that is what prints the second line ("boot image and vendor partition disagree"). The
+   flashed payload is the repacked pair in `a14-work/a14chk-shapeA/` - `boot-a10k-a14rd.img` carries
+   the fstab plus the OEM Android 10 kernel and DTB-bearing `second` stage, and the same gate PASSes on
+   it ("boot image and vendor partition in this payload agree"). Everything else in the Nov 16 pass is
+   green: dropped-destination check, link closure, ABI check, the 14 `hu_insmod.sh` modules, the
+   injected libs in both arches, the GPS/audio/gralloc criterion files, manifest `target-level=4` with
+   no `<kernel>` tag, the three check_vintf logs, and recovery's `update_engine_sideload`. Two things
+   worth knowing: the super-layout section only runs after `scripts/check_super.py` stopped opening the
+   dist zip eagerly (`SKIP_DIST=1` means there is no `out/dist`, so the whole comparison used to crash
+   silently), and the stale Nov 8 `lineage_rk3399-ota.zip` in the OTA section is not this pass's output.
+   `docs/findings.md` records the numbers for each section.
 2. Check the payload, then re-verify the same sha on the stick copy - a corrupt stick copy is the one
    thing a pre-flash check catches: `unzip -tqq out-hu/update.zip` is clean, `unzip -l` shows the payload
    entries plus SignApk's `META-INF/com/android/otacert`, and
@@ -175,8 +208,22 @@ The operator-relevant consequences:
   `scripts/stage_hu_card.sh:36`, `scripts/stage_a14_payload.sh:21`,
   `scripts/build_recovery_fallback_zip.sh:72` and the recovery installer all take
   **`a14chk/a14-boot-fixed.img`** (kernel payload 30,455,816 B = the vendor **Android 11** kernel
-  `4.19.193 #24`, sha `933e2ecc…`), and our A14 super ships `.ko` files at `vermagic=4.19.193` - a coherent
-  pair. That is **shape B**, the fallback (**D46**).
+  `4.19.193 #24`, sha `933e2ecc…`). Its partner is `a14chk/raw-super.img` (3,263,168,512 B, sha
+  `d4b4990931cc…`), and the coupling gate was re-measured Nov 17 against the vendor partition carved
+  out of *that* container (extents 0..840847 in 512 B sectors = 430,514,176 B at offset
+  1,015,255,040 B): kernel `4.19.193`, 17 `.ko` at vermagic `4.19.193` + `4.4.167`, all 14
+  `hu_insmod.sh` modules present at the kernel's own version, the four injected libraries in both
+  arches, the GPS HAL files present, manifest `version=8.0 target-level=5` **with**
+  `<kernel target-level="5">` - PASS. That is **shape B**, the fallback (**D46**). One caveat, stated
+  plainly: that container is the Nov 11 build, so it does not carry what Nov 16 restored (**D52**) -
+  it has no `lib*/libprotobuf-cpp-lite.so` (only the versioned `-3.9.1`/`-21.12` sonames), no
+  `lib*/libstagefright_softomx_plugin.so` and no `android.hardware.power@1.0-service`. Its graphics
+  path is self-contained and differs from shape A's: Android 14's own `allocator@4.0-impl-midgard` +
+  `mapper@4.0-impl-midgard` + `allocator@4.0-service` (+ rc), so libui resolves at Gralloc4 instead of
+  through the passthrough wrappers over the staged `gralloc.rk30board.so`, and it does carry
+  `lib*/libgatekeeper.so`, which shape A declares away. Shape B is coherent as kernel + modules +
+  manifest, but it is not D52-current: it is offered only after a `SHAPE=a11` packaging pass rebuilds
+  its super.
 
   **Shape A** (the primary, Nov 15) ships `a14-work/a14chk-shapeA/boot-a10k-a14rd.img`: 28,233,728 B,
   sha `3cf4012980d0a824c37ed3f24982a9c7e50d2c8c8497030be139e1184a647375`, kernel payload 25,671,688 B = the

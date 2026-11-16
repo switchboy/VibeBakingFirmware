@@ -3,8 +3,10 @@
 
   1. simg2img the build's sparse super.img into a raw image.
   2. lpdump the raw image -> partition table (extent sectors + offset into super).
-  3. byte-compare each logical partition's bytes against IMAGES/<name>.img from the target_files
-     zip - that is what `m superimage` stages.
+  3. byte-compare each logical partition's bytes against the image `m superimage` embedded - the
+     product dir's raw <name>.img first, then the staging dir's IMAGES/<name>.img, then the target_files
+     zip. The zip is a last resort only: `SKIP_DIST=1` (SSData is tight) never creates out/dist, so
+     opening it eagerly would crash this whole check before any comparison ran.
   4. carve each embedded partition back out into its own file and let debugfs read the ext4 super
      block: debugfs understands ext4, so "it parses" is the real proof that the filesystem inside
      super is intact. (The ext4 magic is 0xEF53, stored little-endian, so the bytes read 53 ef;
@@ -66,7 +68,16 @@ for line in dump.splitlines():
         parts[name] = (last - first + 1, off * 512)
 parts.pop("default", None)
 
-zf = zipfile.ZipFile(ZIP)
+# Last-resort source only, and opened lazily: with SKIP_DIST=1 (SSData is tight) out/dist does not
+# exist, and an eager ZipFile here crashed the whole check before any partition was compared, which
+# silently dropped a gate D47 makes the safety net. The product dir and the staging dir are the real
+# sources for a pass that skips dist.
+zip_names = set()
+if os.path.isfile(ZIP):
+    with zipfile.ZipFile(ZIP) as zf:
+        zip_names = set(zf.namelist())
+else:
+    print("no dist target_files zip (%s) - comparing against the product dir / staging IMAGES only" % ZIP)
 all_ok = True
 used = 0
 for name_, (sectors, off) in sorted(parts.items(), key=lambda kv: kv[1][1]):
@@ -85,9 +96,9 @@ for name_, (sectors, off) in sorted(parts.items(), key=lambda kv: kv[1][1]):
     elif os.path.exists(src_path):
         label = "staging IMAGES"
         shutil.copyfile(src_path, staged)
-    elif entry in zf.namelist():
+    elif entry in zip_names:
         label = "target_files zip"
-        with zf.open(entry) as fh, open(staged, "wb") as out:
+        with zipfile.ZipFile(ZIP) as zf, zf.open(entry) as fh, open(staged, "wb") as out:
             shutil.copyfileobj(fh, out)
     else:
         print("  %-10s MISSING from product dir, staging dir and target_files zip" % name_)

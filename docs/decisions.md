@@ -1724,3 +1724,31 @@ skip declared paths in its "built OUTSIDE /vendor" category, so the two declared
 `android.hardware.audio.common@5.0-util.so` paths no longer look like an open fix. Full measurements
 (including the partition sizes against the unchanged super group): `docs/findings.md`. Nothing was
 written to the unit.
+
+
+**D53 - the offline gate set gains two corrections, and shape B's status is recorded (Nov 17,
+engineering, pending owner review).** Two measurement fixes, no payload change:
+  * `scripts/check_super.py` opened the dist `target_files` zip eagerly, so with `SKIP_DIST=1` the
+    whole logical-partition comparison crashed with a `FileNotFoundError` after printing the raw size -
+    and `verify_artifacts.sh` pipes it through `tail -14` without checking the exit status, so the
+    super-layout gate silently did nothing. It now opens the zip only when it exists and only as the
+    last-resort source (product dir raw `<name>.img`, then staging `IMAGES/`), and prints that no dist
+    zip was available.
+  * `scripts/smoke_recovery_installer.sh` needs ~7 GiB of scratch (a real 3,263,168,512 B payload copy
+    plus a `dd`-filled fake super partition, peaking near 6.6 GiB). Measured: with the default TMPDIR on
+    the workstation's `/tmp` tmpfs (~4.4 GiB free at that moment) scenario 2 aborted at
+    "hu-install: ABORT - dd super failed", which is an out-of-space failure rather than an installer bug.
+    With a roomy TMPDIR all 8 scenarios pass. The requirement is documented in the script header and in
+    `docs/findings.md`.
+`docs/flash.md` now states the corrected partition arithmetic (2,410,717,184 B used of the unchanged
+3,258,974,208 B group, 848,257,024 B spare, lpdump extents per partition) and rewrites pre-flight item 1:
+`verify_artifacts.sh` exits 1 only because the *raw* built `boot.img` has no first-stage fstab (D34),
+while the payload we would flash (`a14chk-shapeA/boot-a10k-a14rd.img`) passes the coupling gate.
+Shape B was re-measured against the vendor partition carved from its own container (`a14chk/raw-super.img`,
+sha `d4b49909…`): PASS, kernel `4.19.193`, 17 `.ko`, 14/14 insmod modules, manifest `target-level=5`
+with `<kernel>`. But that container is the Nov 11 build, so it lacks the D52 restorations (plain
+`libprotobuf-cpp-lite.so`, the soft-OMX plugin, the HIDL power service) and still carries the Rockchip
+OMX plugins and `libgatekeeper.so`; its graphics chain is Android 14's own midgard 4.0 impls + service
+instead of shape A's 2.0/2.1 passthrough wrappers. Shape B therefore stays a fallback that must be
+rebuilt from a `SHAPE=a11` pass before being offered. Nothing was written to the unit (it is offline;
+W4 is still open).

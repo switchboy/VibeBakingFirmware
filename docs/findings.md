@@ -2463,3 +2463,85 @@ The pass launched at 23:06 with the new device.mk (bootimage rc=0, recoveryimage
 
 Total declared deviations: 48 paths in 16 groups (the Nov 6 owner-accepted RIL/recovery/wifi groups
 plus the D52 and D52b engineering groups).
+
+
+## The corrected super arithmetic, `verify_artifacts.sh` on Nov 17, and the smoke harness's scratch (Nov 17)
+
+* **Partition arithmetic, corrected.** The Nov 16 23:42 pass is system 1,012,871,168 + vendor
+  556,072,960 + product 456,159,232 + system_ext 384,802,816 + odm 811,008 = **2,410,717,184 B**,
+  inside the unchanged `hct_dynamic_partitions` group whose maximum is 3,258,974,208 B, so
+  **848,257,024 B (~809 MiB) spare** - not the 2,411,433,984 / 847,540,224 pair that a note in
+  `docs/flash.md` carried, which came from the earlier 23:06 pass where vendor was still 556,789,760 B
+  before the gatekeeper/OMX blobs were declared and dropped (556,789,760 - 556,072,960 = 716,800 B,
+  exactly the difference). `lpdump` on the flattened container settles it per partition, in 512 B
+  sectors: system 1,978,264 / vendor 1,086,080 / product 890,936 / system_ext 751,568 / odm 1,584 =
+  4,708,432 sectors = 2,410,717,184 B, group name and maximum unchanged, super device 3,263,168,512 B
+  unchanged (**D18**/**D19** - nothing was resized).
+* **`scripts/verify_artifacts.sh` on the Nov 16 pass (NAS, Nov 17):** rc=1, and the only two `!`
+  lines are the coupling section's, both the same root cause - the *built* `boot.img` has no
+  `/first_stage_ramdisk/fstab.rk30board` (**D34**), which makes `tools/payload_coupling_check.py` exit
+  non-zero and `verify_artifacts.sh` print "boot image and vendor partition disagree" next to it.
+  Everything else in that run passed: dropped-destination check rc=0 (214 dropped / 161 present / 53
+  absent / 43 declared, LOST category empty), closure rc=0 (109 modules requested, 0 not installed),
+  ABI check rc=0 ("every kept blob resolves its undefined symbols"), `hu_insmod.sh` 14/14 modules
+  present with correct vermagic, the four injected libraries in both arches, the criterion HAL files
+  (`gnss@1.0-service`, `gnss@1.0-impl.so`, `gps.default.so`), manifest `target-level=4` with 24 inline
+  HALs and no `<kernel>` tag, the three check_vintf logs parsing cleanly, and the recovery ramdisk
+  carrying `update_engine_sideload` + `libfusesideload.so` + `recovery.fstab`. So the verdict
+  "flashable build = NO" is about the *raw* boot image, not the payload: the thing we would flash is
+  `a14-work/a14chk-shapeA/boot-a10k-a14rd.img`, which carries the fstab in its ramdisk and passes the
+  same gate ("boot image and vendor partition in this payload agree", kernel banner `4.19.111+`,
+  21 `.ko`, DTB inside `second`).
+* **The super-layout gate was silently not running.** `scripts/check_super.py` opened
+  `out/dist/lineage_rk3399-target_files-root.zip` eagerly at the top of its comparison loop, and
+  `SKIP_DIST=1` never creates it, so the section died with a `FileNotFoundError` traceback after
+  printing only the raw size and group line - the byte-comparison of every logical partition against
+  its image, and the `dumpe2fs` proof that the filesystem inside super parses, simply did not happen.
+  `verify_artifacts.sh` pipes it through `tail -14` without checking the exit status, so the crash
+  never showed up as a `bad` line. Fixed: the zip is opened only when it exists and only as a
+  last-resort source (the product dir's raw `<name>.img` and the staging dir's `IMAGES/` are the real
+  sources), and the script says so when there is no dist zip.
+* **The recovery-installer smoke harness needs ~7 GiB of scratch, not a few MB.** The card copy is a
+  real 3,263,168,512 B payload file and `dd` fills the fake super partition with real bytes, so the
+  harness peaks near 6.6 GiB. With the default `${TMPDIR:-/tmp/opencode}` on the workstation's `/tmp`
+  (a 16 GiB tmpfs with ~4.4 GiB free at that moment) scenario 2 aborted at
+  `hu-install: ABORT - dd super failed` - an out-of-space failure, not an installer bug. With
+  `TMPDIR=/run/media/Daan/Opslagmonster/a14-work/smoke-tmp` (on `/dev/sda2`, ~439 GiB free) all 8
+  scenarios pass: inert without the flag, good manifest, the old sha1 spelling matched to the applet,
+  a manifest with no digest line refused, missing size lines refused before writing, a size mismatch
+  refused, an oversized payload refused, and a corrupted payload caught before the write. The note is
+  now in the script header.
+
+
+## Shape B re-measured against its own container, and what it does not carry (Nov 17)
+
+The fallback pair was checked against the vendor partition inside its own super, not against the stock
+reference image: `a14chk/a14-boot-fixed.img` (sha `933e2ecc…`, kernel payload 30,455,816 B) with the
+vendor carved out of `a14chk/raw-super.img` (sha `d4b49909…`, container 3,263,168,512 B) using
+`lpdump`'s extents - vendor `0 .. 840847` in 512 B sectors = 430,514,176 B at super offset
+1,015,255,040 B, carved with `dd bs=4096`. `tools/payload_coupling_check.py` says PASS:
+
+* boot layout: page 2048, kernel 30,455,816 B @2048, ramdisk 1,631,866 B @30,459,904,
+  `second` 544,768 B @32,092,160, header `dtb_size 157,962`, DTB magic at +1536 size 157,962.
+* kernel banner `4.19.193` (the vendor Android 11 kernel #24); 17 `.ko` in that vendor at vermagic
+  `4.19.193` and `4.4.167`; the 14 modules `hu_insmod.sh` loads are all present at `4.19.193`.
+* `libion.so`, `libaudioroute.so`, `libaudioutils.so`, `libspeexresampler.so` in both arches;
+  `bin/hw/android.hardware.gnss@1.0-service`, `lib/hw/android.hardware.gnss@1.0-impl.so` and
+  `lib/hw/gps.default.so` present; manifest `version=8.0`, `target-level=5`, 10 inline HALs and it
+  **does** declare `<kernel target-level=5>` - the Android 11 reference manifest behaviour, which is why
+  shape B is the FCM-5 route and shape A is the FCM-4 route (**D46**).
+
+What that container does NOT carry, because it is the Nov 11 build and predates **D52**: no
+`lib*/libprotobuf-cpp-lite.so` (only `libprotobuf-cpp-lite-3.9.1.so` and `-21.12.so`), no
+`lib*/libstagefright_softomx_plugin.so`, no `android.hardware.power@1.0-service` or its impls, and the
+Rockchip OMX plugins (`lib*/libomxvpu_{enc,dec}.so`, `lib*/libgralloc_priv_omx.so`) are still present in
+it - declared away only in shape A. Its graphics chain is a different, complete one: Android 14's own
+`lib*/hw/android.hardware.graphics.allocator@4.0-impl-midgard.so`,
+`lib*/hw/android.hardware.graphics.mapper@4.0-impl-midgard.so`,
+`bin/hw/android.hardware.graphics.allocator@4.0-service` and its rc, so libui's mapper lookup resolves
+at Gralloc4 there instead of through the 2.0/2.1 passthrough wrappers over the staged
+`gralloc.rk30board.so`. It also carries `lib*/libgatekeeper.so` and
+`bin/hw/android.hardware.gatekeeper@1.0-service.optee`, which shape A declares (D52) because that
+library exists in no Android 14 tree. So the conclusion is: shape B is internally coherent
+(kernel/modules/manifest agree), but it is not D52-current and must be rebuilt from a `SHAPE=a11`
+packaging pass before it is offered as the fallback.

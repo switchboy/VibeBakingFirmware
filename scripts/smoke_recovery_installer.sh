@@ -18,7 +18,14 @@
 # prove the shell dialect - busybox ash is not available here - so POSIX syntax is checked on the
 # build host with `dash -n` and `busybox ash -n` before the image is flashed.
 #
-#   scripts/smoke_recovery_installer.sh            (scratch under ${TMPDIR:-/tmp/opencode})
+# The scratch dir needs ~7 GiB free, not a few MB: the card holds a real copy of the payload
+# (super-a14.img 3,263,168,512 B + boot-a14.img 28,233,728 B) and `dd` fills the fake super partition
+# with real bytes, so the harness peaks around 6.6 GiB. Measured Nov 17: with the default TMPDIR on
+# the workstation's /tmp (a 16 GiB tmpfs, only ~4.4 GiB free at the time) scenario 2 aborted with
+# "hu-install: ABORT - dd super failed" - an out-of-space failure, not an installer bug. Run it against
+# a roomy volume: TMPDIR=/run/media/Daan/Opslagmonster/a14-work/smoke-tmp scripts/smoke_recovery_installer.sh
+#
+#   scripts/smoke_recovery_installer.sh            (scratch under ${TMPDIR:-/tmp/opencode}, ~7 GiB free)
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
