@@ -1585,3 +1585,32 @@ staged blobs and the manifest keeps its `gnss@1.0` declaration. Android 14's AID
 fixture player (`DeviceFileReader`/`FixLocationParser`) and must not be installed - it would report a
 synthetic fix instead of satellites. The measurement owed on the next reachable session is a real location
 fix plus the satellite list (`docs/head-unit-findings.md`).
+
+
+**Correction to D49's wording (Nov 15/16, measured).** The paragraph above says the OEM
+`android.hardware.gnss@1.0-service` and `@1.0-impl.so` are kept as staged blobs. Measured on the shape-A
+restage they are **not** kept: `out/soong/installs-lineage_rk3399.mk:57071` installs
+`vendor/bin/hw/android.hardware.gnss@1.0-service` from `hardware/interfaces/gnss/1.0/default`, so the staged
+copies collide and the AOSP-built ones win (they appear in `vendor_build_wins.txt`). The criterion still
+holds, and stronger than stated: Android 14's `@1.0-impl` is the *legacy wrapper* -
+`hardware/interfaces/gnss/1.0/default/Gnss.cpp:741` calls `hw_get_module(GPS_HARDWARE_MODULE_ID, ...)` - and
+`lib/hw/gps.default.so` is not dropped (Android 14 builds no `gps.hardware` module), so Android 14's service +
+impl load the OEM HAL. What the criterion actually depends on is `gps.default.so` being the OEM module and
+`/dev/ttyS0` being reachable, both measured (docs/findings.md).
+
+**D50 - the OEM `/vendor/etc/init/hw/` scripts stay inert; the connectivity file is edited in place, not
+relocated (Nov 16, engineering).** Android 14's init does not read that directory
+(`system/core/init/init.cpp:338-356` parses `/vendor/etc/init` as a directory, and `parser.cpp:159`
+`ParseConfigDir` ignores non-`DT_REG` entries), so Rockchip's board scripts - `init.rk30board.rc`,
+`init.rockchip.rc`, `init.connectivity.rc`, the usb/bootmode/optee/mount_all scripts - never execute on
+Android 14 even though they ship. `host_init_verifier` validates them recursively regardless, which is what
+stopped `m superimage` on the `akmd` mkdir. The chosen response is minimal and auditable: keep every
+`hw/` file staged at its stock path, and ship `configs/init.connectivity.rc` (stock bytes minus the dead
+`akmd` block) at that same path via `device.mk`, with `SKIP_DEST` in `tools/gen_vendor_staging.py` leaving
+the staged copy out. Relocating them into `/vendor/etc/init/` was rejected because their content is either
+dead on Android 14 (services pointing at `/system/bin/displayd`, `pppoe-*`, `dhcpcd`, `busybox`, `glgps` -
+none of which exist in this firmware) or already covered: `/data/vendor/wifi` is created by Android 14's own
+`hostapd.android.rc`, BT/GPS UART permissions come from our `configs/ueventd.rk30board.rc`, and the HAL
+services that matter (CANBUS `mtc.mfi`, audio, GNSS, composer) live in `/vendor/etc/init/` at top level.
+Executing them wholesale would also collide with Android 14's own `wpa_supplicant`/supplicant socket
+(`wpa_wlan0` is defined by the built `android.hardware.wifi.supplicant-service.rc:10`).
