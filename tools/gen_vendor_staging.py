@@ -56,11 +56,19 @@ SKIP_DEST = {
     "etc/ueventd.rc",
     "etc/init/hu.rc",
     "etc/hu_insmod.sh",
-    # configs/init.connectivity.rc is the stock file with the dead "# for akmd" mkdir removed: `akmd`
-    # is not an Android 14 aid name, so host_init_verifier aborts `m superimage` on it ("Unable to
-    # decode UID for 'akmd': getpwnam failed"), and the daemon is not in this partition. The rest of
-    # the file - wpa_supplicant, the wifi dirs, the p2p props, the ttyS0/ttyS1 chowns - is kept
-    # verbatim, so the staged copy must not also ship at this destination (docs/findings.md).
+    # configs/init.rk3399.rc is the stock file minus `verity_load_state`, which Android 14's init has no
+    # builtin for (system/core/init/builtins.cpp's map carries verity_update_state only), so the parser
+    # rejected the file and `m superimage` aborted on "Invalid keyword 'verity_load_state'". This file is
+    # imported by the hw/ chain (init.rc -> hw/init.rk30board.rc -> hw/init.${ro.board.platform}.rc), so it
+    # really runs; the edited copy ships at the stock destination (docs/findings.md, docs/decisions.md D50).
+    "etc/init/hw/init.rk3399.rc",
+    # configs/init.connectivity.rc is the stock file minus two statements: the dead "# for akmd" mkdir
+    # (`akmd` is not an Android 14 aid name, so host_init_verifier aborts `m superimage` on it with
+    # "Unable to decode UID for 'akmd': getpwnam failed", and no akmd binary ships in this partition),
+    # and the OEM `service wpa_supplicant` block, which would displace Android 14's own AIDL supplicant
+    # service of the same name (service_parser.cpp:710 ignores the later duplicate). Everything else -
+    # the wifi dirs, the p2p props, the bcmdhd chowns, the ttyS0/ttyS1 chowns - is kept verbatim, so the
+    # staged copy must not also ship at this destination (docs/findings.md, docs/decisions.md D50).
     "etc/init/hw/init.connectivity.rc",
     # VINTF metadata goes through DEVICE_MANIFEST_FILE / DEVICE_MATRIX_FILE
     "etc/vintf/manifest.xml",

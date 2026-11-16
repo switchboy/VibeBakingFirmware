@@ -2175,7 +2175,7 @@ Measured, not assumed:
   file gentle_kill group interface ioprio keycodes namespace oneshot onrestart oom_score_adjust override
   priority reboot_on_failure restart_period rlimit seclabel setenv shutdown sigstop socket stdio_to_kmsg
   task_profiles timeout_period updatable user writepid`, 55 builtin commands) found exactly one rejected
-  statement: `init.rk3399.rc:37`. (Three apparent extras were `\`-continuation lines of multi-line commands,
+  statement: `init.rk3399.rc:37`. (Three apparent extras were continuation lines of a multi-line command,
   which init joins before parsing.)
 * `configs/init.rk3399.rc` is the stock file byte-for-byte minus that statement and its comment (diff
   measured: two lines), shipped by `device.mk` at `$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.rk3399.rc`,
