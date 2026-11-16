@@ -44,9 +44,39 @@ say() { printf '%s\n' "$1"; }
 # llvm tools and BSP 4.19 is not clang-clean, so it is not attempted here; if apt is unavailable, that is
 # the fallback to work out. Which compiler was used is recorded, because the banner's gcc string is part
 # of the identity of the kernel and its modules (vermagic must stay consistent, D46).
+#
+# CC_BIN picks a *specific* gcc and the script builds a CROSS_COMPILE prefix directory around it, because
+# `CROSS_COMPILE` prefixes every tool (gcc, ld, ar, nm, objcopy, strip, objdump), not just the compiler:
+# pointing CROSS at /usr/bin/aarch64-linux-gnu-gcc-12 would make `ld` resolve to
+# `aarch64-linux-gnu-gcc-12ld`. The OEM kernel #190 was built with Linaro gcc 6.3.1 (measured from its
+# banner), and 4.19 does not build cleanly with gcc 12+, let alone Debian 13's default 14, so gcc-12 is
+# the closest available option (docs/build-host.md, "Packages installed").
+CC_BIN=${CC_BIN:-}
+
+build_prefix_dir() {   # $1 = gcc binary to use; prints the CROSS_COMPILE prefix to use
+    [ -n "$1" ] || return 1
+    local d="$OUT/xcc" ver
+    mkdir -p "$d"
+    ver=$(basename "$1")                       # aarch64-linux-gnu-gcc-12
+    local tri=${ver#aarch64-linux-gnu-gcc-}    # "12"; empty when the plain gcc is given
+    ln -sf "$1" "$d/aarch64-linux-gnu-gcc"
+    ln -sf "$1" "$d/aarch64-linux-gnu-cc"
+    for t in ld ar nm objcopy objdump strip ranlib; do
+        # binutils-aarch64-linux-gnu carries the unversioned tools; with a versioned gcc they may exist too
+        if [ -n "$tri" ] && [ -x "/usr/bin/aarch64-linux-gnu-$t-$tri" ]; then
+            ln -sf "/usr/bin/aarch64-linux-gnu-$t-$tri" "$d/aarch64-linux-gnu-$t"
+        else
+            ln -sf "/usr/bin/aarch64-linux-gnu-$t" "$d/aarch64-linux-gnu-$t"
+        fi
+    done
+    echo "$d/aarch64-linux-gnu-"
+}
+
 pick_toolchain() {
-    if command -v "${CROSS}gcc" >/dev/null 2>&1; then
-        echo "gcc"
+    if [ -n "$CC_BIN" ]; then
+        build_prefix_dir "$CC_BIN"
+    elif command -v "${CROSS}gcc" >/dev/null 2>&1; then
+        echo "$CROSS"
     else
         echo ""
     fi
@@ -100,13 +130,13 @@ prepare)
 build)
     say "== build Image + modules =="
     tc=$(pick_toolchain)
-    [ -n "$tc" ] || { say "ABORT: ${CROSS}gcc not found - install gcc-aarch64-linux-gnu (apt) or point CROSS at another cross toolchain"; exit 1; }
-    say "  compiler: ${CROSS}gcc ($(${CROSS}gcc --version 2>/dev/null | head -1))"
+    [ -n "$tc" ] || { say "ABORT: no cross toolchain - set CC_BIN=/usr/bin/aarch64-linux-gnu-gcc-12, or install gcc-aarch64-linux-gnu (apt)"; exit 1; }
+    say "  compiler prefix: $tc ($($tc gcc --version 2>/dev/null | head -1))"
     {
-        echo "=== kernel build at $(date) with ${CROSS}gcc ==="
-        make -C "$KERNEL_SRC" ARCH=arm64 CROSS_COMPILE="$CROSS" -j"$JOBS" Image
-        make -C "$KERNEL_SRC" ARCH=arm64 CROSS_COMPILE="$CROSS" -j"$JOBS" modules
-        make -C "$KERNEL_SRC" ARCH=arm64 CROSS_COMPILE="$CROSS" modules_install INSTALL_MOD_PATH="$OUT/modules"
+        echo "=== kernel build at $(date) with $($tc gcc --version 2>/dev/null | head -1) ==="
+        make -C "$KERNEL_SRC" ARCH=arm64 CROSS_COMPILE="$tc" -j"$JOBS" Image
+        make -C "$KERNEL_SRC" ARCH=arm64 CROSS_COMPILE="$tc" -j"$JOBS" modules
+        make -C "$KERNEL_SRC" ARCH=arm64 CROSS_COMPILE="$tc" modules_install INSTALL_MOD_PATH="$OUT/modules"
     } >> "$REPORT" 2>&1
     [ -s "$IMG" ] || { say "ABORT: no $IMG - see $REPORT"; exit 1; }
     cp "$KERNEL_SRC/.config" "$OUT/config-built.txt"

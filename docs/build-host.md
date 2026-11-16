@@ -28,9 +28,21 @@ Recorded in `/srv/dev-disk-by-label-SSData/aospbuild/installed_packages.txt`:
 Already present before setup: git, python3, curl, make, gcc, g++, patch, cpio, bzip2, pkg-config.
 `repo` comes from Debian's package (launcher 2.54; repo offers 2.71 and says to upgrade - harmless).
 
+Added Nov 16 for **W3**/**D48** (the shape-C kernel build):
+
+    gcc-aarch64-linux-gnu        (Debian 14.2.0-19 - pulls binutils-aarch64-linux-gnu)
+    gcc-12-aarch64-linux-gnu     (12.4.0-5cross1)
+
+Why both: the OEM kernel `#190` was compiled with `gcc version 6.3.1 (Linaro GCC 6.3-2017.05)`
+(measured from the banner in the kernel payload), and BSP 4.19 does not build cleanly with gcc 12+, let
+alone 14. Debian 13 has nothing older than 12, so gcc-12 is the closest option and gcc-14 is the
+default `aarch64-linux-gnu-gcc` (a symlink to `-14`). Which compiler was used must be recorded in the
+kernel report, because the banner is part of the kernel's identity (and its modules' vermagic, **D46**).
+
 Removal after the build:
 
-    apt-get purge -y git-lfs repo unzip device-tree-compiler brotli gdisk zip
+    apt-get purge -y git-lfs repo unzip device-tree-compiler brotli gdisk zip \
+        gcc-aarch64-linux-gnu gcc-12-aarch64-linux-gnu
     apt-get autoremove -y
 
 Nothing else was changed on the NAS: no OMV config, no service restarts, no shares created.
@@ -183,6 +195,24 @@ things were wrong in the tree we wrote, and Android 14 rejects each one loudly:
 The product config inherits `vendor/lineage/config/common_full_tablet_wifionly.mk` - the tablet
 variant without a telephony stack, which matches this unit (Bluetooth phone comes from the vendor
 HALs, no SIM).
+
+### A comment inside a `\`-continued assignment aborts the whole build (Nov 16)
+
+`m bootimage` failed in 2 seconds, before any compile work, with:
+
+```
+device/rockchip/rk3399/device.mk:217: error: missing separator.
+dumpvars failed with: exit status 1
+```
+
+The offender was a comment line placed *between* entries of a `PRODUCT_PACKAGES += \` list (the
+software-KeyMint note added on Nov 15). kati reads the joined continuation as the value and then trips on
+the indented `#`, so a comment must sit **outside** the continued list - either above the
+`PRODUCT_PACKAGES +=` line or in a separate `PRODUCT_PACKAGES +=` block after it. `device.mk` now splits
+the list there. The same trap applies to `PRODUCT_COPY_FILES`: our connectivity.rc entry has its
+explanation above the block, not inside it. Checked with a scan for comment lines whose previous physical
+line ends in `\` - none left in the device dir or in the generated `vendor_staging.mk` /
+`vendor_props.mk` / `vendor_modules_extra.mk`.
 
 ## The first `m` produced no boot.img or recovery.img
 

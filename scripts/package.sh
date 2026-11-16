@@ -74,6 +74,16 @@ fi
 cd "$TREE"
 : > "$LOG"
 
+# lunch parses the device dir's .mk files, so the tree must hold the *current* device dir before it
+# runs. deploy_device.sh does the gated copy later (its gates need the staging + generated files this
+# pass produces), which is why on Nov 16 lunch aborted on a stale device.mk left in the tree by the
+# previous pass ("device/rockchip/rk3399/device.mk:217: error: missing separator", dumpvars failed,
+# then LineageOS's envsetup tried to fetch a nonexistent rk3399 device repo). This copy has no gates
+# and deletes nothing, so the generated includes lunch needs (vendor_staging.mk, vendor_props.mk)
+# survive until this pass regenerates them.
+mkdir -p "$TREE/device/rockchip/rk3399"
+cp -a "$REPO/device/rk3399-px6-hct4/." "$TREE/device/rockchip/rk3399/"
+
 {
   echo "=== envsetup+lunch at $(date) ==="
   source build/envsetup.sh
@@ -142,6 +152,8 @@ python3 "$REPO/tools/vendor_link_closure.py" "$TREE" "$DEVMK" >> "$LOG" 2>&1 \
 
 cd "$TREE"
 START=$(date +%s)
+
+: > "$LOG"
 
 run() {
   echo "=== m $1 -j$JOBS at $(date) ===" >> "$LOG"
