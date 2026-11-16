@@ -148,6 +148,39 @@ def strip_fragment_hals(text, decls):
     return re.sub(r"\s*<hal\b[^>]*>.*?</hal>", repl, text, flags=re.S), removed
 
 
+def strip_versioned_names(text):
+    """Remove <hal> blocks whose <name> already carries a version suffix.
+
+    The stock Android 10 vendor manifest has two such blocks:
+    <name>android.hardware.usb.gadget@1.0</name> and <name>android.hardware.usb@1.1</name> (the
+    latter also declares <version>1.0</version> and an instance "solt1", a typo for "slot1").
+    Android 10's libvintf tolerated the name, Android 14's does not: it derives the FqInstance from
+    <name> + <version>, so assemble_vintf aborts the whole manifest with
+    "Could not parse element with name <hal> ... Cannot create FqInstance with
+    package='android.hardware.usb.gadget@1.0', version='1.0', interface='IUsbGadget',
+    instance='slot1'" (measured Nov 16, m superimage).
+
+    Dropping them costs nothing: no usb or usb.gadget HAL binary exists in either firmware
+    generation - nothing matching usb shows up in vendor/bin/hw of the staged Android 10 tree, and
+    Android 14 builds no usb HAL service for this device either (its vendor/etc/init has only
+    usb_dongle.rc, from the staged usb_dongle module). Android 14's framework matrices list
+    android.hardware.usb and android.hardware.usb.gadget as optional=true, so an absent
+    declaration is not a compatibility requirement. USB host mode on the HU is driven by
+    usb_modeswitch/usb_dongle, not by a HAL.
+    """
+    dropped = []
+
+    def repl(m):
+        block = m.group(0)
+        name = re.search(r"<name>(.*?)</name>", block, flags=re.S)
+        if name and "@" in name.group(1):
+            dropped.append(name.group(1).strip())
+            return ""
+        return block
+
+    return re.sub(r"\s*<hal\b[^>]*>.*?</hal>", repl, text, flags=re.S), dropped
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("tree", help="extracted vendor directory (the partition root)")
@@ -252,12 +285,21 @@ def main():
     #    pass stopped with "Cannot override existing value 30.0 with BOARD_SEPOLICY_VERS (which is
     #    202404)". The block is dropped and assemble_vintf writes 202404 - correct, because the
     #    vendor sepolicy in this ROM is Android 14's, built by the build from AOSP/Lineage policy.
-    #    Everything else is kept verbatim, including target-level. Android 14 ships both
-    #    compatibility_matrix.4.xml and .5.xml, so an Android 10-era manifest (level 4, measured
-    #    Nov 15: 61 entries, all optional=true, zero mandatory, no <kernel>) and an Android 11-era
-    #    one (level 5) are both accepted, and raising or lowering either would change which HIDL
-    #    HALs the HU depends on. No <kernel> tag is ever added: libvintf only checks kernel
-    #    compatibility when the manifest declares one (HalManifest.cpp:576, used at 554).
+    #    Everything else is kept verbatim, including target-level, except <hal> blocks whose <name>
+    #    has a version embedded in it (see strip_versioned_names). Android 14 ships
+    #    compatibility_matrix.5/.6/.7/.8/202404.xml plus compatibility_matrix.device.xml and NO
+    #    matrix 4 anywhere in the built image (measured Nov 16: find over out/target/product/rk3399
+    #    returns zero compatibility_matrix.4.xml; system/libvintf/include/vintf/Level.h still lists
+    #    Level::Q=4 as valid, so level 4 parses). VintfObject::checkCompatibility (VintfObject.cpp:
+    #    993-1014) therefore reports "Cannot find framework matrix at FCM version 4", but it has no
+    #    runtime caller in this tree - grep for "checkCompatibility(" outside system/libvintf/test
+    #    finds none; the build path only runs it under m dist/otapackage, which stays skipped
+    #    (SKIP_DIST=1, SSData is tight). hwservicemanager does not use libvintf at all and Android
+    #    14's servicemanager consults manifests, not matrices (ServiceManager.cpp:58-70), so keeping
+    #    the OEM's level 4 does not gate boot, HAL registration or HAL selection. Raising or
+    #    lowering the level would change which HIDL HALs the HU declares, so it is left alone.
+    #    No <kernel> tag is ever added: libvintf only checks kernel compatibility when the manifest
+    #    declares one (HalManifest.cpp:576, used at 554).
     manifest = None
     manifest_src = os.path.join(tree, "etc/vintf/manifest.xml")
     if os.path.exists(manifest_src):
@@ -272,6 +314,11 @@ def main():
         if removed:
             print("dropped %d HAL block(s) already declared by a build-installed fragment: %s"
                   % (len(removed), ", ".join(sorted(removed))))
+        # Malformed package names (<name> with an embedded @version) abort the manifest parse.
+        text, bad_names = strip_versioned_names(text)
+        if bad_names:
+            print("dropped %d HAL block(s) with a version embedded in <name>: %s"
+                  % (len(bad_names), ", ".join(sorted(bad_names))))
         os.makedirs(os.path.join(args.device_dir, "vintf"), exist_ok=True)
         vpath = os.path.join(args.device_dir, "vintf", "vendor_manifest.xml")
         level = re.search(r'target-level="(\d+)"', text)
@@ -279,7 +326,10 @@ def main():
             f.write("<!-- GENERATED by tools/gen_vendor_staging.py from the stock %s vendor\n" % label)
             f.write("     manifest, with the <sepolicy> block removed (Android 14 sets\n"
                     "     BOARD_SEPOLICY_VERS=202404 and assemble_vintf refuses to override a value\n"
-                    "     the file already declares). HAL entries and target-level=%s are untouched,\n"
+                    "     the file already declares) and with <hal> blocks whose <name> has an\n"
+                    "     embedded @version removed (Android 14's libvintf cannot build an FqInstance\n"
+                    "     from such a package name; see strip_versioned_names). HAL entries and\n"
+                    "     target-level=%s are otherwise untouched,\n"
                     % (level.group(1) if level else "unknown")
                     + "     and no <kernel> tag is added (libvintf checks kernel compatibility only if\n"
                       "     the manifest declares one). Regenerated by scripts/prebuilt_vendor.sh;\n"

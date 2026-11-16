@@ -2201,3 +2201,66 @@ Measured, not assumed:
   stay). The block's `interface android.hardware.wifi.supplicant@1.0/1.1/1.2` lines are HIDL, which Android
   14's WiFi framework no longer speaks (**D21**), and `bin/hw/wpa_supplicant` is already the AOSP-built
   binary (it is in `vendor_build_wins.txt:182`).
+
+## The third `m superimage` blocker: two malformed HAL names in the OEM vendor manifest (Nov 16)
+
+The relaunched pass (20:34) got bootimage and recoveryimage green again, then stopped inside
+`m superimage` on the manifest assembly:
+
+```
+FAILED: out/target/product/rk3399/gen/ETC/vendor_manifest.xml_intermediates/manifest.xml
+Input file has unknown format.
+Error when attempting to convert to manifest: Could not parse element with name <hal> in element
+<manifest>: Cannot create FqInstance with package='android.hardware.usb.gadget@1.0', version='1.0',
+interface='IUsbGadget', instance='slot1'
+```
+
+Measured from the generated `vintf/vendor_manifest.xml` (which is the stock Android 10 manifest
+minus the `<sepolicy>` block and the two fragment-carrying HALs):
+
+* Two `<hal>` blocks put the version **inside** `<name>`:
+  `android.hardware.usb.gadget@1.0` (instance `slot1`) and `android.hardware.usb@1.1`
+  (`<version>1.0</version`, instance `solt1` - a typo for `slot1` in the OEM file). Android 10's
+  libvintf tolerated that; Android 14 derives the FqInstance from `<name>` + `<version>`, so the
+  whole manifest is rejected. `assemble_vintf` reports only the first bad block.
+* Those declarations describe nothing that exists in either firmware generation: `vendor/bin/hw/`
+  of the staged Android 10 tree has no usb or usb.gadget HAL binary (`ls ... | grep -i usb` is
+  empty), and Android 14 builds none for this device either - the built
+  `out/target/product/rk3399/vendor/etc/init/` has only `usb_dongle.rc`, and
+  `vendor_build_wins.txt` mentions usb only as `bin/usb_modeswitch`, `etc/init/usb_dongle.rc` and
+  `bin/usb_dongle`. Android 14's framework matrices (`system/etc/vintf/compatibility_matrix.5..8.xml`,
+  `compatibility_matrix.202404.xml`) list `android.hardware.usb` and `android.hardware.usb.gadget`
+  with `optional="true"`, so a missing declaration is not a compatibility requirement. USB on this
+  unit is host-mode (usb_modeswitch/usb_dongle), not HAL-driven. `tools/gen_vendor_staging.py` now
+  drops every `<hal>` block whose `<name>` contains an `@` (`strip_versioned_names`) and prints the
+  dropped names; the regenerated manifest has 24 `<hal>` blocks and parses as XML (checked with
+  ElementTree on the local a10 tree).
+* The `android.hardware.radio` block has no `<version>` element (only `<fqname>`s) and parses fine,
+  so it stays.
+
+## `target-level="4"` on Android 14: no framework matrix at level 4, and nothing runtime reads it (Nov 16)
+
+The generator comment used to say Android 14 ships `compatibility_matrix.4.xml`. It does not. Measured:
+
+* `find out/target/product/rk3399 -name compatibility_matrix.4.xml` returns nothing; the built
+  system image ships `compatibility_matrix.5.xml`, `.6.xml`, `.7.xml`, `.8.xml`,
+  `compatibility_matrix.202404.xml` and `compatibility_matrix.device.xml` (the device matrix carries
+  the one entry we added, `android.hardware.mtc.mfi`, plus the seven HIDL meta entries from the OEM
+  matrix; the vendor-side matrix in `VENDOR/etc/vintf/compatibility_matrix.xml` has those 7).
+* `system/libvintf/include/vintf/Level.h` still lists `Level::Q = 4` in `kValidLevels`, so a level-4
+  manifest parses - `assemble_vintf` accepted ours.
+* `VintfObject::checkCompatibility` (`system/libvintf/VintfObject.cpp:993-1014`) partitions the
+  matrix fragments by level and, when none matches the device manifest level, returns
+  `NAME_NOT_FOUND` with "Cannot find framework matrix at FCM version 4". Grepping
+  `checkCompatibility(` across `frameworks/native`, `hardware/interfaces`, `system/core` and
+  `build/` finds callers only in `system/libvintf/test/`; the build runs it through `m dist` /
+  `otapackage` (`check_vintf_compatible.log`), which stays skipped (`SKIP_DIST=1`, SSData is tight).
+* HAL registration is not gated by matrices on this firmware: `system/bin/hwservicemanager` is
+  installed and does not use libvintf, and Android 14's AIDL `servicemanager` consults manifests,
+  not matrices (`frameworks/native/cmds/servicemanager/ServiceManager.cpp:58-70`,
+  `VintfObjectRecovery` + `getDeviceHalManifest`).
+
+So the OEM's `target-level="4"` is kept (it is what the Android 10 firmware ships, and raising or
+lowering it changes which HIDL HALs the HU declares); what it costs is diagnostic/CTS accuracy -
+`check_vintf`, `lshal` and CTS will report an unsupported FCM level, which is expected for a
+vendor staged from Android 10 firmware onto an Android 14 framework.

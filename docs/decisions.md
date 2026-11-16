@@ -1633,3 +1633,23 @@ duplicates what Android 14's own init.rc already does at the `fs`/`late-fs` stag
 so it is noise rather than a second mount. `hw/init.rk3399.rc`'s devfreq, thermal, cpuset and debugfs
 statements all parse and run on Android 14, and the GPU/display path itself needs nothing from init
 (`CONFIG_DRM_ROCKCHIP=y`, `CONFIG_DRM_ROCKCHIP_RK618=y`, `CONFIG_MALI400=y` built into kernel `#190`).
+
+
+**D51 - the OEM manifest's malformed usb HAL declarations are dropped; `target-level` stays 4
+(Nov 16, engineering).** `m superimage` stopped on Nov 16 20:36 at
+`assemble_vintf ... Could not parse element with name <hal> ... Cannot create FqInstance with
+package='android.hardware.usb.gadget@1.0'`. The stock Android 10 manifest embeds the version in
+`<name>` for two blocks (`android.hardware.usb.gadget@1.0`, `android.hardware.usb@1.1` - the second
+also carries `<version>1.0</version` and the instance typo `solt1`), which Android 14's libvintf
+rejects. Both are dropped by `strip_versioned_names` in `tools/gen_vendor_staging.py`, because they
+declare HALs that ship in neither firmware generation (no usb/usb.gadget HAL binary in the staged
+Android 10 `vendor/bin/hw`, none built by Android 14 for this device - only `usb_dongle.rc`), and
+Android 14's matrices mark `usb`/`usb.gadget` `optional="true"`. Measured consequence of keeping
+`target-level="4"`: Android 14 ships no `compatibility_matrix.4.xml` anywhere in the built image
+(levels 5,6,7,8,202404 plus the device matrix), so `VintfObject::checkCompatibility` reports
+"Cannot find framework matrix at FCM version 4" - but it has no runtime caller in this tree (only
+`system/libvintf/test` and the `m dist`/`otapackage` path, which stays skipped), `hwservicemanager`
+does not use libvintf, and AIDL `servicemanager` reads manifests rather than matrices
+(`ServiceManager.cpp:58-70`). Level 4 therefore costs diagnostic/CTS accuracy, not boot or HAL
+availability, so it is left as the OEM value rather than moved to 5. The generator comment that
+claimed matrix 4 ships is corrected. Full measurements: `docs/findings.md`.
