@@ -1598,19 +1598,38 @@ holds, and stronger than stated: Android 14's `@1.0-impl` is the *legacy wrapper
 impl load the OEM HAL. What the criterion actually depends on is `gps.default.so` being the OEM module and
 `/dev/ttyS0` being reachable, both measured (docs/findings.md).
 
-**D50 - the OEM `/vendor/etc/init/hw/` scripts stay inert; the connectivity file is edited in place, not
-relocated (Nov 16, engineering).** Android 14's init does not read that directory
-(`system/core/init/init.cpp:338-356` parses `/vendor/etc/init` as a directory, and `parser.cpp:159`
-`ParseConfigDir` ignores non-`DT_REG` entries), so Rockchip's board scripts - `init.rk30board.rc`,
-`init.rockchip.rc`, `init.connectivity.rc`, the usb/bootmode/optee/mount_all scripts - never execute on
-Android 14 even though they ship. `host_init_verifier` validates them recursively regardless, which is what
-stopped `m superimage` on the `akmd` mkdir. The chosen response is minimal and auditable: keep every
-`hw/` file staged at its stock path, and ship `configs/init.connectivity.rc` (stock bytes minus the dead
-`akmd` block) at that same path via `device.mk`, with `SKIP_DEST` in `tools/gen_vendor_staging.py` leaving
-the staged copy out. Relocating them into `/vendor/etc/init/` was rejected because their content is either
-dead on Android 14 (services pointing at `/system/bin/displayd`, `pppoe-*`, `dhcpcd`, `busybox`, `glgps` -
-none of which exist in this firmware) or already covered: `/data/vendor/wifi` is created by Android 14's own
-`hostapd.android.rc`, BT/GPS UART permissions come from our `configs/ueventd.rk30board.rc`, and the HAL
-services that matter (CANBUS `mtc.mfi`, audio, GNSS, composer) live in `/vendor/etc/init/` at top level.
-Executing them wholesale would also collide with Android 14's own `wpa_supplicant`/supplicant socket
-(`wpa_wlan0` is defined by the built `android.hardware.wifi.supplicant-service.rc:10`).
+**D50 - the OEM init scripts stay staged and running; only the two Android-10-incompatible statements are
+edited (Nov 16, engineering, wording corrected the same day).** The first version of this entry said the
+`hw/` scripts were inert. That was wrong, and the correction is measured: `/system/etc/init/hw/init.rc`
+line 10 imports `/vendor/etc/init/hw/init.${ro.hardware}.rc`, the OEM kernel cmdline carries
+`androidboot.hardware=rk30board` (read out of `hu-stock-backup/boot.bin`), and `hw/init.rk30board.rc:1-7`
+imports `hw/init.rockchip.rc`, `hw/init.connectivity.rc`, `hw/init.${ro.board.platform}.rc`
+(= `init.rk3399.rc`, since `ro.board.platform=rk3399`) and `hw/init.optee.rc`, while
+`hw/init.rockchip.rc:1-4` imports the usb, environment and `mount_all` scripts. So that whole chain
+*executes* on Android 14; only the files nothing imports are dead (`init.rk3399.rc`'s bootmode siblings:
+`init.rk30board.bootmode.emmc/nvme/unknown.rc`). Android 14's directory scan ignores subdirectories
+(`parser.cpp:159`), which only means the files that are not imported by name are never read - it does not
+make the chain dead.
+The response is therefore minimal, per statement rather than wholesale: keep everything staged at its stock
+path, and ship two edited copies - `configs/init.connectivity.rc` (stock bytes minus the dead `akmd` mkdir,
+minus the OEM `service wpa_supplicant` block) and `configs/init.rk3399.rc` (stock bytes minus
+`verity_load_state`) - through `device.mk`, with `SKIP_DEST` in `tools/gen_vendor_staging.py` leaving the
+staged copies out so the destinations are not duplicated.
+Why the OEM `wpa_supplicant` block has to go (measured Nov 16): Android 14's built
+`vendor/etc/init/android.hardware.wifi.supplicant-service.rc` defines a service that is **also named
+`wpa_supplicant`**, and `service_parser.cpp:710` ignores the *later* duplicate definition of a service
+name. init.rc is parsed before `/vendor/etc/init`, and it imports the connectivity file through the chain
+above, so the OEM definition would be registered first and Android 14's AIDL supplicant
+(`interface aidl android.hardware.wifi.supplicant.ISupplicant/default`, `socket wpa_wlan0`,
+`-O/data/vendor/wifi/wpa/sockets`) would never exist - WiFi (an owner criterion) would lose its supplicant,
+and the OEM block declares HIDL supplicant interfaces Android 14 does not implement (**D21**). The wifi
+dirs, p2p property mappings, bcmdhd firmware-path chowns and the Bluetooth `ttyS0`/`ttyS1`/rfkill chowns
+stay, which is what GPS and Bluetooth need alongside our `configs/ueventd.rk30board.rc`.
+What the chain does that Android 14 cannot use is logged, not fatal: its services point at binaries that do
+not exist in this firmware (`/system/bin/glgps`, `displayd`, `pppoe-*`, `dhcpcd`, `busybox`,
+`/sbin/watchdogd`, `/charger`), and `init.mount_all.rc`'s `mount_all /vendor/etc/fstab.rk30board --early`
+duplicates what Android 14's own init.rc already does at the `fs`/`late-fs` stages
+(`out/target/product/rk3399/system/etc/init/hw/init.rc:536-545`); `fs_mgr` skips already-mounted entries,
+so it is noise rather than a second mount. `hw/init.rk3399.rc`'s devfreq, thermal, cpuset and debugfs
+statements all parse and run on Android 14, and the GPU/display path itself needs nothing from init
+(`CONFIG_DRM_ROCKCHIP=y`, `CONFIG_DRM_ROCKCHIP_RK618=y`, `CONFIG_MALI400=y` built into kernel `#190`).

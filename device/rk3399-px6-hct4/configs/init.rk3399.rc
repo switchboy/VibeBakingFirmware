@@ -1,0 +1,63 @@
+# Stock /vendor/etc/init/hw/init.rk3399.rc from the Android 10 firmware (byte-identical except the
+# block noted below), copied by device.mk so it replaces the staged stock copy at that path.
+#
+# This file IS executed on Android 14: /system/etc/init/hw/init.rc line 10 imports
+# /vendor/etc/init/hw/init.${ro.hardware}.rc, and the OEM kernel cmdline carries
+# androidboot.hardware=rk30board, so init.rk30board.rc runs and imports this file through
+# init.${ro.board.platform}.rc (ro.board.platform=rk3399). Chain: rk30board.rc -> rockchip.rc,
+# connectivity.rc, ${ro.board.platform}.rc (this file), optee.rc; rockchip.rc -> ${ro.hardware}.usb.rc,
+# ${ro.hardware}.environment.rc, mount_all.rc.
+#
+# Deviation: `verity_load_state` in the `on init` block is removed. Android 14's init has no such
+# builtin (its builtin map in system/core/init/builtins.cpp:1323-... carries verity_update_state but not
+# verity_load_state), so the parser rejects the whole file - "host_init_verifier: ...: 37: Invalid
+# keyword 'verity_load_state'" stopped m superimage on Nov 16. dm-verity is not used on this layout
+# anyway (docs/flash.md: the partitions are written raw, no verity table), and the sibling
+# `verity_update_state` at line 13 is a valid Android 14 builtin and stays. Everything else is kept
+# verbatim: the devfreq/gpu chowns, thermal policies, cpuset writes and the debugfs sched_features
+# write all parse and run on Android 14 (docs/findings.md).
+on property:sys.boot_completed=1
+    chown root system /sys/class/devfreq/ff9a0000.gpu/governor
+    chmod 0664 /sys/class/devfreq/ff9a0000.gpu/governor
+    chown root system /sys/class/devfreq/ff9a0000.gpu/min_freq
+    chmod 0664 /sys/class/devfreq/ff9a0000.gpu/min_freq
+    chown root system /sys/class/devfreq/ff9a0000.gpu/max_freq
+    chmod 0664 /sys/class/devfreq/ff9a0000.gpu/max_freq
+    chown root system /sys/class/devfreq/dmc/governor
+    chmod 0664 /sys/class/devfreq/dmc/governor
+
+on early-boot
+    # Update dm-verity state and set partition.*.verified properties
+    verity_update_state
+
+on boot
+    chown system system /sys/class/thermal/thermal_zone0/policy
+    chown system system /sys/class/thermal/thermal_zone1/policy
+    chown system system /sys/class/thermal/thermal_zone2/policy
+    chmod 0660 /sys/class/thermal/thermal_zone0/policy
+    chmod 0660 /sys/class/thermal/thermal_zone1/policy
+    chmod 0660 /sys/class/thermal/thermal_zone2/policy
+    
+    # update cpusets feature nodes for rk3399 tablet
+    write /dev/cpuset/foreground/cpus 0-5
+    write /dev/cpuset/foreground/boost/cpus 4-5
+    write /dev/cpuset/background/cpus 0
+    write /dev/cpuset/system-background/cpus 0-3
+    write /dev/cpuset/top-app/cpus 0-5
+    write /sys/devices/system/cpu/cpufreq/policy4/interactive/target_loads "65 1008000:70 1200000:75 1416000:80 1608000:90"
+    #ioprio rt 4
+
+    # reduce schedul time to improve io performance
+    write /sys/kernel/debug/sched_features NO_ENERGY_AWARE
+
+on init
+
+    chown root root /sys/class/devfreq/dmc/system_status
+    chmod 0666 /sys/class/devfreq/dmc/system_status
+    
+on post-fs-data
+
+    #CABC
+    chown root system /sys/class/graphics/fb0/cabc
+    chmod 0664 /sys/class/graphics/fb0/cabc
+

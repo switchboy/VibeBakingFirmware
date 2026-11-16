@@ -1,14 +1,23 @@
-# Stock /vendor/etc/init/hw/init.connectivity.rc from the Android 10 firmware (byte-identical except
-# the block noted below), copied by device.mk so it replaces the staged stock copy at that path.
+# Stock /vendor/etc/init/hw/init.connectivity.rc from the Android 10 firmware, copied by device.mk so it
+# replaces the staged stock copy at that path. Two deviations, both measured (docs/findings.md); the rest
+# of the file is kept byte-for-byte, including trailing spaces.
 #
-# Deviation: the "# for akmd" mkdir of /data/vendor/akmd 0771 akmd akmd is removed. `akmd` is not an
-# Android 14 AID name (the verifier resolves users against the generated aid table, 115 names, and
-# getpwnam fails), and the daemon is not in this partition: no akmd binary exists in the Android 10
-# vendor or system image, and no vendor init service references it - the mkdir created a directory
-# nothing reads. host_init_verifier aborted `m superimage` on that one line ("Unable to decode UID for
-# 'akmd'"). Everything else in this file is kept verbatim, because it carries the criteria paths: the
-# wpa_supplicant service, the /data/vendor/wifi dirs, the p2p interface properties, and the ttyS0/ttyS1
-# and rfkill chowns the Bluetooth/GPS path needs (docs/findings.md).
+# Deviation 1: the "# for akmd" mkdir of /data/vendor/akmd 0771 akmd akmd is removed. `akmd` is not an
+# Android 14 aid name (host_init_verifier resolves users against the generated aid table, 115 names), and
+# the daemon is not in this partition: no akmd binary in the Android 10 vendor or system image and no
+# service references it. host_init_verifier aborted m superimage on that one line ("Unable to decode UID
+# for 'akmd': getpwnam failed").
+#
+# Deviation 2: the OEM `service wpa_supplicant` block at the end is removed. Android 14's own supplicant
+# service (built vendor/etc/init/android.hardware.wifi.supplicant-service.rc) is ALSO named
+# `wpa_supplicant`, and service_parser.cpp:710 ignores the *later* duplicate definition of a service name.
+# init.rc is parsed before /vendor/etc/init and imports this file through hw/init.rk30board.rc ->
+# hw/init.connectivity.rc, so the OEM definition would win and Android 14's AIDL supplicant
+# (`interface aidl android.hardware.wifi.supplicant.ISupplicant/default`, socket wpa_wlan0) would never be
+# registered - WiFi is an owner criterion, and the OEM block declares HIDL interfaces Android 14 does not
+# implement (**D21**). The wifi dirs, p2p property mappings, bcmdhd firmware-path chowns and the
+# Bluetooth/ttyS0-ttyS1/rfkill chowns all stay.
+
 # zygote need to be started after otapreopt which will be done on post-fs-data
 on zygote-start
 
@@ -66,18 +75,3 @@ on property:vendor.wifi.direct.interface=p2p0
 
 on property:vendor.wifi.direct.interface=p2p-dev-wlan0
     setprop wifi.direct.interface p2p-dev-wlan0
-
-service wpa_supplicant /vendor/bin/hw/wpa_supplicant \
-    /vendor/etc/wifi/wpa_config.txt
-#   we will start as root and wpa_supplicant will switch to user wifi
-#   after setting up the capabilities required for WEXT
-#   user wifi
-#   group wifi inet keystore
-    interface android.hardware.wifi.supplicant@1.0::ISupplicant default
-    interface android.hardware.wifi.supplicant@1.1::ISupplicant default
-    interface android.hardware.wifi.supplicant@1.2::ISupplicant default
-    class main
-    socket wpa_wlan0 dgram 660 wifi wifi
-    disabled
-    oneshot
-

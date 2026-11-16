@@ -54,13 +54,19 @@ DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
 # /vendor/etc/init/hw/, which Android 14's init does NOT read (Parser::ParseConfigDir ignores
 # directories) - and `m superimage` aborted there with "Unable to decode UID for 'akmd': getpwnam
 # failed" (docs/findings.md).
+# configs/init.rk3399.rc is the stock file with `verity_load_state` removed: that builtin is gone from
+# Android 14 (system/core/init/builtins.cpp's builtin map has verity_update_state, not verity_load_state),
+# so the parser rejected the whole file and `m superimage` aborted on "Invalid keyword 'verity_load_state'".
+# Unlike the other hw/ scripts, this one really runs: init.rc imports hw/init.${ro.hardware}.rc
+# (rk30board.rc), which imports hw/init.${ro.board.platform}.rc (rk3399.rc) (docs/decisions.md D50).
 PRODUCT_COPY_FILES += \
     device/rockchip/rk3399/fstab.rk30board:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.rk30board \
     device/rockchip/rk3399/configs/ueventd.rk30board.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
     device/rockchip/rk3399/configs/init.hu.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hu.rc \
     device/rockchip/rk3399/init/hu-adb.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hu-adb.rc \
     device/rockchip/rk3399/configs/hu_insmod.sh:$(TARGET_COPY_OUT_VENDOR)/etc/hu_insmod.sh \
-    device/rockchip/rk3399/configs/init.connectivity.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.connectivity.rc
+    device/rockchip/rk3399/configs/init.connectivity.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.connectivity.rc \
+    device/rockchip/rk3399/configs/init.rk3399.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.rk3399.rc
 
 # ---- recovery -----------------------------------------------------------------
 # Recovery mounts the same partition set as init, so it uses the same fstab.

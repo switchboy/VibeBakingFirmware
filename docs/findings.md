@@ -2156,3 +2156,48 @@ Three measured facts, all from Android 14's own source and the stock Android 10 
   just the compiler).
 * **`CONFIG_IKCONFIG_PROC=y` survives olddefconfig**, so `/proc/config.gz` on a shape-C unit still lets us
   compare the running kernel with the config it was built from.
+
+## The second `m superimage` blocker: `verity_load_state`, and the OEM init chain that really runs (Nov 16)
+
+`m superimage` stopped again at 20:09:34, on the next staged script:
+
+```
+host_init_verifier: vendor/hct4/tree_a10/vendor/etc/init/hw/init.rk3399.rc: 37: Invalid keyword 'verity_load_state'
+host_init_verifier: Failed to parse init scripts with 1 error(s).
+```
+
+Measured, not assumed:
+
+* Android 14's builtin command table is `system/core/init/builtins.cpp`'s `builtin_functions` map (starting
+  at line 1323). It carries `verity_update_state` (`do_verity_update_state`, line 839) but **no**
+  `verity_load_state`, so the parser rejects the file. Audit of all 80 staged init scripts against that map
+  plus `service_parser.cpp`'s keyword table (`capabilities class console critical disabled enter_namespace
+  file gentle_kill group interface ioprio keycodes namespace oneshot onrestart oom_score_adjust override
+  priority reboot_on_failure restart_period rlimit seclabel setenv shutdown sigstop socket stdio_to_kmsg
+  task_profiles timeout_period updatable user writepid`, 55 builtin commands) found exactly one rejected
+  statement: `init.rk3399.rc:37`. (Three apparent extras were `\`-continuation lines of multi-line commands,
+  which init joins before parsing.)
+* `configs/init.rk3399.rc` is the stock file byte-for-byte minus that statement and its comment (diff
+  measured: two lines), shipped by `device.mk` at `$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.rk3399.rc`,
+  with `SKIP_DEST` dropping the staged copy. dm-verity is not used on this layout (partitions are written
+  raw, `docs/flash.md`), and `verity_update_state` on line 13 is valid on Android 14 and stays.
+* **The hw/ chain executes.** `/system/etc/init/hw/init.rc:10` imports
+  `/vendor/etc/init/hw/init.${ro.hardware}.rc`, the stock kernel cmdline has
+  `androidboot.hardware=rk30board`, and `hw/init.rk30board.rc:1-7` imports rockchip/connectivity/
+  `${ro.board.platform}` (= rk3399)/optee; `hw/init.rockchip.rc:1-4` imports `${ro.hardware}.usb.rc`,
+  `${ro.hardware}.environment.rc`, `init.debug.rc` and `init.mount_all.rc`. So `init.rk30board.rc`,
+  `init.rockchip.rc`, `init.connectivity.rc`, `init.rk3399.rc`, `init.rk3399.usb.rc`,
+  `init.rk30board.usb.rc`, `init.rk30board.environment.rc` and `init.mount_all.rc` all run; only
+  `init.rk30board.bootmode.{emmc,nvme,unknown}.rc` (nothing imports them) are dead. Android 14's
+  `ParseConfigDir` ignoring subdirectories only means the *unimported* files are never read.
+* **The OEM `service wpa_supplicant` would have displaced Android 14's supplicant.** Android 14's built
+  `vendor/etc/init/android.hardware.wifi.supplicant-service.rc` defines a service named `wpa_supplicant`
+  too, and `service_parser.cpp:710` ignores the *later* duplicate definition of a service name. init.rc is
+  parsed before `/vendor/etc/init` and reaches the connectivity file through the chain above, so the OEM
+  definition registers first and Android 14's AIDL supplicant (`interface aidl
+  android.hardware.wifi.supplicant.ISupplicant/default`, `socket wpa_wlan0`,
+  `-O/data/vendor/wifi/wpa/sockets`) is dropped - WiFi is an owner criterion, so the OEM block is removed
+  from `configs/init.connectivity.rc` (its dirs, p2p property mappings, bcmdhd chowns and BT ttyS chowns
+  stay). The block's `interface android.hardware.wifi.supplicant@1.0/1.1/1.2` lines are HIDL, which Android
+  14's WiFi framework no longer speaks (**D21**), and `bin/hw/wpa_supplicant` is already the AOSP-built
+  binary (it is in `vendor_build_wins.txt:182`).
