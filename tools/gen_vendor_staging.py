@@ -56,6 +56,12 @@ SKIP_DEST = {
     "etc/ueventd.rc",
     "etc/init/hu.rc",
     "etc/hu_insmod.sh",
+    # configs/init.connectivity.rc is the stock file with the dead "# for akmd" mkdir removed: `akmd`
+    # is not an Android 14 aid name, so host_init_verifier aborts `m superimage` on it ("Unable to
+    # decode UID for 'akmd': getpwnam failed"), and the daemon is not in this partition. The rest of
+    # the file - wpa_supplicant, the wifi dirs, the p2p props, the ttyS0/ttyS1 chowns - is kept
+    # verbatim, so the staged copy must not also ship at this destination (docs/findings.md).
+    "etc/init/hw/init.connectivity.rc",
     # VINTF metadata goes through DEVICE_MANIFEST_FILE / DEVICE_MATRIX_FILE
     "etc/vintf/manifest.xml",
     "etc/vintf/compatibility_matrix.xml",

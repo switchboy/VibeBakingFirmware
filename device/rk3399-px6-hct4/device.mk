@@ -42,17 +42,25 @@ DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
     device/rockchip/rk3399/vintf/device_framework_matrix.xml
 
 # ---- our HU files -------------------------------------------------------------
-# These four override the stock equivalents (the generator leaves those paths out of the copy list).
+# These override the stock equivalents (the generator leaves those paths out of the copy list, see
+# SKIP_DEST in tools/gen_vendor_staging.py).
 # The paths are spelled out literally, not as $(LOCAL_DIR)/$(LOCAL_PATH): a product config .mk is
 # included from AndroidProducts.mk, so inside this file those variables are whatever kati last set -
 # here `build/make/target/product/`. With $(LOCAL_DIR) ninja asked for
-# 'build/make/target/product/fstab.rk30board' and failed: "missing and no known rule to make it".
+# 'build/make/target/product/fstab.rk30board' and failed: "missing and no rule to make it".
+#
+# configs/init.connectivity.rc is the stock file with the dead "# for akmd" mkdir removed:
+# host_init_verifier validates every .rc in the vendor image - including the ones under
+# /vendor/etc/init/hw/, which Android 14's init does NOT read (Parser::ParseConfigDir ignores
+# directories) - and `m superimage` aborted there with "Unable to decode UID for 'akmd': getpwnam
+# failed" (docs/findings.md).
 PRODUCT_COPY_FILES += \
     device/rockchip/rk3399/fstab.rk30board:$(TARGET_COPY_OUT_VENDOR)/etc/fstab.rk30board \
     device/rockchip/rk3399/configs/ueventd.rk30board.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc \
     device/rockchip/rk3399/configs/init.hu.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hu.rc \
     device/rockchip/rk3399/init/hu-adb.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hu-adb.rc \
-    device/rockchip/rk3399/configs/hu_insmod.sh:$(TARGET_COPY_OUT_VENDOR)/etc/hu_insmod.sh
+    device/rockchip/rk3399/configs/hu_insmod.sh:$(TARGET_COPY_OUT_VENDOR)/etc/hu_insmod.sh \
+    device/rockchip/rk3399/configs/init.connectivity.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.connectivity.rc
 
 # ---- recovery -----------------------------------------------------------------
 # Recovery mounts the same partition set as init, so it uses the same fstab.

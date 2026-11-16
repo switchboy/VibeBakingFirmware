@@ -2074,3 +2074,58 @@ keystore2 cannot drive a keymaster HIDL blob, so the software KeyMint service
 linked against `libpuresoftkeymasterdevice`) was added to `device.mk` in the same pass; it installs its
 own VINTF fragments for keymint/sharedsecret/secureclock, so the staged Android 10 manifest keeps its
 `keymaster@3.0` entry untouched and the payload still declares no `<kernel>` tag.
+
+## Android 14's init never reads `/vendor/etc/init/hw/`, and the `akmd` line that stopped `m superimage` (Nov 16)
+
+`m superimage` (shape A, Nov 15 22:40) aborted in packaging with:
+
+```
+host_init_verifier: Command 'mkdir /data/vendor/akmd 0771 akmd akmd'
+  (vendor/hct4/tree_a10/vendor/etc/init/hw/init.connectivity.rc:39)
+  failed: Unable to decode UID for 'akmd': getpwnam failed
+```
+
+Three measured facts, all from Android 14's own source and the stock Android 10 image:
+
+* **How init loads scripts.** `system/core/init/init.cpp:338-356` parses `/system/etc/init/hw/init.rc`
+  explicitly, then `ParseConfig("/vendor/etc/init")`. `system/core/init/parser.cpp:159`
+  (`Parser::ParseConfigDir`) reads *only* `DT_REG` entries - "Ignore directories and only process
+  regular files". So every OEM script under `/vendor/etc/init/hw/` (init.rk30board.rc,
+  init.rockchip.rc, init.connectivity.rc, init.rk30board.usb.rc, init.mount_all.rc, init.optee.rc, the
+  bootmode scripts) is **inert** on Android 14; Rockchip's OEM init fork had its own loader for that
+  directory. `host_init_verifier` still validates the whole vendor image recursively, which is why the
+  build failed on a line the running init would never execute.
+* **`akmd` is dead config.** Audited against the generated aid table
+  (`out/soong/.intermediates/bionic/libc/generated_android_ids/gen/generated_android_ids.h`, 115 names,
+  the list `host_init_verifier.cpp:114` matches against `android_ids[]`): 80 staged init scripts and the
+  ueventd file reference `audio, audioserver, bluetooth, camera, cameraserver, drmrpc, gps, graphics,
+  media, mediacodec, mediadrm, mtp, net_bt, net_bt_admin, nfc, nobody, radio, root, shell, system, wifi`
+  - **all valid except `akmd`**, which appears exactly once (connectivity.rc:39). Our own five config
+  files are clean. And `akmd` is not in the firmware at all: no `akmd` binary in the Android 10 vendor or
+  system partition, no vendor init service names it - the mkdir created a directory nothing reads. Fix:
+  `device/rk3399-px6-hct4/configs/init.connectivity.rc` is the stock file byte-for-byte with that block
+  removed (diff measured: one line), copied by `device.mk` to
+  `$(TARGET_COPY_OUT_VENDOR)/etc/init/hw/init.connectivity.rc`, and `SKIP_DEST` in
+  `tools/gen_vendor_staging.py` leaves the staged copy out so the destination is not duplicated.
+* **The hw/ scripts are not needed for the owner's criteria.** What they carry is covered elsewhere:
+  WiFi's `/data/vendor/wifi` dirs are created by Android 14's own `hostapd.android.rc` (built
+  `vendor/etc/init/hostapd.android.rc:10-12`); BT/GPS UART permissions come from our `ueventd` copy
+  (`/dev/ttyS0 0660 system system`, `/dev/ttyS1 0660 bluetooth bluetooth`); the HAL services live in
+  `/vendor/etc/init/` (top level, e.g. `android.hardware.mtc.mfi@1.0-service.rc` = CANBUS). GPS:
+  `lib/hw/gps.default.so` (37,168 B, staged from the OEM partition, not dropped) reads NMEA itself -
+  its strings name `/dev/ttyS0`, `/dev/mtc-car`, `nmea_reader_parse`, `nmea_reader_update_sv_status_gnss`
+  - and Android 14's `gnss@1.0-service.rc` runs it as `user gps`, `group system gps radio`, so the
+  `system`-group ttyS0 is group-readable. **Correction to `docs/head-unit-findings.md`'s hypothesis:**
+  there is no `glgps` binary, no `gpsd` binary and no `/system/etc/gps/gpsconfig.xml` in the Android 10
+  firmware (`debugfs ls /system/bin` = 138 entries, none matching gps; `/system/etc/gps` does not exist;
+  `/bin`, `/etc` are symlinks there), so `service gpsd /system/bin/glgps` in `init.rockchip.rc:149` points
+  at a file that never existed. GPS needs no daemon, only the HAL + ttyS0 permissions.
+* **The GPU modules in `init.insmod.cfg` are dead on this kernel too** (measured Nov 16 against
+  `analysis/hu_kernel_config_live-20261113.txt`): the display pipeline is *built in* -
+  `CONFIG_DRM_ROCKCHIP=y`, `CONFIG_DRM_ROCKCHIP_RK618=y`, `CONFIG_MALI400=y` - and there is no
+  `CONFIG_MALI_MIDGARD` entry, while the only GPU module in the partition is `mali_kbase.ko` at
+  `vermagic=4.4.167`, which kernel `#190` (`4.19.111+`) refuses. Vermagic table of all 21 modules:
+  14 modules at `4.19.111+` (the ones `hu_insmod.sh` loads, matching the kernel banner),
+  `bcmdhd.ko`/`sprdwl_ng.ko` at `4.19.101+`, `mali_kbase.ko` at `4.4.167` - leftovers the boot script
+  never attempts, so the screen criterion rests on the built-in DRM plus `librga.so`/`libion`, not on
+  an insmod. Touch likewise: `CONFIG_TOUCHSCREEN_GT9XX=y` is built in.

@@ -73,3 +73,19 @@ lib/libwifi-hal.so
 # the override that drops the blob - the final conflict scan reports "no collisions".
 bin/usb_dongle
 etc/init/usb_dongle.rc
+
+# ---- HIDL keymaster@3.0 and soundtrigger@2.0, discovered by ckati on Nov 15 (shape A) ----
+# vendor_conflicts.py compares the copy list against out/soong/installs-*.mk, and that file came from
+# the Nov 8 pass, whose install closure did not contain these paths. Android 14's legacy Make modules
+# (hardware/interfaces/keymaster/3.0, soundtrigger/2.0 defaults) do install them once the closure grows
+# - ckati reported each one as "overriding commands ... previously defined at
+# out/soong/installs-lineage_rk3399.mk", one destination per pass. Recorded here so a fresh host drops
+# them in the first pass instead of rediscovering five times.
+# Android 14's keystore2 only speaks AIDL KeyMint, so the OEM keymaster@3.0 service/impl cannot serve it:
+# device.mk requests AOSP's software KeyMint (android.hardware.security.keymint-service,
+# libpuresoftkeymasterdevice) instead, and the soundtrigger default impl is Android 14's own module.
+bin/hw/android.hardware.keymaster@3.0-service
+etc/init/android.hardware.keymaster@3.0-service.rc
+lib/hw/android.hardware.keymaster@3.0-impl.so
+lib64/hw/android.hardware.keymaster@3.0-impl.so
+lib/hw/android.hardware.soundtrigger@2.0-impl.so
