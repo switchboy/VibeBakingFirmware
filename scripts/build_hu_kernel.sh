@@ -112,17 +112,37 @@ prepare)
     fi
 
     say "== 3. the gt9xx phys fix (candidate 21, D45 route a) =="
-    # The vendor driver points input_dev->phys at a stack string that is dead once the probe frame is
-    # gone, which is what panicked on Nov 13 (analysis/panic-20261113-2003-ramoops.txt). Mainline's
-    # goodix.c assigns a constant instead.
+    # The vendor driver keeps phys in a *local array on the probe frame*:
+    #   s8 phys[32]; ... sprintf(phys, "input/ts"); ts->input_dev->phys = phys;
+    # input_dev->phys is a pointer the core reads long after the probe returns (input_show_phys() in
+    # drivers/input/input.c prints it for every event/sysfs read), so the frame dying is what panicked
+    # on Nov 13 (analysis/panic-20261113-2003-ramoops.txt). Mainline's goodix.c assigns a string
+    # literal, which lives in .rodata. Both spellings are handled: the literal form and this
+    # variable form. A .orig copy is kept next to the file so the deviation is auditable.
     tc=$(find "$KERNEL_SRC/drivers/input/touchscreen" -name 'gt9xx*.c' 2>/dev/null | head -3)
     if [ -n "$tc" ]; then
-        grep -n 'input_dev->phys' $tc | sed 's/^/  before: /'
-        sed -i 's/input_dev->phys *= *"[^"]*"/input_dev->phys = "input\/ts"/' $tc
-        grep -n 'input_dev->phys' $tc | sed 's/^/  after:  /'
+        for f in $tc; do
+            [ -s "$f.orig" ] || cp "$f" "$f.orig"
+            if ! grep -q "input_dev->phys" "$f"; then
+                echo "  no phys assignment in $f" >> "$REPORT"
+                continue
+            fi
+            echo "  before ($f):" >> "$REPORT"
+            grep -n "phys" "$f" | sed 's/^/    /' >> "$REPORT"
+            sed -i -e 's/input_dev->phys *= *phys;/input_dev->phys = "input\/ts";/' \
+                   -e 's/input_dev->phys *= *"[^"]*";/input_dev->phys = "input\/ts";/' "$f"
+            echo "  after ($f):" >> "$REPORT"
+            grep -n "input_dev->phys" "$f" | sed 's/^/    /' >> "$REPORT"
+            if ! grep -q 'input_dev->phys = "input/ts";' "$f"; then
+                say "  ! the phys fix did not apply in $f - inspect it before shipping a shape-C kernel"
+                exit 1
+            fi
+        done
+        say "  phys fix applied: $(grep -l 'input_dev->phys = \"input/ts\"' $tc | tr '\n' ' ')"
     else
         say "  ! no gt9xx source found in $KERNEL_SRC/drivers/input/touchscreen - the fix cannot be applied here"
         say "    (the BSP branch may carry the driver elsewhere; check before shipping a shape-C kernel)"
+        exit 1
     fi
     say "prepare done: $KERNEL_SRC configured, report at $REPORT"
     ;;

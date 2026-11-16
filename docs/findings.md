@@ -2129,3 +2129,30 @@ Three measured facts, all from Android 14's own source and the stock Android 10 
   `bcmdhd.ko`/`sprdwl_ng.ko` at `4.19.101+`, `mali_kbase.ko` at `4.4.167` - leftovers the boot script
   never attempts, so the screen criterion rests on the built-in DRM plus `librga.so`/`libion`, not on
   an insmod. Touch likewise: `CONFIG_TOUCHSCREEN_GT9XX=y` is built in.
+
+## Shape C kernel: what the public BSP actually contains, measured during the Nov 16 prepare stage
+
+`scripts/build_hu_kernel.sh prepare` on the NAS (`/srv/dev-disk-by-label-SSData/aospbuild/hu-kernel-4.19`,
+`rockchip-linux/kernel` `develop-4.19` at `f39b590ea`) produced these facts:
+
+* **The touch driver's defect is exactly as recorded, and it is a stack array.**
+  `drivers/input/touchscreen/gt9xx/gt9xx.c` line 2066 declares `s8 phys[32];`, line 2111 does
+  `sprintf(phys, "input/ts");`, and line 2113 assigns `ts->input_dev->phys = phys;`. `input_dev->phys` is
+  read by the input core long after probe returns (it is printed by `input_show_phys()` for sysfs and for
+  each event), so the dead frame is the Nov 13 panic (`analysis/panic-20261113-2003-ramoops.txt`). The
+  prepare step now patches both spellings (variable form and literal form) to
+  `ts->input_dev->phys = "input/ts";` - mainline's `goodix.c` uses that literal - keeps a `gt9xx.c.orig`
+  next to the file, and aborts if the assignment is not the literal afterwards. `gt9xx_update.c` carries no
+  phys assignment, so it is reported and skipped rather than patched.
+* **The live config does not round-trip through the BSP tree.** `analysis/hu_kernel_config_live-20261113.txt`
+  has 1691 `CONFIG_` lines; after `make olddefconfig` against `develop-4.19` the result has 1717, i.e. 26
+  symbols the BSP adds or selects by dependency. The report stage diffs the two sorted lists and counts the
+  differing lines, so a shape-C kernel's config drift is measured, not assumed.
+* **Host packages the kernel build needs** (`docs/build-host.md`): `bison`, `flex`, `python-is-python3`
+  (`make olddefconfig` failed with `bison: not found`, and four BSP scripts invoke `python`), plus a cross
+  gcc. Debian 13 ships nothing older than gcc-12 for arm64, while kernel `#190` was built with Linaro gcc
+  6.3.1 - so `CC_BIN=/usr/bin/aarch64-linux-gnu-gcc-12` is the closest available match, and the script
+  builds a `CROSS_COMPILE` prefix directory of symlinks around it (`CROSS_COMPILE` prefixes every tool, not
+  just the compiler).
+* **`CONFIG_IKCONFIG_PROC=y` survives olddefconfig**, so `/proc/config.gz` on a shape-C unit still lets us
+  compare the running kernel with the config it was built from.

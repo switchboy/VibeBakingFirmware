@@ -32,8 +32,11 @@ Added Nov 16 for **W3**/**D48** (the shape-C kernel build):
 
     gcc-aarch64-linux-gnu        (Debian 14.2.0-19 - pulls binutils-aarch64-linux-gnu)
     gcc-12-aarch64-linux-gnu     (12.4.0-5cross1)
+    bison flex python-is-python3 (the kernel's own kconfig build: `make olddefconfig` aborted with
+                                  "bison: not found", and four BSP scripts call `python`, which Debian 13
+                                  only ships as `python3`)
 
-Why both: the OEM kernel `#190` was compiled with `gcc version 6.3.1 (Linaro GCC 6.3-2017.05)`
+Why both gccs: the OEM kernel `#190` was compiled with `gcc version 6.3.1 20170404 (Linaro GCC 6.3-2017.05)`
 (measured from the banner in the kernel payload), and BSP 4.19 does not build cleanly with gcc 12+, let
 alone 14. Debian 13 has nothing older than 12, so gcc-12 is the closest option and gcc-14 is the
 default `aarch64-linux-gnu-gcc` (a symlink to `-14`). Which compiler was used must be recorded in the
