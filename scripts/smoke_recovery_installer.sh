@@ -26,6 +26,7 @@
 # a roomy volume: TMPDIR=/run/media/Daan/Opslagmonster/a14-work/smoke-tmp scripts/smoke_recovery_installer.sh
 #
 #   scripts/smoke_recovery_installer.sh            (scratch under ${TMPDIR:-/tmp/opencode}, ~7 GiB free)
+#   SHAPE=a10 (default) exercises shape A's boot payload, SHAPE=a11 shape B's - see the size block below.
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -34,11 +35,19 @@ S="${TMPDIR:-/tmp/opencode}/hu-installer-smoke"
 rm -rf "$S"
 mkdir -p "$S/by-name" "$S/card" "$S/hucard"
 
-# Payload sizes measured in docs/findings.md: raw-super.img 3,263,168,512 B, a14-boot-fixed.img
-# 32,796,672 B; partitions: super 3,263,168,512 B (3,186,688 KiB), boot 33,554,432 B (32,768 KiB),
-# userdata 56,687,104 KiB.
+# Payload sizes come from docs/findings.md, per shape (D46/D43): the super container is
+# 3,263,168,512 B in both shapes (that is the untouched partition size, D18), while the boot payload
+# differs - shape A ships boot-a10k-a14rd.img at 28,233,728 B, shape B ships a14-boot-fixed.img at
+# 32,796,672 B. Partitions: super 3,263,168,512 B (3,186,688 KiB), boot 33,554,432 B (32,768 KiB),
+# userdata 56,687,104 KiB. Default is shape A, the payload we would actually flash.
+SHAPE=${SHAPE:-a10}
+case "$SHAPE" in
+  a10) BOOT_BYTES=28233728 ;;
+  a11) BOOT_BYTES=32796672 ;;
+  *) echo "SHAPE must be a10 (shape A, 28,233,728 B boot) or a11 (shape B, 32,796,672 B boot)" >&2
+     exit 1 ;;
+esac
 SUPER_BYTES=3263168512
-BOOT_BYTES=32796672
 SUPER_KIB=$((SUPER_BYTES / 1024))
 BOOT_KIB=$((BOOT_BYTES / 1024))
 USER_KIB=56687104

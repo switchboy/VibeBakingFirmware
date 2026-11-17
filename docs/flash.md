@@ -180,6 +180,36 @@ that cleanly afterwards (**D10**).
    goes in the **sdmmc** slot: `dwmmc@fe320000` = Android `sdcard1` = u-boot `mmc 1`, not the recovery
    slot `dwmmc@fe310000` = `sdcard2`.
 
+## Install, route 3: the card installer, size + digest manifest (**D43**)
+
+This is the route the owner made the safety net (**D47**). The patched recovery starts
+`scripts/hu_recovery_install.sh` (via `scripts/hu_recovery_init_append.rc`); without a flag on a card it
+prints one line and exits 0, so it behaves exactly like the stock recovery. With the flag it refuses to
+write unless the card's `hu-checksums.txt` declares a size that matches the file **and** a digest line for
+an applet this busybox actually has, writes only `boot` + `super` (**D18**/**D19**), wipes `/data` with the
+stock Android 10 `make_f2fs.oem` (**D10**), and hashes what it read back before declaring success.
+
+1. `SHAPE=a10 scripts/stage_hu_card.sh <mounted-card-dir>` puts in the card root: `super-a14.img`,
+   `boot-a14.img`, `hu-install.sh` (a readable copy of the installer), `update.zip` (route 1's package, so
+   recovery can be driven by hand too), `hu-install.flag` and `hu-checksums.txt`. The card needs ~3.3 GiB
+   free. Measured Nov 17 as a **dry run into a plain directory** - `a14-work/hucheck-card-dryrun/`, no card
+   mounted, nothing connected to the unit - rc=0 with every line verified by its own read-back.
+2. Shape A's manifest as staged, `size <bytes> <4096 B blocks> <name>` then one line per digest the
+   staging host can compute:
+   * `size 3263168512 796672 super-a14.img`; sha256
+     `d81f913aee9162d7cb948db63528200b94ba6e6c6a50f78795174ce5bf19fdb8`, sha1
+     `ae20fb2cfe8178793bed370b6f148ddca9d588ce`, md5 `dc81744b66d70f31d0468c63adc670c2`
+   * `size 28233728 6893 boot-a14.img`; sha256
+     `3cf4012980d0a824c37ed3f24982a9c7e50d2c8c8497030be139e1184a647375`, sha1
+     `9dc876e69528ba4f563c626f518e6e75dde72a1a`, md5 `679a750ef09f38628e02bd2d7f16bb9c`
+   Both are multiples of 4096, so `dd bs=4096` leaves no tail unwritten; both fit their partitions
+   (`super` 3,263,168,512 B, `boot` 33,554,432 B).
+3. The installer's logic is proven offline first: `scripts/smoke_recovery_installer.sh` now runs per shape
+   (`SHAPE=a10` default = shape A's 28,233,728 B boot, `SHAPE=a11` = shape B's 32,796,672 B boot) and
+   passes 8/8 scenarios in both, with the ~7 GiB `TMPDIR` the harness needs. Route 1's `update.zip` remains
+   the fallback: its `updater-script` dd's the same two files from `/external_sd` **without** checking
+   digests, which is why this route, not that one, is preferred now.
+
 ## Nov 9 attempt: route 2 ran, the write succeeded, Android 14 did not bring up the panel
 
 The full log with timestamps and every captured command is in `docs/findings.md`, "Flash attempt Nov 9/10".

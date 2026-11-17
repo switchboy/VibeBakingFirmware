@@ -2558,3 +2558,36 @@ packaging pass before it is offered as the fallback.
   is the new honest note instead of a traceback. The two "used" figures differ from the content total
   2,410,717,184 B because the first partition starts after the super metadata header (system is at
   offset 1,048,576 = sector 2048), so the script counts that region as used.
+
+
+## Card staging dry-run, and the installer harness per shape (Nov 17)
+
+* `SHAPE=a10 bash scripts/stage_hu_card.sh a14-work/hucheck-card-dryrun` (a plain directory standing in
+  for a card - no card was mounted, nothing was connected to the unit) finished with `card staging rc=0`.
+  It copied `super-a14.img` 3,263,168,512 B, `boot-a14.img` 28,233,728 B, `hu-install.sh` 13,656 B
+  (the installer itself), `update.zip` 4,315 B (route 1's signed package: `updater-script` 1,976 B +
+  `a14-notes.txt` 365 B, SignApk comment present), created `hu-install.flag` and wrote a 478 B
+  `hu-checksums.txt`, then verified every line by reading the card back: sizes in bytes and 4096 B
+  blocks (796,672 / 6,893), and sha256/sha1/md5 for both payloads. The digests it recorded are the
+  payload identities we ship: super `d81f913a…` / `ae20fb2cfe8178793bed370b6f148ddca9d588ce` /
+  `dc81744b66d70f31d0468c63adc670c2`, boot `3cf40129…` / `9dc876e69528ba4f563c626f518e6e75dde72a1a` /
+  `679a750ef09f38628e02bd2d7f16bb9c`. Both payloads are multiples of 4096, so the installer's
+  `dd bs=4096` cannot leave a tail unwritten.
+* `scripts/smoke_recovery_installer.sh` was shape-blind until now: its fake payload sizes were the
+  Nov 11 shape-B pair (boot 32,796,672 B), so it never exercised the shape-A boot payload it is meant to
+  protect. It is now `SHAPE=a10` (default) / `SHAPE=a11`, taking 28,233,728 B and 32,796,672 B
+  respectively; the super container is 3,263,168,512 B in both, which is the partition size itself
+  (**D18**). Measured Nov 17 with a roomy `TMPDIR`: **8/8 scenarios pass in both shapes** (inert without
+  the flag, good manifest, the old sha1-style applet spelling, a manifest without a computable digest
+  refused, missing size lines refused before writing, a size mismatch refused with the super untouched,
+  an oversized payload refused, a corrupted payload caught before the write).
+* `scripts/hu_recovery_install.sh`'s card-layout comment said `boot-a14.img` is "vendor A11 kernel
+  (4.19.193 #24)" with `vermagic 4.19.193` modules - true only for the fallback. It now names both
+  shapes (shape A's `boot-a10k-a14rd.img`, OEM `4.19.111+ #190`, 28,233,728 B, modules at
+  `4.19.111+`/`4.19.101+`/`4.4.167`; shape B's `a14-boot-fixed.img`, `4.19.193 #24`, 32,796,672 B) and
+  states that `super-a14.img` is always 3,263,168,512 B. Comments only; the logic is unchanged, which is
+  why the harness passes identically.
+* What route 1's zip does *not* do, restated because it decides the preference: its `updater-script` runs
+  `dd if=/external_sd/super-a14.img of=/dev/block/by-name/super bs=4096 conv=fsync` and the same for boot,
+  then `make_f2fs.oem -f /dev/block/by-name/userdata` - no digest or size check at all. The card installer
+  route (**D43**) is the one that verifies before and after writing.

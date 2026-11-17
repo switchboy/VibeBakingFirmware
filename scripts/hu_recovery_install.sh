@@ -19,9 +19,16 @@
 # Card layout, all in the card root:
 #   hu-install.flag     - makes this script run at all
 #   hu-checksums.txt    - digest lines plus the payload sizes, see the manifest block below
-#   super-a14.img       - our logical super container (system/vendor/odm/product slices)
-#   boot-a14.img        - vendor A11 kernel (4.19.193 #24) + Android 14 first-stage ramdisk.
-#                         Must move with super-a14.img, whose .ko files are vermagic 4.19.193.
+#   super-a14.img       - our logical super container (system/vendor/odm/product slices), always
+#                         3,263,168,512 B - the untouched partition size (D18), never resized (D19)
+#   boot-a14.img        - the boot image of the shape this card is for, and it must move with
+#                         super-a14.img because that container carries the .ko set whose vermagic
+#                         matches the kernel (D46). Shape A (primary, the default staging):
+#                         boot-a10k-a14rd.img, OEM Android 10 kernel 4.19.111+ #190, 28,233,728 B,
+#                         modules at vermagic 4.19.111+/4.19.101+/4.4.167. Shape B (fallback):
+#                         a14-boot-fixed.img, vendor Android 11 kernel 4.19.193 #24, 32,796,672 B,
+#                         modules at vermagic 4.19.193. Both are multiples of 4096, so `dd bs=4096`
+#                         writes the whole file; the manifest carries the block count.
 #
 # Deliberately no awk and no grep: this busybox was measured to carry dd/stat/mount/umount/reboot/
 # sleep/wc/cut/sed/ls, but sha256sum and blockdev are absent and awk/grep are not certain applets.

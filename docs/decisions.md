@@ -1752,3 +1752,26 @@ OMX plugins and `libgatekeeper.so`; its graphics chain is Android 14's own midga
 instead of shape A's 2.0/2.1 passthrough wrappers. Shape B therefore stays a fallback that must be
 rebuilt from a `SHAPE=a11` pass before being offered. Nothing was written to the unit (it is offline;
 W4 is still open).
+
+
+**D54 - card staging proven by dry run, the installer harness made shape-aware, route 3 documented
+(Nov 17, engineering, pending owner review).** No card is mounted and the unit is offline, so the
+staging step was exercised against a plain directory instead of skipped: `SHAPE=a10
+scripts/stage_hu_card.sh a14-work/hucheck-card-dryrun` produced the real layout (payload copies,
+`hu-install.sh`, `update.zip`, `hu-install.flag`, `hu-checksums.txt`) and read every manifest line back
+with rc=0. The shape-A manifest values are now in `docs/flash.md` ("Install, route 3"): super 3,263,168,512 B /
+796,672 blocks with sha256 `d81f913a…`, boot 28,233,728 B / 6,893 blocks with sha256 `3cf40129…`, plus
+the sha1 and md5 lines busybox may match against. Two corrections came out of doing it:
+  * `scripts/smoke_recovery_installer.sh` had been using the Nov 11 shape-B payload sizes, so the shape
+    we actually ship was never exercised. It now takes `SHAPE=a10` (default, boot 28,233,728 B) or
+    `SHAPE=a11` (boot 32,796,672 B) and passes 8/8 scenarios in both.
+  * `scripts/hu_recovery_install.sh`'s header described `boot-a14.img` as the Android 11 kernel with
+    `vermagic=4.19.193` modules - only true for the fallback. The comment now names both shapes and the
+    invariant that the super container is always 3,263,168,512 B (D18) and that boot and super move
+    together because the `.ko` vermagics belong to the kernel (D46). Comments only; the harness still
+    passes identically, which is the proof the logic did not change.
+Route 1's `update.zip` stays as the fallback but is explicitly the weaker route: its `updater-script`
+dd's the two payload files from `/external_sd` with no digest or size verification, so route 3 is the
+one to use when the patched recovery is involved. Nothing was written to the unit or to any card; a
+real card still needs to be formatted FAT32/exFAT and staged before the owner's raw `dd` gate (**D47**)
+can be executed.
