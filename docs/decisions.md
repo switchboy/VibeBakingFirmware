@@ -1812,3 +1812,18 @@ by 1,625,326 bytes. So partition 7 rolls back with the refreshed `boot.bin`
 verified archive copy. Nothing else moved: uboot/trust/dtb/dtbo/vbmeta/security/recovery/frp and the
 backup GPT are byte-identical, and `super.bin` differs only in its first 2 MiB metadata region. No
 resize, no GPT write, nothing flashed (**D18**/**D19**/**D30**).
+
+**D58 - first-boot criteria shrink to boot + WiFi + screen; GPS and the rest are post-boot work
+(Nov 17, owner decided).** The owner's words: "skip the GPS testing we dont need it we can work on it after boot; Boot with wifi and screen the rest
+is doable once we have the env up and adb reachable". So the gate for the first write is now:
+**not bricked**, **boots**, **WiFi associated**, **screen shows pixels**. Sound input (touch, physical
+buttons, CANBUS) is still required but is verified *after* the environment is up and adb is reachable,
+and **GPS is no longer a criterion for the flash** - it is a post-boot feature to build once the unit
+runs. D49's payload route stays intact (the OEM GNSS blobs are still staged and declared, and Android
+14's GNSS JNI still fetches HIDL `IGnss@1.0`), it just is not gating the write; the coupling gate keeps
+demanding the GPS files as cheap insurance, because removing them would not help anything. The two
+criteria that do gate the write are measured offline today: the graphics chain shape A ships
+(`gralloc.rk30board.so` + mapper@2.0-impl-2.1 + allocator@2.0-impl + the allocator service, ION-backed,
+because the running kernel has `CONFIG_ION=y` and no `DMA_HEAP`) and the WiFi closure (the RTL8188EU
+route, `init.connectivity.rc` + `librkwifi-ctrl` + the vendor WiFi HAL chain). Nothing is flashed yet
+(**D30**), and the offline gate set remains the safety net (**D47**).

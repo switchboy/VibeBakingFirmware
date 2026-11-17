@@ -149,9 +149,11 @@ This file is the index plus the risk register, and it must not restate numbers -
     criteria-coupled HALs. Next real step is not a flash: the offline vendor-closure run on the build host,
     then a **card-only** console boot of `a14-boot-fixed.img` + our super (`docs/reanimation.md`), with the
     stock backup and patched recovery as the rollback.
-11. Owner's success criteria: **not brick**, **boot**, **WIFI**, **screen**, **sound input**
-    (touch + physical buttons + CANBUS), and **GPS added Nov 15** (**D49**). Bluetooth is a deliberate second
-    pass (`docs/decisions.md`). One agent at a time.
+11. Owner's success criteria, revised Nov 17 (**D58**): the write is gated on **not brick**, **boot**,
+    **WiFi**, **screen**. Sound input (touch + physical buttons + CANBUS) is verified after the
+    environment is up and adb is reachable, and **GPS is post-boot work, not a flash criterion** - the
+    OEM GNSS blobs stay staged and declared (**D49**'s route), but no satellite fix gates the write.
+    Bluetooth remains a deliberate second pass (`docs/decisions.md`). One agent at a time.
 12. **Nov 15 owner answers: shape A is primary and M11 is started.** `docs/plan.md` M11 now records the
     answers: vendor staging flips to the Android 10 reference (**D44**), manifest stays `target-level="4"` with
     **no `<kernel>` tag** (libvintf only checks kernel compatibility when the manifest declares one), KeyMint is
@@ -189,7 +191,11 @@ This file is the index plus the risk register, and it must not restate numbers -
     streaming - **D49 stays unverifiable until the antenna is fitted**; wireless Android Auto takes the
     single 2.4 GHz radio, so the LAN adb route drops while AA runs; the sensors HAL loops on a missing
     `/dev/mma8452_daemon`. All recorded in `docs/head-unit-findings.md` + `docs/findings.md`.
-15. **Next moves.** `scripts/pull_stock_backup.sh` refresh (**D40**) once the unit is reachable again;
-    a `SHAPE=a11` packaging pass to make shape B D52-current; real card staging when a card is mounted
-    (`SHAPE=a10 scripts/stage_hu_card.sh <dir>`); shape C's kernel build only after the vendor GPL source
+15. **Next moves.** The write itself is the next decision: route 2 (`install_a14_from_adb_root.sh` raw
+    `dd` of `super` + `boot` over TCP adb) is ready - shape A's gate set is green, the refreshed stock
+    capture is the rollback (`boot.bin` `4121b58f7759…`, **D57**), and the criterion chain for the first
+    boot (**D58**) is graphics + WiFi, both measured offline. GPS/sound/CANBUS verification happens
+    after boot. Shape B's rebuilt fallback passes its whole gate too (`a14-fixed.img` `55be70ab423c…`),
+    so a fallback exists if shape A's screen or WiFi fails. Real card staging waits for a mounted card;
+    shape C waits for the vendor GPL source (**D48**).
     arrives (**D48**); GPS criterion measurement after the antenna is fitted (**D49**).

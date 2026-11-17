@@ -261,9 +261,10 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
    accelerometer data on our payload, that node is the thing to chase.
 6. Posting upstream: **declined Nov 15** - candidates 21/22 stay draft-only in `docs/upstream.md`, nothing
    posted. If you ever want it public, the draft is written to be pasted as-is.
-7. **GPS antenna**: it is not connected on the current bench, so the hard GPS criterion (D49) cannot be
-   measured here. Fit the antenna and we can read a real fix plus a satellite list; the UART path is
-   already alive (55,755 rx bytes on `/dev/ttyS0`).
+7. ~~GPS antenna~~ **Answered Nov 17 (**D58**): GPS is post-boot work, not a flash criterion, so no
+   antenna is needed to gate the write. The measurement to take once the unit runs our payload is a
+   real fix plus a satellite list, and `tx` on `/dev/ttyS0` is the thing to watch (the stock HAL sent
+   70 bytes in three minutes while the module streamed ~225 B/s).
 
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)
