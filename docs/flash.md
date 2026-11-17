@@ -260,7 +260,13 @@ The operator-relevant consequences:
   through the passthrough wrappers over the staged `gralloc.rk30board.so`, and it does carry
   `lib*/libgatekeeper.so`, which shape A declares away. Shape B is coherent as kernel + modules +
   manifest, but it is not D52-current: it is offered only after a `SHAPE=a11` packaging pass rebuilds
-  its super.
+  its super. Measured Nov 17 with shape B's own criterion list (`scripts/verify_artifacts.sh` passes
+  `lib*/hw/gralloc.default.so` + the midgard 4.0 mapper/allocator impls + `allocator@4.0-service` for
+  that shape, since the Android 11 vendor tree ships those as staged blobs and Android 14 defines no
+  install rule for the `-impl-midgard` names): every criterion file is present and the only two failures
+  are `lib*/libprotobuf-cpp-lite.so` and `lib*/libstagefright_softomx_plugin.so` - the sonames D52 added
+  after Nov 11. A `SHAPE=a11` pass carries the same shape-independent `PRODUCT_PACKAGES` blocks, so it
+  closes both and the whole gate passes.
 
   **Shape A** (the primary, Nov 15) ships `a14-work/a14chk-shapeA/boot-a10k-a14rd.img`: 28,233,728 B,
   sha `3cf4012980d0a824c37ed3f24982a9c7e50d2c8c8497030be139e1184a647375`, kernel payload 25,671,688 B = the
