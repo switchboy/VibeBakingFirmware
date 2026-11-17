@@ -236,8 +236,15 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
 
 1. ~~Do you have a saved copy of the zip currently installed?~~ Answered Nov 13: yes —
    `diatsia fw/update(1).zip`, and the running fingerprint/kernel match it
-   (`eng.hct2.20250401.152740`, `#190`). A fresh `scripts/pull_stock_backup.sh` refresh (**D40**) is still
-   owed once the unit is reachable, since the Nov 11 manifest's `boot.bin`/`super.bin` hashes are now stale.
+1. ~~Do you have a saved copy of the zip currently installed?~~ Answered Nov 13: yes -
+   `diatsia fw/update(1).zip`, and the running fingerprint/kernel match it
+   (`eng.hct2.20250401.152740`, `#190`). The refresh (**D40**) ran Nov 17: `a14-work/hu-stock-backup-refresh/`
+   holds a byte-exact capture with a 13-file `MANIFEST.sha256`, and the Nov 11 `hu-stock-backup/` is
+   untouched (its manifest still checks clean). What changed on the disk since Nov 11 is measured in
+   `docs/findings.md`: boot's `second` stage blob, super's first 2 MiB metadata region, the update_engine
+   `metadata` partition, and 20 bytes of version fields in the loader area - the boot chain's payloads
+   and the backup GPT are identical. Partition 7's rollback image is now the refreshed `boot.bin`
+   (`4121b58f7759`), see `docs/flash.md` "Rollback".
 2. ~~Does `/system/xbin/su` prompt for a password?~~ Answered Nov 13: root works over TCP adb
    (`adb root` → `uid=0`, `u:r:su:s0`), so `su` is not needed for our probing (**D28**).
 3. Wireless CarPlay/AA: accept swapping the USB WiFi module for a dual-band one, or keep wired

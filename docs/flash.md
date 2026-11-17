@@ -387,6 +387,20 @@ rebuilt; `analysis/gpt/gpt_tail.bin` plus the Nov 4 probe's LBA table remain the
 extraction work is done: `brotli` on the `.new.dat.br` payloads, `tools/reassemble.py` for the transfer
 lists, `lpmake` for the super, verified with `lpdump` + `debugfs`.
 
+**Nov 17 refresh - partition 7's rollback image is now the refreshed capture.** The live unit's boot
+partition changed when the owner re-flashed the OEM package on Nov 13 (**D39**): the refreshed
+`hu-stock-backup-refresh/boot.bin` is 33,554,432 B sha256 `4121b58f77598d73b1b7958c36d1c5a81c8b82ba176cce9f6863b67992ce5b3d`, and it differs from the Nov 11 `3d2741f0…` capture by 1,625,326 bytes that all
+sit in boot's `second` stage - the kernel bytes, the first-stage ramdisk and the DTB inside `second`
+(157,962 B, sha `530b84129eb0`) are identical, only the blob before the DTB differs (**D38** names that
+stage as the board's display description). Roll back partition 7 with the **refreshed** file, because
+that is what boots today with a working screen. Everything else in the chain is unchanged: `uboot.bin`
+`a28fd6a0e6c6`, `trust.bin` `7f2c4e52e595`, `dtb.bin` `bb9f8df61474`, `dtbo.bin` `e5c1d28c4b6f`,
+`vbmeta.bin` `76ff77959f24`, `security.bin` `6ff044d01c2b`, `recovery.bin` `1fdf5ea77fc6` (the stock
+recovery the D42 patch works on), `frp.bin` `07854d2fef29`, and the backup GPT `f423cdce2c87`. The
+refreshed super capture is `11e91ea677e1` and it differs from Nov 11 only in its first 2 MiB - all
+logical partition bytes beyond that are identical - so the dynamic content is the same and only the
+metadata region moved. Full measurement: `docs/findings.md`, "Stock backup refresh on Nov 17".
+
 ## Fastboot is not used
 
 Owner confirmed there is no Rockchip loader/Boot-ADB entry, so fastboot in the ABL was the only other

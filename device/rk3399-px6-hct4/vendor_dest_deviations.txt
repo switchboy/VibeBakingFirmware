@@ -183,3 +183,15 @@ lib/libRkOMX_Resourcemanager.so
 lib64/libRkOMX_Resourcemanager.so
 lib/libgralloc_priv_omx.so
 lib64/libgralloc_priv_omx.so
+
+# ---- HIDL transport library stays in /system (shape B, Nov 17, engineering-declared) --------------
+# The Android 11 vendor tree ships `lib64/libhwbinder.so` (the HIDL transport lib, 10,824 B staged);
+# Android 14 has no VNDK, builds `libhwbinder` for `/system` only, and installs no vendor variant, so
+# the destination cannot be restored by a module or a vendor-variant request. Measured Nov 17 on shape
+# B's `target_files` VENDOR set: scanning every `*.so` and every `bin/hw/*` binary for a
+# `DT_NEEDED libhwbinder.so` found **zero consumers** - Android 14's vendor HIDL services link
+# `libbinder_ndk` + `libhidlbase`, and none of the staged Android 11 blobs link it either. So the path
+# is declared absent rather than injected: an injected copy would be dead weight in /vendor, and the
+# linker namespace does not need it. Shape A never had this destination (its Android 10 reference does
+# not ship the file), which is why the Nov 16 closure came out LOST-empty.
+lib64/libhwbinder.so

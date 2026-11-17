@@ -1789,3 +1789,26 @@ FAILS it - `/lib(64)` lack the plain protobuf soname and the soft-OMX plugin and
 `gralloc.rk30board.so` (its graphics path is Android 14's midgard 4.0 impls) - which is exactly the
 rebuild requirement recorded in D53, so the gate now states it instead of letting a stale fallback look
 coherent. `docs/findings.md` carries the listings; nothing was written to the unit.
+
+
+**D56 - shape B's `libhwbinder` destination is declared absent, not injected (Nov 17, engineering,
+pending owner review).** The Android 11 vendor tree ships `lib64/libhwbinder.so` (10,824 B staged); Android
+14 has no VNDK, builds `libhwbinder` for `/system` only, and installs no vendor variant, so no
+`PRODUCT_PACKAGES` request and no vendor variant can restore that destination. Measured before deciding:
+scanning every `*.so` and every `bin/hw/*` binary in shape B's `target_files` VENDOR set for a
+`DT_NEEDED libhwbinder.so` found **zero consumers**, and the same scan over the staging tree found zero -
+Android 14's vendor HIDL services link `libbinder_ndk` + `libhidlbase`. So the path goes into
+`device/rk3399-px6-hct4/vendor_dest_deviations.txt` (49 declared paths) rather than
+`vendor_dest_keep.txt`: an injected copy would be dead weight in `/vendor`. Shape A never had this
+destination, which is why the Nov 16 closure came out LOST-empty. `docs/findings.md` carries the scan.
+
+**D57 - the refreshed stock capture is the rollback reference for partition 7 (Nov 17, engineering,
+pending owner review).** `scripts/pull_stock_backup.sh` re-pulled the live firmware into
+`a14-work/hu-stock-backup-refresh/`. The boot partition is not what Nov 11 captured, because the owner's
+Nov 13 OEM re-flash (**D39**) wrote the package's own `boot.bin`: its kernel bytes, first-stage ramdisk
+and second-stage DTB are identical to the Nov 11 capture, but the ~1.63 MB blob before that DTB differs
+by 1,625,326 bytes. So partition 7 rolls back with the refreshed `boot.bin`
+(`4121b58f7759…`) - that is what boots today with a working screen - while the Nov 11 backup stays as the
+verified archive copy. Nothing else moved: uboot/trust/dtb/dtbo/vbmeta/security/recovery/frp and the
+backup GPT are byte-identical, and `super.bin` differs only in its first 2 MiB metadata region. No
+resize, no GPT write, nothing flashed (**D18**/**D19**/**D30**).

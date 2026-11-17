@@ -149,12 +149,16 @@ say "=== kernel / modules / manifest coupling (tools/payload_coupling_check.py) 
 # criterion HAL files (GPS under D49, CANBUS + the graphics chain under D52/D55), and the manifest's
 # target-level with no <kernel> tag. This is one of the gates D47 makes the safety net before the first
 # eMMC write. Shape A uses the tool's default criterion list; shape B passes its own (midgard 4.0).
+# BOOT overrides which boot image the coupling gate reads, so the fstab-injected image
+# (scripts/rebuild_boot_with_fstab.sh -> a14-fixed.img) can be gated against this shape's vendor
+# without rebuilding the whole pass. Default stays the raw boot.img the build produced.
+BOOT=${BOOT:-$PROD/boot.img}
 if [ -n "$EF" ]; then
-  python3 "$REPO/tools/payload_coupling_check.py" "$PROD/vendor.img" "$PROD/boot.img" \
+  python3 "$REPO/tools/payload_coupling_check.py" "$PROD/vendor.img" "$BOOT" \
     --tree "$TREE" --staged-tree "$VTREE" --manifest-target-level "$TL" --expect-files "$EF" \
     2>&1 | tail -16
 else
-  python3 "$REPO/tools/payload_coupling_check.py" "$PROD/vendor.img" "$PROD/boot.img" \
+  python3 "$REPO/tools/payload_coupling_check.py" "$PROD/vendor.img" "$BOOT" \
     --tree "$TREE" --staged-tree "$VTREE" --manifest-target-level "$TL" 2>&1 | tail -16
 fi
 [ "${PIPESTATUS[0]}" = 0 ] || bad "boot image and vendor partition disagree - do not flash this pair"
