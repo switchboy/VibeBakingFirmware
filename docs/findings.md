@@ -2679,3 +2679,17 @@ Measured with those defaults, no flags:
   Gralloc4 rather than the 2.0/2.1 passthrough wrappers. Its kernel/module/manifest coupling is still
   coherent (14/14 modules at `4.19.193`, `<kernel target-level=5>`), so the failure is about the D52
   restorations, not about shape B's shape.
+
+* `scripts/verify_artifacts.sh` passes the criterion list per shape now: shape A uses the tool's default
+  list (the 2.0/2.1 passthrough chain), shape B passes its own - `lib*/hw/gralloc.default.so`,
+  `lib*/hw/android.hardware.graphics.mapper@4.0-impl-midgard.so`,
+  `lib*/hw/android.hardware.graphics.allocator@4.0-impl-midgard.so`,
+  `bin/hw/android.hardware.graphics.allocator@4.0-service` (the Android 11 vendor tree ships those as
+  staged copies and Android 14 defines no install rule for the `-impl-midgard` names, so the staged blobs
+  win), plus the same GPS/CANBUS/audio/OMX/health files. Measured Nov 17 against the carved vendor of the
+  Nov 11 shape-B container with that list: **every criterion file present**, kernel `4.19.193`, 14/14
+  insmod modules, manifest `target-level=5` with `<kernel>` - and the only two failures are
+  `lib*/libprotobuf-cpp-lite.so` and `lib*/libstagefright_softomx_plugin.so`, the two sonames the Nov 16
+  requests added (D52) after that container was built. So a `SHAPE=a11` packaging pass, which carries the
+  same shape-independent `PRODUCT_PACKAGES` blocks, would close both and pass the whole gate; the Nov 11
+  container on disk cannot.

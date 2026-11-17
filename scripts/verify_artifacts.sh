@@ -21,11 +21,17 @@ PROD=$TREE/out/target/product/rk3399
 STAGE=$PROD/obj/PACKAGING/target_files_intermediates/lineage_rk3399-target_files
 WORK=${WORK:-/srv/dev-disk-by-label-SSData/aospbuild/tmp}
 SHAPE=${SHAPE:-a10}
+# The criterion-file list is shape-dependent (D55): shape A's screen chain is the staged
+# gralloc.rk30board.so wrapped by Android 14's 2.0/2.1 passthrough impls, which is what
+# payload_coupling_check.py asks for by default, so shape A passes nothing explicitly. Shape B ships
+# Android 14's own midgard 4.0 impls and `gralloc.default.so` instead - the Android 11 vendor tree has no
+# legacy `gralloc.rk30board.so`, so demanding the 2.x files there would fail a coherent shape-B payload.
 case "$SHAPE" in
   a10) REF_IMG="$TREE/vendor/hct4/prebuilt/vendor_a10.img"; VTREE="$TREE/vendor/hct4/tree_a10/vendor"
-       LABEL="Android 10"; TL=4 ;;
+       LABEL="Android 10"; TL=4; EF="" ;;
   a11) REF_IMG="$TREE/vendor/hct4/prebuilt/vendor_a11.img"; VTREE="$TREE/vendor/hct4/tree/vendor"
-       LABEL="Android 11"; TL=5 ;;
+       LABEL="Android 11"; TL=5
+       EF='bin/hw/android.hardware.gnss@1.0-service,lib/hw/android.hardware.gnss@1.0-impl.so,lib/hw/gps.default.so,bin/hw/android.hardware.mtc.mfi@1.0-service,lib/hw/android.hardware.mtc.mfi@1.0-impl.so,lib/hw/mfi.default.so,lib/hw/audio.primary.rk30board.so,lib/hw/gralloc.default.so,lib64/hw/gralloc.default.so,lib/hw/android.hardware.graphics.mapper@4.0-impl-midgard.so,lib64/hw/android.hardware.graphics.mapper@4.0-impl-midgard.so,lib/hw/android.hardware.graphics.allocator@4.0-impl-midgard.so,lib64/hw/android.hardware.graphics.allocator@4.0-impl-midgard.so,bin/hw/android.hardware.graphics.allocator@4.0-service,bin/hw/android.hardware.media.omx@1.0-service,bin/hw/android.hardware.health@2.1-service' ;;
   *) echo "SHAPE must be a10 or a11"; exit 1 ;;
 esac
 fail=0
@@ -140,10 +146,17 @@ fi
 say "=== kernel / modules / manifest coupling (tools/payload_coupling_check.py) ==="
 # Reads the finished artifacts, not the recipe: kernel banner vs .ko vermagic, the first-stage fstab
 # and the DTB inside boot's second stage, the libraries Android 14 does not build (both arches), the
-# criterion HAL files (GPS under D49), and the manifest's target-level with no <kernel> tag. This is
-# one of the gates D47 makes the safety net before the first eMMC write.
-python3 "$REPO/tools/payload_coupling_check.py" "$PROD/vendor.img" "$PROD/boot.img" \
-  --tree "$TREE" --staged-tree "$VTREE" --manifest-target-level "$TL" 2>&1 | tail -16
+# criterion HAL files (GPS under D49, CANBUS + the graphics chain under D52/D55), and the manifest's
+# target-level with no <kernel> tag. This is one of the gates D47 makes the safety net before the first
+# eMMC write. Shape A uses the tool's default criterion list; shape B passes its own (midgard 4.0).
+if [ -n "$EF" ]; then
+  python3 "$REPO/tools/payload_coupling_check.py" "$PROD/vendor.img" "$PROD/boot.img" \
+    --tree "$TREE" --staged-tree "$VTREE" --manifest-target-level "$TL" --expect-files "$EF" \
+    2>&1 | tail -16
+else
+  python3 "$REPO/tools/payload_coupling_check.py" "$PROD/vendor.img" "$PROD/boot.img" \
+    --tree "$TREE" --staged-tree "$VTREE" --manifest-target-level "$TL" 2>&1 | tail -16
+fi
 [ "${PIPESTATUS[0]}" = 0 ] || bad "boot image and vendor partition disagree - do not flash this pair"
 
 say "=== recovery carries an installer ==="
