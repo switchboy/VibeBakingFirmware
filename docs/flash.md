@@ -266,7 +266,22 @@ The operator-relevant consequences:
   install rule for the `-impl-midgard` names): every criterion file is present and the only two failures
   are `lib*/libprotobuf-cpp-lite.so` and `lib*/libstagefright_softomx_plugin.so` - the sonames D52 added
   after Nov 11. A `SHAPE=a11` pass carries the same shape-independent `PRODUCT_PACKAGES` blocks, so it
-  closes both and the whole gate passes.
+closes both and the whole gate passes - and that pass ran on Nov 17. Shape B's current artifacts on the
+NAS: `super.img` 2,277,550,048 B sha `2a1246aaf055acacf4cddb8e7ce46e4064e29af59c214d831acfc470c4edcc51`,
+`vendor.img` 432,275,456 B sha `90ed4009ce960e1f344b05a3e20e1413d6af90e5091d629c09ee4282dd8cb8cd`,
+`system.img` 1,012,871,168 B, `product.img` 456,159,232 B, raw `boot.img` 32,796,672 B sha
+`cf05255148b85a76d6a8f4caa235555adf029828c70593b344bca000341237c1`, `recovery.img` 44,689,408 B sha
+`eb0f86b37bf731f3d8d7439fdb67b68f67b6564ed6bc5af2ac9f85363924b758`. The raw `boot.img` still lacks the
+first-stage fstab (**D34**), so shape B's flashable boot is the repacked image
+`/srv/dev-disk-by-label-SSData/aospbuild/hu-a11-repack/a14-fixed.img`, 32,796,672 B sha
+`55be70ab423c66c6c4d33abaf3628d59eebf0f39d4c884ec4253abcd85921bc0` - kernel `4.19.193 #24`, the DTB
+(157,962 B) inside `second`, and `first_stage_ramdisk/fstab.rk30board` (4,190 B, five logical
+`first_stage_mount` rows). Gating it: `SHAPE=a11 BOOT=<that image> scripts/verify_artifacts.sh` says
+**`PASS: boot image and vendor partition in this payload agree`** and **`VERDICT: flashable build =
+yes`** (`lib64/libhwbinder.so` is declared absent, **D56**; the stale Nov 8 OTA zip and
+`vendor_diff.py`'s "only the intended changes = False" line about build-owned `usb_modeswitch.d` paths
+are informational, not gates). Shape B is therefore a real fallback now, but shape A stays primary
+(**D46**), and neither is flashed until the owner's gate (**D47**).
 
   **Shape A** (the primary, Nov 15) ships `a14-work/a14chk-shapeA/boot-a10k-a14rd.img`: 28,233,728 B,
   sha `3cf4012980d0a824c37ed3f24982a9c7e50d2c8c8497030be139e1184a647375`, kernel payload 25,671,688 B = the

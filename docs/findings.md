@@ -2897,3 +2897,23 @@ The pull script's own guard held: it refused nothing, required `adb shell id` = 
 
 `VERDICT: flashable build = NO` for shape B today, for the D34 fstab reason only once the declared
 libhwbinder gap is counted - the criterion chain, module coupling and manifest are coherent.
+
+### Shape B's gate, run against the fstab-injected boot (Nov 17 21:22-21:30 CET)
+
+`scripts/rebuild_boot_with_fstab.sh` ran on the NAS with the new shape-B `boot.img` as `SRC_BOOT` and the
+archived stock `boot.bin` as `OEM_A10_BOOT`, into `aospbuild/hu-a11-repack/`. It produced
+`a14-fixed.img` 32,796,672 B sha `55be70ab423c…` (kernel `4.19.193 #24`, DTB 157,962 B inside `second`,
+ramdisk carrying `first_stage_ramdisk/fstab.rk30board` 4,190 B with five logical `first_stage_mount`
+rows) and a fresh `boot-a10k-a14rd.img` 28,233,728 B sha `c9f0f9fe434f…`. The latter is the same size and
+the same kernel bytes (`a514a3ffb77e`) as the gated shape-A artifact `3cf40129…`, but its first-stage
+ramdisk differs because today's build regrows it after the D52/D52b requests - the gated shape-A pair
+stays `3cf40129` + container `d81f913a`, and nothing was flashed.
+
+`scripts/verify_artifacts.sh` gained a `BOOT` override (`BOOT=${BOOT:-$PROD/boot.img}`) so the coupling
+gate can read the repacked image without rebuilding the pass. With `SHAPE=a11 BOOT=<a14-fixed.img>` it
+reports `PASS: boot image and vendor partition in this payload agree` and `VERDICT: flashable build =
+yes`. Measured artifacts: `vendor.img` 432,275,456 B sha `90ed4009ce96…`, `super.img` 2,277,550,048 B
+sha `2a1246aaf055…`, raw `boot.img` sha `cf05255148b8…`, `recovery.img` 44,689,408 B sha
+`eb0f86b37bf7…`. What remains non-blocking is informational only: `vendor_diff.py`'s
+"only the intended changes = False" (build-owned `etc/usb_modeswitch.d/*` destinations plus the intended
+init/manifest edits) and the stale Nov 8 OTA zip (`931bbb45…`, since `m dist` is skipped).
