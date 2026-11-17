@@ -2603,3 +2603,44 @@ packaging pass before it is offered as the fallback.
   VERIFIED: True`, the three check_vintf logs parsed, and the only two `!` lines still the D34 pair
   about the raw `boot.img`. With SSData at 7.5 GiB free (after deleting the stale 3.26 GB scratch copy)
   the default location is used and the gate passes there too.
+
+
+## What is inside the container we would actually flash (Nov 17, carved from `a14chk-shapeA/raw-super.img`)
+
+`vendor.img` on disk is Android sparse, so `debugfs` cannot read it directly; the thing `dd` writes is
+the flattened container, so the vendor partition was carved out of it and read there: vendor is at
+1,980,416 sectors of the container = byte offset 1,013,972,992, extents `0 .. 1086079` = 556,072,960 B
+(`dd bs=4096 skip=247552 count=135760`, which produces exactly 556,072,960 B, and the super gate already
+proved those bytes are byte-identical to `vendor.img`). Reading it with `debugfs` confirms every decision
+in the partition itself, not in a recipe:
+
+* **D52 restored chain, both arches**: `lib*/hw/android.hardware.graphics.allocator@2.0-impl.so`,
+  `lib*/hw/android.hardware.graphics.mapper@2.0-impl-2.1.so`,
+  `bin/hw/android.hardware.graphics.allocator@2.0-service` + `etc/init/…allocator@2.0-service.rc`,
+  `lib*/libprotobuf-cpp-lite.so` (next to Android 14's own `-3.9.1.so` and `-21.12.so`),
+  `lib*/libstagefright_softomx_plugin.so`, and `bin/hw/android.hardware.power@1.0-service` + rc +
+  `lib*/hw/android.hardware.power@1.0-impl.so`.
+* **D52b declared gaps are really absent**: no `lib*/hw/gatekeeper.rk30board.so`, no
+  `lib*/librkgatekeeper.so`, no `lib*/libRkTeeGatekeeper.so`, no `lib*/libomxvpu_{enc,dec}.so`, no
+  `lib*/libOMX_Core.so`, no `lib*/libRkOMX_Resourcemanager.so`, no `lib*/libgralloc_priv_omx.so`, no
+  `bin/hw/android.hardware.health@2.0-service` - battery info comes from
+  `bin/hw/android.hardware.health@2.1-service` + `lib*/hw/android.hardware.health@2.0-impl-2.1.so`.
+  What stays of the VPU is `lib*/libvpu.so` (JPEG/camera path) and the staged
+  `lib*/hw/gralloc.rk30board.so` that the 2.0/2.1 passthrough wrappers load.
+* **D50's edited init copies are the shipped ones**, at `/etc/init/hw/`: `init.connectivity.rc` (3,372 B)
+  carries the two deviation comments and no `mkdir /data/vendor/akmd` (the stock staged copy has that
+  mkdir at line 39) and no OEM `service wpa_supplicant` block; `init.rk3399.rc` (3,189 B) has no
+  `verity_load_state` (stock has it at line 37). Both were removed because Android 14's init rejects
+  those lines outright, which is what stopped `m superimage` on Nov 16. The rest of that directory is the
+  OEM chain kept as staged: `init.mount_all.rc`, `init.optee.rc`, `init.rk30board.rc`,
+  `init.rk30board.environment.rc`, `init.rk30board.usb.rc`, `init.rk3399.usb.rc`,
+  `init.rk30board.bootmode.{emmc,nvme,unknown}.rc`, `init.rockchip.rc`.
+* `/etc/init` has 30 `.rc` files, including the criterion ones: `android.hardware.gnss@1.0-service.rc`,
+  `android.hardware.mtc.mfi@1.0-service.rc` (CANBUS), `android.hardware.audio.service.rc` +
+  `android.hardware.audio@2.0-service.rc`, `android.hardware.wifi-service.rc`,
+  `android.hardware.wifi.supplicant-service.rc`, `hostapd.android.rc`, the camera provider pair,
+  `android.hardware.media.omx@1.0-service.rc`, plus our own `hu.rc` and `hu-adb.rc`,
+  `vndservicemanager.rc` and `vendor_flash_recovery.rc` (declared: it re-flashes recovery from
+  `/vendor/recovery-from-boot.p`, which is not staged).
+* `/etc/vintf` holds `manifest.xml` + `compatibility_matrix.xml` (the device matrix) - the same bytes the
+  coupling gate read, `target-level=4` with no `<kernel>` tag (**D51**).
