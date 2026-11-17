@@ -2813,3 +2813,87 @@ window (**+2,250 B, ~225 B/s**), while `tx` stayed at **70**. So the module emit
 the HAL writes essentially nothing to it - no NMEA/init command sequence. With the antenna unplugged that
 is consistent with zero fixes; with the antenna fitted, `tx` is the number to watch, because a module that
 needs host commands would still produce no fix.
+
+## Stock backup refresh on Nov 17, and what actually changed since Nov 11 (read-only)
+
+`scripts/pull_stock_backup.sh` ran against the live unit over TCP adb and produced
+`a14-work/hu-stock-backup-refresh/` (3.3 GiB, `MANIFEST.sha256` with 13 files, relative paths so it
+verifies anywhere). The Nov 11 backup `hu-stock-backup/` is untouched and its own manifest still checks
+clean (`sha256sum -c` = all OK). Pull order: `disk-head-8mb.bin` `2958aec000c3`, `disk-tail-gpt.bin`
+`f423cdce2c87`, then by-name partitions: `uboot.bin` `a28fd6a0e6c6`, `trust.bin` `7f2c4e52e595`,
+`misc.bin` `909bdd979111`, `dtb.bin` `bb9f8df61474`, `dtbo.bin` `e5c1d28c4b6f`, `vbmeta.bin`
+`76ff77959f24`, `boot.bin` `4121b58f7759`, `recovery.bin` `1fdf5ea77fc6`, `security.bin`
+`6ff044d01c2b`, `metadata.bin` `055d780c5cae`, `frp.bin` `07854d2fef29`, `super.bin`
+`11e91ea677e1` (3,263,168,512 B).
+
+Five shas differ from the Nov 11 capture, and each was located byte-wise (`cmp -l` + a 1 MiB chunk
+diff), so the story is measured rather than guessed:
+
+* **`uboot.bin`, `trust.bin`, `dtb.bin`, `dtbo.bin`, `vbmeta.bin`, `security.bin`, `recovery.bin`,
+  `frp.bin`, `disk-tail-gpt.bin` are byte-identical** - the boot chain, DT partitions, AVB metadata and
+  the backup GPT are exactly what they were on Nov 11. `recovery.bin` is still `1fdf5ea77fc6`, which is
+  the stock recovery the D42 patch works on.
+* **`super.bin` differs only in its first 2 MiB.** A 1 MiB chunk diff finds exactly two differing chunks
+  (offsets 0 and 1 MiB); every logical partition's bytes beyond that are identical to Nov 11. So the
+  dynamic-partition *content* is unchanged, only the metadata region moved - the Nov 13 re-flash of the
+  OEM package (`**D39**`) re-ran `update_dynamic_partitions`, which rewrites super's metadata header.
+* **`metadata.bin` changed** (`8814f72c8d45…` -> `055d780c5cae…`): that partition is update_engine's
+  own metadata store, rewritten by the same restore.
+* **`boot.bin` differs by 1,625,326 bytes, entirely inside boot's second stage.** Kernel bytes are
+  identical (sha `a514a3ffb77e`, banner still `#190`), the first-stage ramdisk is identical, and the DTB
+  inside `second` is identical - magic at `second+1,633,792`, totalsize 157,962 B, sha `530b84129eb0` in
+  both captures. The difference sits in the ~1.63 MB blob *before* that DTB (`second` region
+  30,459,904..32,092,092). That is the blob the OEM package's `boot.bin` carries and the Nov 13 re-flash
+  wrote, versus the byte-exact capture taken from the unit on Nov 11. Both boot today with a working
+  screen, so neither is broken; but **the rollback image for partition 7 is now the refreshed
+  `boot.bin` (`4121b58f7759`), not the Nov 11 `3d2741f0…`**, because that is what the unit boots right
+  now. Shape A's `boot-a10k-a14rd.img` was rebuilt from the Nov 11 capture, so its `second` stage carries
+  the Nov 11 blob; the DTB it needs is the same bytes either way (`530b84129eb0`, **D38**).
+* **`disk-head-8mb.bin` differs by exactly 20 bytes**, at offsets 33,305 / 33,307 / 34,289 / 34,290 and
+  the same pattern every 524,288 bytes (557,593 / 1,081,881 / 1,606,169 / 2,130,457 …). The context is
+  the Rockchip loader area marked `RK28`, and the changed bytes are its version/date fields
+  (`…24 01 04` -> `…26 01 05`, `44 56` -> `46 56`). The partition payloads themselves are unchanged
+  (`uboot.bin`/`trust.bin` identical), so the Nov 13 re-flash touched only the loader copies' version
+  fields, never the boot chain's payload. Our routes never write that area (**D18**/****D19**), and the
+  refreshed head file is kept as a record of what the disk holds today.
+
+The pull script's own guard held: it refused nothing, required `adb shell id` = uid 0 and the fingerprint
+`QQ2A.200305.004.A1`, so this is a backup of the known-good firmware. Nothing was written to the unit.
+
+## Shape B rebuilt with the D52 requests, and what its gate says now (Nov 17)
+
+`SHAPE=a11 SKIP_DIST=1 scripts/package.sh` ran on the NAS at 20:09-20:33 CET: `m bootimage` and
+`m recoveryimage` rc=0, `m dist` skipped, `m superimage` rc=0. Products: `boot.img` 32,796,672 B
+(sha `cf05255148b8…`, kernel `4.19.193`), `recovery.img` 44,689,408 B, `vendor.img` 432,275,456 B,
+`system.img` 1,012,871,168 B, `product.img` 456,159,232 B, `super.img` 2,277,550,048 B
+(sha `2a1246aaf055…`), group 3,258,974,208 B with 2,289,852,416 B used (spare 969,121,792 B).
+`scripts/verify_artifacts.sh` with `SHAPE=a11` reports:
+
+* `ALL LOGICAL PARTITIONS VERIFIED: True`, group fits inside `super_partition_size` True, VINTF
+  vendor/system/device manifests all "Successfully processed".
+* **Coupling: PASS on everything except the D34 pair.** 17 `.ko` at vermagic `4.19.193` (+ one
+  `4.4.167`), `hu_insmod.sh` 14/14 present at the right vermagic, manifest `target-level=5` and it
+  *declares* `<kernel>`, and the criterion list is fully satisfied: `/lib64` **and** `/lib` now carry
+  `libion`, `libaudioroute`, `libaudioutils`, `libspeexresampler`, **`libprotobuf-cpp-lite.so`** and
+  **`libstagefright_softomx_plugin.so`**, and every criterion HAL file is present (GPS, CANBUS MTC,
+  audio, `gralloc.default.so`, the midgard 4.0 mapper/allocator impls, the allocator service, the OMX
+  service, `health@2.1-service`). So the two failures **D55** measured against the Nov 11 container are
+  gone - the packaging pass closed them, exactly as predicted.
+* The only coupling failures are `boot.img ramdisk has no first_stage_ramdisk/fstab.rk30board (D34)` and
+  the derived "do not flash this pair" line. Shape B needs the same fstab rebuild shape A got
+  (`scripts/rebuild_boot_with_fstab.sh`) before it can be offered.
+* **New gap found: `lib64/libhwbinder.so`.** The Android 11 vendor tree ships it (10,824 B staged), Android
+  14 has no VNDK and builds `libhwbinder` for `/system` only with no vendor variant, so the destination
+  cannot be restored by a module. Measured, not assumed: scanning every `*.so` and every `bin/hw/*`
+  binary in shape B's `target_files` VENDOR set for a `DT_NEEDED libhwbinder.so` found **zero
+  consumers**, and the same scan over the staging tree found zero. So it is declared absent in
+  `device/rk3399-px6-hct4/vendor_dest_deviations.txt` (now 49 declared paths) rather than injected - an
+  injected copy would be dead weight in `/vendor`. Shape A never had this destination, which is why the
+  Nov 16 closure came out LOST-empty.
+* `vendor_diff.py` still says "only the intended changes = False": `etc/usb_modeswitch.d/*` destinations
+  are missing from the built vendor (build-owned paths), and the intended size changes are the two
+  edited OEM init copies plus the cas/health/hostapd manifest fragments.
+* The OTA zip is still the stale Nov 8 one (`931bbb45…`), because `m dist` is skipped.
+
+`VERDICT: flashable build = NO` for shape B today, for the D34 fstab reason only once the declared
+libhwbinder gap is counted - the criterion chain, module coupling and manifest are coherent.
