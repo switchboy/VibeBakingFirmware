@@ -30,7 +30,11 @@ Hardware identity is unchanged across both builds: `rk30board`, platform `rk3399
 Four input devices register at boot: `mtc-key` (`/devices/platform/mtc-car/input/input0`), `goodix-ts`
 (`ff3d0000.i2c/i2c-4/4-0014/input/input1`), `gpio-keys`, plus the HID/virtual ones loaded later
 (`sd_user_hid.ko`, `virtual_tp.ko`). The full `/proc/bus/input/devices` dump is not in the probe report -
-it was read live over `adb root` on Nov 13 and needs re-reading when the unit is reachable.
+it was read live over `adb root` on Nov 13, and re-read live on Nov 17 19:21 CET: the three platform
+devices are still there - `mtc-key` -> `event0`, `goodix-ts` -> `event1`, `gpio-keys` -> `event2`, each
+with handlers `eventN cpufreq` - and the HID/virtual ones (`sd_user_hid.ko`, `virtual_tp.ko`) are absent
+that boot because those modules are not loaded (`lsmod` = `usb_f_iap2`, `8188eu`, `aic8800_bsp` only).
+Touch is `event1`.
 
 What that read showed for the touchscreen is the signature of a driver that stores its identity strings in
 memory it has already thrown away:
@@ -61,9 +65,13 @@ it survived the Nov 11/12 sessions.
 **`vendor.sensors-hal-1-0` exits with status 255 and init loops on it.** In the panic record it exits twice
 in one boot (pid 290 at t=3325.637752, pid 3818 at t=3333.865666, uid 1000), each time followed by
 `init: starting service 'vendor.sensors-hal-1-0'...` and a `healthd: battery none chg=` line. Whether that
-is *why* system_server died is unproven - logcat is not in pstore. It is on the owner's criteria path
-(sensors/GPS behaviour), so the next reachable session should grab `logcat -d` around a crash and the
-HAL's own stderr.
+is *why* system_server died is unproven - logcat is not in pstore. Cause measured Nov 17 instead: the
+HAL is alive (pid 292) and loops every ~27 s with `Couldn't open /dev/mma8452_daemon (No such file or
+directory)` followed by `fail to perform GSENSOR_IOCTL_APP_SET_RATE, result = -1, error is 'Bad file
+descriptor'`. `/dev/mma8452_daemon` is absent even though the kernel has the driver built in
+(`CONFIG_SENSOR_DEVICE=y`, `CONFIG_GSENSOR_DEVICE=y`, `CONFIG_GS_MMA8452=y`), so the accelerometer
+driver never created its node. Sensors are not an owner criterion, and in that session's window the HAL
+did not exit - which weakens the "sensors HAL dies and cascades the restart" hypothesis behind D45.
 
 This is the Daisaita/Daitsun build of the HCT4 base — same Android version and same vendor HAL
 surface as the reference payload, but **not** the Hal9k Mod: no `/vendor/magisk`, no `eng.hct`
@@ -157,6 +165,19 @@ vendor equals the reference vendor blob-for-blob.
   `init.connectivity.rc`, `init.box.samba.rc`, `init.car.rc`, `init.optee.rc`; touches OPTEE/tee
   nodes, `glgps`, `/sys/class/display/HDMI/color`, and mentions **AP6476** as the GPS module.
 - `/init.hct.rc` is not readable without root — the next report grabs it if `/system/xbin/su` works.
+- Serial identity disagrees (Nov 17): `ro.serialno` = `D5362B7F96DAB676`, `ro.boot.serialno` =
+  `c3bc6b060ec025bb`. The OEM init chain overrides `ro.serialno` after boot; our payload keeps the same
+  source, so serial-keyed apps still see `D5362B7F96DAB676`.
+
+## TCP adb is permanent (Nov 17, owner directive)
+
+`persist.internet_adb_enable=1` now lives in `/data/property/persistent_properties`, and
+`/vendor/etc/init/hw/init.rk30board.rc:250-257` reacts to it with `setprop service.adb.tcp.port 5555` +
+`restart adbd`. Measured by rebooting the unit: 1 min later `persist.internet_adb_enable=1`,
+`service.adb.tcp.port=5555`, `adbd` listening, and `adb root` worked with **no RSA dialog** - so TCP adb
+is available on every boot while `/data` survives. The prop lives in `/data`, so a factory reset (or our
+own install route, which wipes `/data` per D10) kills it and `adbon` is needed again; the off switch is
+`setprop persist.internet_adb_enable 0`.
 
 ## WiFi: this is a USB Realtek dongle, and it is 2.4 GHz hardware
 
@@ -188,8 +209,12 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
   Android 14 vendor tree does set one - `device/rk3399-px6-hct4/configs/init.hu.rc` reacts to
   `ro.boot.wificountrycode=NL` with `iw reg set NL`, because the vendor CN map marks ch 12/13 "no IR"
   (visible in the Nov 13 `iw list` output).
-* Live-only, read over `adb root` Nov 13 and **not** captured in the probe report: link quality ~99/99 at
-  −44 dBm. Re-measure with `iw dev wlan0 link` on the next reachable session.
+* Live link quality, measured Nov 17 19:21 with `iw dev wlan0 link`: connected to `4c:ed:fb:a5:08:01`,
+   SSID `hoefijzer`, `freq 2417`, `signal -56 dBm`, `tx bitrate 150.0 MBit/s`. The Nov 13 "~99/99 at
+   -44 dBm" reading was never captured in a report, so the Nov 17 figure is the one on record.
+* **Wireless Android Auto takes the radio.** The owner started Android Auto mid-session and WiFi dropped
+   (`ping` -> Destination Host Unreachable), with **no kernel panic**. The RTL8188EU is a single 2.4 GHz
+   radio, so wireless AA and the LAN adb route cannot coexist - probing pauses while AA runs.
 * The loaded driver is Rockchip's fork and it taints the kernel: a `WARNING` at
   `drivers/net/wireless/rockchip_wlan/rtl8188eu/hal/hal_com.c:12050 rtw_lps_state_chk+0x58/0x70 [8188eu]`
   fires when power-save leave times out (`rtw_warn_on(1)` after `PS_MODE_ACTIVE check failed`). Harmless,
@@ -222,12 +247,16 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
    and the vendor kernel source is not in hand. It only bites on a framework restart, so the criteria
    (touch/buttons/CANBUS) survive normal use. Reopens if restarts prove routine; then the routes are
    vendor-source rebuild with the literal fix, or removing the trigger.
-5. `vendor.sensors-hal-1-0` exits with status 255 and init loops on it. It is the nearest candidate for
-   the framework restart that triggered the Nov 13 panic, and sensors are part of the criteria path. Next
-   reachable session: capture `logcat -d` plus the HAL's stderr around a crash. This is the measurement
-   D45 depends on staying acceptable.
+5. `vendor.sensors-hal-1-0` exits with status 255 and init loops on it. Measured Nov 17: the HAL stays
+   running and loops on a missing `/dev/mma8452_daemon` (the built-in `CONFIG_GS_MMA8452` driver never
+   created its node), and wireless Android Auto dropped WiFi with no panic at all. So the restart
+   trigger behind D45 has not recurred. Sensors are not an owner criterion; if you ever want
+   accelerometer data on our payload, that node is the thing to chase.
 6. Posting upstream: **declined Nov 15** - candidates 21/22 stay draft-only in `docs/upstream.md`, nothing
    posted. If you ever want it public, the draft is written to be pasted as-is.
+7. **GPS antenna**: it is not connected on the current bench, so the hard GPS criterion (D49) cannot be
+   measured here. Fit the antenna and we can read a real fix plus a satellite list; the UART path is
+   already alive (55,755 rx bytes on `/dev/ttyS0`).
 
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)
@@ -264,5 +293,16 @@ ships the **#190** kernel, which is also the kernel the stock `4.19.111+` module
 (`docs/head-unit-findings.md`, control-plane props): `ro.factory.hasGPS=true`, GPS on `/dev/ttyS0`, Bluetooth on
 `/dev/ttyS1`, `ro.rk.bt_enable=true`, and the vendor tree names **AP6476** as the GPS module with a `glgps`
 process. The HAL chain is Android 14-legal as measured in `docs/findings.md` (Android 14's GNSS JNI fetches HIDL
-`IGnss@1.0`). On the next reachable session: `ps -A | grep glgps`, the GNSS service process, who holds
-`/dev/ttyS0`, and a real fix with a satellite list - not just "GNSS declared in the manifest".
+`IGnss@1.0`).
+Measured Nov 17 19:22-19:26: `android.hardware.gnss@1.0-service` runs (pid 282, uid `gps`) and **holds
+`/dev/ttyS0`** (fd 8), `/vendor/lib64/hw/gps.default.so` is 32,440 B, `/dev/ttyUSB*` is absent,
+`/dev/mtc-car` exists. But `dumpsys location` reports a completely empty GNSS_KPI window - **0 location
+reports, 0 TTFF, 0 CN0, 0 sv-status messages** - with `mTopHalCapabilities=0x1 ( SCHEDULING )` only,
+`mGnssMeasurementsProvider.isRegistered()=false` and `native internal state: null`, while
+`android.microntek.service`, `com.telenav.launcher` and `com.google.android.apps.maps` all hold
+`ACCURACY_FINE` requests. `/proc/tty/driver/serial` shows port 0 (`mmio:0xFF180000 irq:36`)
+`tx:70 rx:55755 RTS|DTR`. So the module is powered and streaming on UART0 even with the antenna
+**unplugged** (owner confirmed), and zero fixes is expected on this bench: **D49 stays unverifiable
+until the antenna is fitted**, and the next antenna-connected session should watch `tx` too - 70 writes
+in three minutes means the HAL sends almost nothing, so a module needing an init command sequence would
+still report nothing. The HAL leg itself is the shape-A-relevant part and it is coherent.

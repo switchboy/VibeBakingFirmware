@@ -166,3 +166,30 @@ This file is the index plus the risk register, and it must not restate numbers -
     "four libraries are missing" claim. The NAS credential
     wrappers are restored and the host is reachable, but `SSData` is nearly full (9.5 GB free after moving the Nov
     8 pass to cold storage), so the shape-A build skips `m dist` and logs go to the NAS's `/tmp`.
+
+
+13. **Nov 16/17: the payload is staged and gated, and Nov 17's live session is recorded.** Shape A's
+    `super.img` (2,400,917,568 B, sha `bb79874c…`), `vendor.img` (556,072,960 B, `7a5ce939…`),
+    `boot.img` (28,012,544 B, `9605fb9f…`) and the flashable container `raw-super.img`
+    (3,263,168,512 B, `d81f913a…`) plus `boot-a10k-a14rd.img` (`3cf40129…`) pass the whole offline
+    gate set - closure 109 modules / 0 not installed, ABI, VINTF dropped-check (LOST empty), super byte
+    verification `ALL LOGICAL PARTITIONS VERIFIED: True`, installer smoke 8/8 in both shapes, card-staging
+    dry run rc=0 - and the coupling gate now demands the criterion chain itself (GPS, CANBUS, audio, the
+    whole graphics chain, OMX, health, the protobuf/soft-OMX sonames) and **PASSes** on shape A. Shape B's
+    Nov 11 container (sha `d4b49909…`) **FAILs** it on the two sonames D52 added, so
+    it stays parked until a `SHAPE=a11` packaging pass (**D53**/**D54**/**D55** are engineering-declared,
+    pending owner review). Nothing has been flashed (**D30**).
+14. **Nov 17 live facts (read-only, no writes).** TCP adb is now permanent via
+    `persist.internet_adb_enable` + `init.rk30board.rc:250-257`, proven by a reboot with no RSA dialog; a
+    clean RAMoops record shows the `#190` banner and zero `gt9xx`/panic markers, so **D45**'s restart
+    trigger has not recurred; `/dev/ion` exists while `/dev/dma_heap` does not and the running config has
+    no `DMA_HEAP` at all - shape A's ION graphics chain is the only route this kernel can serve; the
+    CANBUS `mtc.mfi` service is alive on stock; GPS reports **zero fixes** because the antenna is
+    unplugged (owner confirmed), though UART0 still receives 55,755 bytes, so the module is powered and
+    streaming - **D49 stays unverifiable until the antenna is fitted**; wireless Android Auto takes the
+    single 2.4 GHz radio, so the LAN adb route drops while AA runs; the sensors HAL loops on a missing
+    `/dev/mma8452_daemon`. All recorded in `docs/head-unit-findings.md` + `docs/findings.md`.
+15. **Next moves.** `scripts/pull_stock_backup.sh` refresh (**D40**) once the unit is reachable again;
+    a `SHAPE=a11` packaging pass to make shape B D52-current; real card staging when a card is mounted
+    (`SHAPE=a10 scripts/stage_hu_card.sh <dir>`); shape C's kernel build only after the vendor GPL source
+    arrives (**D48**); GPS criterion measurement after the antenna is fitted (**D49**).

@@ -2693,3 +2693,106 @@ Measured with those defaults, no flags:
   requests added (D52) after that container was built. So a `SHAPE=a11` packaging pass, which carries the
   same shape-independent `PRODUCT_PACKAGES` blocks, would close both and pass the whole gate; the Nov 11
   container on disk cannot.
+
+## Live session Nov 17 19:21-19:30 CET: permanent TCP adb, and the W4 probes (read-only)
+
+The unit came back online after the owner re-ran `adbon` (**D28**), then the owner asked to make adb
+permanent ("make adb on permanent for now"). Measured read-only over `adb root`, nothing written.
+
+**adb is permanent, and the reboot proved it.** `persist.internet_adb_enable` is stored in
+`/data/property/persistent_properties` (`strings` shows the key at line 55), and
+`/vendor/etc/init/hw/init.rk30board.rc:250-257` reacts to it:
+
+```
+on property:persist.internet_adb_enable=1
+    setprop service.adb.tcp.port 5555
+    restart adbd
+on property:persist.internet_adb_enable=0
+    setprop service.adb.tcp.port 0
+    restart adbd
+```
+
+Deliberately rebooted the unit and reconnected without touching the RSA dialog: `uptime` 1 min,
+`persist.internet_adb_enable=1`, `service.adb.tcp.port=5555`, `adbd` pid 1038 (uid `shell`) listening,
+`adb root` -> uid 0 `u:r:su:s0`. Two caveats worth keeping in mind: the property lives in `/data`, so a
+factory reset kills it (and our own install route wipes `/data` per **D10**, so adb must be re-enabled
+after our payload boots), and the off switch is `setprop persist.internet_adb_enable 0`.
+
+**The serial numbers disagree.** `ro.serialno` = `D5362B7F96DAB676` (the value every earlier probe
+reported), `ro.boot.serialno` = `c3bc6b060ec025bb` (what the kernel command line passes as
+`androidboot.serialno`). Something in the OEM init chain overrides `ro.serialno` after boot. Recorded as
+a fact, not a defect: our payload sets `ro.serialno` from the same source the OEM init does, so the
+apps that key on the serial (MicronTEK services, the head-unit apps) keep seeing the familiar value.
+
+**A clean boot in pstore.** `/sys/fs/pstore` holds `console-ramoops-0` (107,830 B) and
+`pmsg-ramoops-0` (262,132 B), timestamped 19:21, i.e. the boot that just happened. Head of the console
+log: `Linux version 4.19.111+ (gcc 6.3.1 Linaro GCC 6.3-2017.05) #190 SMP PREEMPT Fri Jul 5 14:39:56 CST
+2024`, `Machine model: Rockchip RK3399 HCT Board` - the same **#190** banner that `boot-a10k-a14rd.img`
+and the stock backup's `boot.bin` carry. `grep -c 'Unable to handle kernel\|Kernel panic\|gt9xx'` = **0**,
+so the Nov 13 `gt9xx` fault did not fire on this boot (**D45** stays accepted).
+
+**Input devices right now:** `mtc-key` -> `event0`, `goodix-ts` -> `event1`, `gpio-keys` -> `event2`, three
+devices, each with handlers `eventN cpufreq`. The HID/virtual devices (`sd_user_hid.ko`, `virtual_tp.ko`)
+are absent this boot because those modules are not loaded - `lsmod` again lists only `usb_f_iap2`
+(20480, used by 2), `8188eu` (1,253,376), `aic8800_bsp` (45,056). Touch is `event1` as before.
+
+**`/dev/ion` exists, `/dev/dma_heap` does not.** `/dev/ion` is `crw-rw-rw-` major 10 minor 63, label
+`u:object_r:ion_device:s0`; `/dev/binder` is major 10 minor 48, `u:object_r:binder_device:s0`;
+`/dev/dma_heap` is "No such file or directory". Confirmed against the running kernel's config
+(`analysis/hu_kernel_config_live-20261113.txt`): `CONFIG_ION=y`, `CONFIG_ION_SYSTEM_HEAP=y`,
+`CONFIG_ION_LEGENCY=y` + `CONFIG_ION_LEGENCY_ROCKCHIP=y`, `CONFIG_DMA_CMA=y`, and **no `DMA_HEAP`
+option at all**. So the allocator/mapper chain shape A ships (gralloc.rk30board + allocator@2.0/mapper@2.1
+passthrough, ION-backed) is the only graphics route this kernel can serve; Android 14's dmabuf path and
+shape B's midgard 4.0 impls would need a kernel with dma-heaps, which this 4.19.111+ build does not have.
+
+**WiFi link measured:** `iw dev wlan0 link` -> connected to `4c:ed:fb:a5:08:01`, SSID `hoefijzer`,
+`freq: 2417`, `signal: -56 dBm`, `tx bitrate: 150.0 MBit/s`. The Nov 13 "~99/99 at -44 dBm" note stays
+unverified; this is the current live figure.
+
+**The link then dropped because wireless Android Auto started - not because of a crash.** The owner
+reports Android Auto fired up and WiFi dropped; `ping 192.168.1.120` -> Destination Host Unreachable.
+The RTL8188EU dongle is a single 2.4 GHz radio, so wireless AA and the LAN adb route cannot coexist:
+probing pauses whenever AA runs, and no kernel panic occurred (this is the measurement **D45** was
+waiting on - the framework-restart trigger did not recur).
+
+**CANBUS service is alive on stock:** `android.hardware.mtc.mfi@1.0-service`, pid 290, uid `system`,
+state `binder_thread_read`. `/dev/mtc-car` exists (`crw-rw-rw-`, 10,55). That is the criterion chain
+**D50** ships in the manifest and **D55**'s coupling gate now demands.
+
+**GPS: the chain runs, the wire carries data, and there are zero fixes - with the antenna unplugged.**
+`android.hardware.gnss@1.0-service` pid 282 uid `gps`, fd 8 -> `/dev/ttyS0` (the HAL really holds the
+port); `/vendor/lib64/hw/gps.default.so` 32,440 B; `/dev/ttyUSB*` absent. `dumpsys location` for the gps
+provider: `mTopHalCapabilities=0x1 ( SCHEDULING )` only, `mGnssMeasurementsProvider.isRegistered()=false`,
+`mGnssNavigationMessageProvider.isRegistered()=false`, `native internal state: null`, and the whole
+GNSS_KPI window (start +18s685ms -> end +3m26s320ms) reports **0 location reports, 0 TTFF, 0 position
+accuracy reports, 0 CN0, 0 sv-status messages**. Clients do request fine GPS:
+`android.microntek.service`, `com.telenav.launcher`, `com.google.android.apps.maps` all hold
+`ACCURACY_FINE` records. `/proc/tty/driver/serial` counts: port 0 (`mmio:0xFF180000 irq:36`)
+`tx:70 rx:55755 RTS|DTR`, port 1 (`0xFF190000`) `tx:41061 rx:61508`, port 4 (`0xFF370000`)
+`tx:5062 rx:7728`.
+
+Interpretation: **55,755 received bytes on UART0 means the GPS module is powered and streaming even with
+no antenna** - the hardware path is intact, and the owner confirms the antenna is not connected right now,
+so zero fixes is expected and **D49** cannot be validated on this bench until the antenna is fitted. The
+other side is worth watching on the next antenna-connected session: `tx:70` in three minutes means the HAL
+writes almost nothing to the module, so if the module needs an initialisation/NMEA command sequence the
+zero-fix result is not *only* an antenna problem. The Android-14-relevant part of this measurement is the
+HAL leg, and it is good: Android 14's `gnss@1.0` legacy wrapper is exactly the service that runs here and
+holds `/dev/ttyS0`, so shape A's staged `gps.default.so` chain is coherent with what stock does.
+
+**Sensors HAL: the exit-255 loop has a mundane cause (open question 5).** `logcat -s SensorsHal` shows the
+HAL (pid 292) alive and looping every ~27 s:
+
+```
+I SensorsHal: set batch: handle = 0, period_ns = 20000000ns, timeout = 0ns
+D SensorsHal: Couldn't open /dev/mma8452_daemon (No such file or directory)
+I SensorsHal: MmaSensor update delay: 20ms
+E SensorsHal: fail to perform GSENSOR_IOCTL_APP_SET_RATE, result = -1, error is 'Bad file descriptor'
+```
+
+`/dev/mma8452_daemon` does not exist, yet the kernel has the driver built in:
+`CONFIG_SENSOR_DEVICE=y`, `CONFIG_GSENSOR_DEVICE=y`, **`CONFIG_GS_MMA8452=y`** (config lines 2083-2086).
+So the driver is compiled but never created its daemon node - no I2C probe/DT node for the accelerometer on
+this board - and the HAL cannot set its sample rate. Sensors are not on the owner's criteria, and in this
+session's logcat window the HAL stays running rather than exiting 255, which weakens the "sensors HAL dies
+and cascades the framework restart" hypothesis behind **D45**.
