@@ -1775,3 +1775,17 @@ dd's the two payload files from `/external_sd` with no digest or size verificati
 one to use when the patched recovery is involved. Nothing was written to the unit or to any card; a
 real card still needs to be formatted FAT32/exFAT and staged before the owner's raw `dd` gate (**D47**)
 can be executed.
+
+
+**D55 - the coupling gate demands the criterion chain, not just the injected libraries (Nov 17,
+engineering, pending owner review).** `tools/payload_coupling_check.py`'s default expect-list grew to the
+contract the owner's criteria depend on: the protobuf and soft-OMX sonames in both arches (D52), the CANBUS
+MTC service + impl + legacy `mfi.default.so`, `audio.primary.rk30board.so`, the full graphics chain
+(`gralloc.rk30board.so` + mapper@2.0-impl-2.1 + allocator@2.0-impl + the allocator service), the OMX
+service and Android 14's `health@2.1-service` (D52b). GPS stays first. Measured: shape A PASSES against
+both the carved vendor of the container we would flash and the built `vendor.img` inside
+`verify_artifacts.sh` (which still fails only on the D34 raw-boot fstab pair). Shape B's Nov 11 container
+FAILS it - `/lib(64)` lack the plain protobuf soname and the soft-OMX plugin and it has no staged
+`gralloc.rk30board.so` (its graphics path is Android 14's midgard 4.0 impls) - which is exactly the
+rebuild requirement recorded in D53, so the gate now states it instead of letting a stale fallback look
+coherent. `docs/findings.md` carries the listings; nothing was written to the unit.

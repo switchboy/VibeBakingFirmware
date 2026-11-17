@@ -43,9 +43,35 @@ from ext4_ls import dump_file, list_dir  # noqa: E402
 SPARSE_MAGIC = b'\x3a\xff\x26\xed'   # Android sparse header, little-endian 0xED26FF3A
 DTB_MAGIC = b'\xd0\x0d\xfe\xed'
 PAGE_SIZES = (2048, 4096, 8192, 16384, 32768)
-DEFAULT_LIBS = 'libion.so,libaudioroute.so,libaudioutils.so,libspeexresampler.so'
+# The libraries Android 14 does not build at all: the three extracted from a reference firmware
+# partition (libion for composer/camera/OMX, libaudioroute + libspeexresampler for the audio HAL)
+# plus libaudioutils, which Android 14 builds as a vendor variant. Checked in /lib64 AND /lib, because
+# a 32-bit HAL process needs its own copy.
+DEFAULT_LIBS = ('libion.so,libaudioroute.so,libaudioutils.so,libspeexresampler.so,'
+                # the two sonames kept Android 10 blobs ask for by name and Android 14 installs only
+                # under versioned names or not at all (docs/decisions.md D52): protobuf's plain soname
+                # for the DRM/webrtc blobs, and the soft-OMX plugin the OMX service dlopen's, which no
+                # DT_NEEDED walk can see.
+                'libprotobuf-cpp-lite.so,libstagefright_softomx_plugin.so')
+
+# The criterion files, spelled as exact paths because each HAL is either 32-bit or 64-bit here.
+# GPS is a hard criterion (D49); sound input reaches audio.primary.rk30board.so and CANBUS reaches the
+# MTC/CarPlay service; the screen criterion needs the gralloc blob *and* the mapper/allocator impls
+# that wrap it (D52) - Android 14's libui dies with "gralloc-mapper is missing" without them; battery
+# info comes from Android 14's own health@2.1 service, not the Android 10 2.0 blob (D52b).
 DEFAULT_FILES = ('bin/hw/android.hardware.gnss@1.0-service,'
-                 'lib/hw/android.hardware.gnss@1.0-impl.so,lib/hw/gps.default.so')
+                 'lib/hw/android.hardware.gnss@1.0-impl.so,lib/hw/gps.default.so,'
+                 'bin/hw/android.hardware.mtc.mfi@1.0-service,'
+                 'lib/hw/android.hardware.mtc.mfi@1.0-impl.so,lib/hw/mfi.default.so,'
+                 'lib/hw/audio.primary.rk30board.so,'
+                 'lib/hw/gralloc.rk30board.so,'
+                 'lib/hw/android.hardware.graphics.mapper@2.0-impl-2.1.so,'
+                 'lib64/hw/android.hardware.graphics.mapper@2.0-impl-2.1.so,'
+                 'lib/hw/android.hardware.graphics.allocator@2.0-impl.so,'
+                 'lib64/hw/android.hardware.graphics.allocator@2.0-impl.so,'
+                 'bin/hw/android.hardware.graphics.allocator@2.0-service,'
+                 'bin/hw/android.hardware.media.omx@1.0-service,'
+                 'bin/hw/android.hardware.health@2.1-service')
 
 
 def boot_layout(b):

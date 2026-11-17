@@ -2644,3 +2644,38 @@ in the partition itself, not in a recipe:
   `/vendor/recovery-from-boot.p`, which is not staged).
 * `/etc/vintf` holds `manifest.xml` + `compatibility_matrix.xml` (the device matrix) - the same bytes the
   coupling gate read, `target-level=4` with no `<kernel>` tag (**D51**).
+
+
+## The coupling gate now checks the criterion chain itself (Nov 17)
+
+`tools/payload_coupling_check.py` only demanded the four injected libraries and the three GPS files by
+default, so a payload could PASS while silently missing the screen chain or the CANBUS service. Its
+defaults are now the contract we ship:
+
+* `--expect-libs` adds `libprotobuf-cpp-lite.so` and `libstagefright_softomx_plugin.so` (both arches) -
+  the two sonames Android 14 either installs under a versioned name or not at all (**D52**).
+* `--expect-files` adds the CANBUS service (`bin/hw/android.hardware.mtc.mfi@1.0-service`,
+  `lib/hw/android.hardware.mtc.mfi@1.0-impl.so`, `lib/hw/mfi.default.so`), the audio HAL
+  (`lib/hw/audio.primary.rk30board.so`), the whole graphics chain the screen criterion needs
+  (`lib*/hw/gralloc.rk30board.so`, `lib*/hw/android.hardware.graphics.mapper@2.0-impl-2.1.so`,
+  `lib*/hw/android.hardware.graphics.allocator@2.0-impl.so`,
+  `bin/hw/android.hardware.graphics.allocator@2.0-service`), plus
+  `bin/hw/android.hardware.media.omx@1.0-service` and `bin/hw/android.hardware.health@2.1-service`
+  (battery comes from Android 14's service, not the Android 10 2.0 blob - **D52b**). GPS stays first.
+
+Measured with those defaults, no flags:
+
+* **shape A passes against the flashed container** (`a14chk-shapeA/raw-super.img`'s vendor carved at
+  offset 1,013,972,992, 556,072,960 B) with `boot-a10k-a14rd.img`: kernel `4.19.111+`, 21 `.ko`,
+  14/14 `hu_insmod.sh` modules, both injected lib sets, all 15 criterion files, manifest
+  `target-level=4` with no `<kernel>` tag - PASS.
+* **shape A passes against the built `vendor.img` too**, inside `scripts/verify_artifacts.sh` on the NAS
+  (the sparse image is converted by the tree's `simg2img`), and that run still fails only on the D34
+  pair about the raw `boot.img`.
+* **shape B's Nov 11 container now FAILS the contract**, which is the honest result and the reason it
+  must be rebuilt: `/lib64` and `/lib` lack `libprotobuf-cpp-lite.so` and
+  `libstagefright_softomx_plugin.so`, and the graphics criterion files are missing - that vendor carries
+  Android 14's midgard 4.0 impls and no staged `gralloc.rk30board.so` at all, so its mapper route is
+  Gralloc4 rather than the 2.0/2.1 passthrough wrappers. Its kernel/module/manifest coupling is still
+  coherent (14/14 modules at `4.19.193`, `<kernel target-level=5>`), so the failure is about the D52
+  restorations, not about shape B's shape.
