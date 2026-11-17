@@ -2591,3 +2591,15 @@ packaging pass before it is offered as the fallback.
   `dd if=/external_sd/super-a14.img of=/dev/block/by-name/super bs=4096 conv=fsync` and the same for boot,
   then `make_f2fs.oem -f /dev/block/by-name/userdata` - no digest or size check at all. The card installer
   route (**D43**) is the one that verifies before and after writing.
+
+* `scripts/verify_artifacts.sh` now picks scratch by itself. It runs `check_super.py` with
+  `WORK=${WORK:-…/aospbuild/tmp}`, and SSData is routinely below what that section needs, so the gate
+  silently failed there before. The script measures `df -Pk "$WORK"` and, when it is under
+  5,600,000 KiB (5,468 MiB), switches to the cold-storage archive and prints why. Proven Nov 17 on the
+  NAS by forcing a small location: `WORK=/run/hucheck-test` (2,361,912 KiB free) printed
+  "scratch: /run/hucheck-test has 2361912 KiB free, the super gate wants 5468 MiB - using
+  /srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hucheck instead" and the run then produced
+  the same report as the explicit-WORK run: five partitions verified, `ALL LOGICAL PARTITIONS
+  VERIFIED: True`, the three check_vintf logs parsed, and the only two `!` lines still the D34 pair
+  about the raw `boot.img`. With SSData at 7.5 GiB free (after deleting the stale 3.26 GB scratch copy)
+  the default location is used and the gate passes there too.

@@ -106,3 +106,7 @@ regenerable in one command). NAS `aospbuild/tmp/super_raw.img` (3,263,168,512 B,
 crashed before the fix) and the two 0-byte leftovers `probe_v26b_raw.img` and `vendor_raw.img` were
 deleted after the fixed run finished, which put SSData back to 7.5 GiB free; `check_super.py` recreates
 `super_raw.img` in `WORK` on every run, so nothing was lost.
+
+`verify_artifacts.sh` measures its own scratch now (`df -Pk "$WORK"`): under 5,600,000 KiB free it moves
+to `WORK=/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hucheck` and says so, so the
+super-layout gate cannot silently fail on a tight SSData; `WORK=<dir>` still overrides both.

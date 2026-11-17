@@ -32,6 +32,25 @@ fail=0
 say() { printf '%s\n' "$*"; }
 bad() { say "  ! $*"; fail=1; }
 
+# check_super.py needs ~5.3 GiB in WORK: the simg2img'd container (3,263,168,512 B) plus a staged copy
+# and a carved copy of the largest partition (system is 1,012,871,168 B each). SSData is routinely
+# tighter than that while the build tree lives on it, and the super gate is one of the gates D47 makes
+# the safety net, so fall back to the cold-storage archive instead of letting that section fail for lack
+# of room. Override with WORK=<dir> if neither location fits.
+NEED_KIB=5600000
+free=$(df -Pk "$WORK" 2>/dev/null | awk 'NR==2 {print $4}')
+if [ -z "$free" ] || [ "$free" -lt "$NEED_KIB" ]; then
+  ALT=/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hucheck
+  altfree=$(df -Pk "$ALT" 2>/dev/null | awk 'NR==2 {print $4}')
+  if [ -n "$altfree" ] && [ "$altfree" -ge "$NEED_KIB" ]; then
+    say "scratch: $WORK has ${free} KiB free, the super gate wants $((NEED_KIB / 1024)) MiB - using $ALT instead"
+    WORK="$ALT"
+  else
+    bad "no scratch with $((NEED_KIB / 1024)) MiB free for the super gate (WORK=$WORK has ${free} KiB)"
+  fi
+fi
+mkdir -p "$WORK" 2>/dev/null || bad "cannot create WORK=$WORK"
+
 [ -d "$PROD" ] || { echo "no built product dir: $PROD"; exit 1; }
 
 say "=== images (mtime shows which pass produced them) ==="
