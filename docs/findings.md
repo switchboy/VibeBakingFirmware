@@ -2519,7 +2519,7 @@ The fallback pair was checked against the vendor partition inside its own super,
 reference image: `a14chk/a14-boot-fixed.img` (sha `933e2ecc…`, kernel payload 30,455,816 B) with the
 vendor carved out of `a14chk/raw-super.img` (sha `d4b49909…`, container 3,263,168,512 B) using
 `lpdump`'s extents - vendor `0 .. 840847` in 512 B sectors = 430,514,176 B at super offset
-1,015,255,040 B, carved with `dd bs=4096`. `tools/payload_coupling_check.py` says PASS:
+1,013,972,992 B, carved with `dd bs=4096 skip=247552 count=105106`. `tools/payload_coupling_check.py` says PASS:
 
 * boot layout: page 2048, kernel 30,455,816 B @2048, ramdisk 1,631,866 B @30,459,904,
   `second` 544,768 B @32,092,160, header `dtb_size 157,962`, DTB magic at +1536 size 157,962.

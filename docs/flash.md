@@ -247,8 +247,8 @@ The operator-relevant consequences:
   **`a14chk/a14-boot-fixed.img`** (kernel payload 30,455,816 B = the vendor **Android 11** kernel
   `4.19.193 #24`, sha `933e2ecc…`). Its partner is `a14chk/raw-super.img` (3,263,168,512 B, sha
   `d4b4990931cc…`), and the coupling gate was re-measured Nov 17 against the vendor partition carved
-  out of *that* container (extents 0..840847 in 512 B sectors = 430,514,176 B at offset
-  1,015,255,040 B): kernel `4.19.193`, 17 `.ko` at vermagic `4.19.193` + `4.4.167`, all 14
+  out of *that* container (extents 0..840847 in 512 B sectors = 430,514,176 B at byte offset
+  1,013,972,992, `dd bs=4096 skip=247552 count=105106`): kernel `4.19.193`, 17 `.ko` at vermagic `4.19.193` + `4.4.167`, all 14
   `hu_insmod.sh` modules present at the kernel's own version, the four injected libraries in both
   arches, the GPS HAL files present, manifest `version=8.0 target-level=5` **with**
   `<kernel target-level="5">` - PASS. That is **shape B**, the fallback (**D46**). One caveat, stated

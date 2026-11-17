@@ -99,10 +99,14 @@ Two of the offline gates need more room than SSData currently has (5.2 GiB free 
   `TMPDIR=/run/media/Daan/Opslagmonster/a14-work/smoke-tmp` on the repo volume (~439 GiB free). It
   leaves its scratch behind afterwards; that directory is disposable - nothing in it is a payload.
 
-Scratch left behind on Nov 17, all regenerable and none of it payload-critical: NAS `/tmp/raw-super-a14.img`
-(the shape-A container, kept deliberately because it is the staged payload source), plus the workstation's
-`a14-work/shapeB-check/vendor-carved.img` (430,514,176 B, carved from the shape-B container with `dd`,
-regenerable in one command). NAS `aospbuild/tmp/super_raw.img` (3,263,168,512 B, written by the run that
+Scratch left behind on Nov 17, all regenerable and none of it payload-critical: NAS
+`/tmp/raw-super-a14.img` (the shape-A container, kept deliberately because it is the staged payload
+source), and two carved vendor partitions on the workstation that `debugfs` was used to read -
+`a14-work/shapeB-check/vendor-carved.img` (430,514,176 B, the shape-B container's vendor) and
+`a14-work/shapeB-check/vendorA-carved.img` (556,072,960 B, the shape-A container's vendor). Each is one
+command away: `dd bs=4096 skip=247552 count=105106` for shape B's and `skip=247552 count=135760` for
+shape A's, both from the container's vendor extent at byte offset 1,013,972,992. So they are scratch,
+not payload. NAS `aospbuild/tmp/super_raw.img` (3,263,168,512 B, written by the run that
 crashed before the fix) and the two 0-byte leftovers `probe_v26b_raw.img` and `vendor_raw.img` were
 deleted after the fixed run finished, which put SSData back to 7.5 GiB free; `check_super.py` recreates
 `super_raw.img` in `WORK` on every run, so nothing was lost.
