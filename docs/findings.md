@@ -2796,3 +2796,20 @@ So the driver is compiled but never created its daemon node - no I2C probe/DT no
 this board - and the HAL cannot set its sample rate. Sensors are not on the owner's criteria, and in this
 session's logcat window the HAL stays running rather than exiting 255, which weakens the "sensors HAL dies
 and cascades the framework restart" hypothesis behind **D45**.
+
+### Follow-up probes on the same session (after Android Auto released the radio)
+
+`lshal` shows the interfaces the criteria depend on, live: `android.hardware.gnss@1.0::IGnss/default`
+(pid 282), `android.hardware.graphics.allocator@2.0::IAllocator/default` (pid 283),
+`android.hardware.health@2.0::IHealth/default` (pid 285), `android.hardware.audio@5.0::IDevicesFactory`
+and `audio.effect@5.0::IEffectsFactory` (pid 273), and
+`android.hardware.mtc.mfi@1.0::IMfi/default` (pid 290) marked **`N`** - the CANBUS service runs but is
+**not declared in the vendor manifest**, exactly the gap **D50/D51** close in our payload. No `glgps`
+process exists on this firmware (`ps -A | grep glgps` empty), so the vendor tree's `glgps` mention is
+inert here; the GNSS path is the HIDL service alone.
+
+UART0 is genuinely streaming: `/proc/tty/driver/serial` port 0 went `rx:445768 -> rx:448018` over a 10 s
+window (**+2,250 B, ~225 B/s**), while `tx` stayed at **70**. So the module emits data continuously and
+the HAL writes essentially nothing to it - no NMEA/init command sequence. With the antenna unplugged that
+is consistent with zero fixes; with the antenna fitted, `tx` is the number to watch, because a module that
+needs host commands would still produce no fix.

@@ -306,3 +306,10 @@ reports, 0 TTFF, 0 CN0, 0 sv-status messages** - with `mTopHalCapabilities=0x1 (
 until the antenna is fitted**, and the next antenna-connected session should watch `tx` too - 70 writes
 in three minutes means the HAL sends almost nothing, so a module needing an init command sequence would
 still report nothing. The HAL leg itself is the shape-A-relevant part and it is coherent.
+`lshal` on the same session lists `gnss@1.0::IGnss/default` (pid 282), `allocator@2.0::IAllocator` (283),
+`health@2.0::IHealth` (285), the audio 5.0 factories (273), and `mtc.mfi@1.0::IMfi/default` (290) marked
+`N` - CANBUS runs but is not declared in the manifest, the gap D50/D51 close. There is **no `glgps`
+process** on this firmware, so the vendor tree's `glgps` mention is inert and the GNSS path is the HIDL
+service alone. UART0 streams continuously: port 0 `rx` went 445,768 -> 448,018 in a 10 s window (+2,250 B,
+~225 B/s) while `tx` stayed 70 - the HAL sends no NMEA/init sequence, so with the antenna fitted watch
+`tx` too.
