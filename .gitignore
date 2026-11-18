@@ -49,3 +49,6 @@ bootableSD/
 *.rar
 *.img
 *.disk/
+
+# Scratch dirs for tests/test_doc_edit.py when /tmp is quota-limited.
+.scratch_tests/
