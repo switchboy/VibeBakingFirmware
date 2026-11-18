@@ -22,8 +22,9 @@
 #     deleted in the device tree on the NAS: the build tree there is the authority.
 #   - agentPlan.md README.md facts.tsv go over as single files, never with --delete.
 #   - __pycache__ is excluded everywhere.
-#   - --dry-run does not contact the NAS: it mirrors into /tmp/opencode/repo_update_dryrun/ and runs
-#     the same verification there, so the rsync rules and the checks are exercisable offline.
+#   - --dry-run does not contact the NAS: it mirrors into $SCRATCH/repo_update_dryrun/ (see the scratch
+#     probe below) and runs the same verification there, so the rsync rules and the checks are exercisable
+#     offline.
 #   - authentication is password-only, no keys, no BatchMode. SSH_ASKPASS points at the credential
 #     wrapper /tmp/opencode/askpass.sh, same env as scripts/cold_storage_move.sh.
 set -eu
@@ -85,10 +86,21 @@ if [ -n "$MSG" ] || [ -n "$MSGFILE" ]; then
   fi
 fi
 
+# Scratch for the verify script and the dry-run tree. /tmp on this workstation is a 16 GiB tmpfs with a
+# per-user quota and it fills up: creating a directory succeeds there but writing fails (Errno 122), so the
+# root is probed by an actual write, the same way tests/test_doc_edit.py probes it. Override with
+# HU_SCRATCH_ROOT.
+SCRATCH=${HU_SCRATCH_ROOT:-/run/media/Daan/Opslagmonster/a14-work/tmp}
+if ! { mkdir -p "$SCRATCH" && : > "$SCRATCH/.repo_update_probe"; } 2>/dev/null; then
+  SCRATCH=/tmp/opencode
+  mkdir -p "$SCRATCH" 2>/dev/null || true
+fi
+rm -f "$SCRATCH/.repo_update_probe"
+
 # ---------------------------------------------------------------- 3. mirror
 TARGET="$DEST"
 if [ "$DRY" = 1 ]; then
-  TARGET=/tmp/opencode/repo_update_dryrun
+  TARGET="$SCRATCH/repo_update_dryrun"
   rm -rf "$TARGET"
   mkdir -p "$TARGET"
   RSYNC_DEST="$TARGET"
@@ -135,7 +147,7 @@ LIST=$(cd "$REPO" && {
 # Nested ssh quoting eats operands, so the target-side script is transferred as base64, the way
 # scripts/cold_storage_move.sh does. It hashes every listed file, and reports files that exist on
 # the target but were not in the list as EXTRA.
-TARGET_SCRIPT=$(mktemp /tmp/opencode/repo_update_check.XXXXXX.sh)
+TARGET_SCRIPT=$(mktemp "$SCRATCH/repo_update_check.XXXXXX.sh")
 {
   printf '#!/bin/sh\ncd "%s" || { echo "MISSING-TREE %s"; exit 1; }\n' "$TARGET" "$TARGET"
   printf 'D=$(mktemp -d) || exit 1\n'

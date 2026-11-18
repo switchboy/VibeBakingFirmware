@@ -104,6 +104,12 @@ Two of the offline gates need more room than SSData currently has (5.2 GiB free 
   `HU_SCRATCH_ROOT`, then `/tmp/opencode`, then the system temp dir, then `REPO/.scratch_tests` - and
   accepts a root only if a file can actually be written there, because creating a directory alone
   succeeds on a quota-limited tmpfs. Measured Nov 18: 12/12 pass on the repo-volume fallback.
+* `scripts/repo_update.sh` writes the target-side sha verification script and the dry-run tree to scratch.
+  It used `/tmp/opencode` and failed there with "Schijfquotum is overschreden" (Errno 122 on a write, after a
+  successful `mktemp` directory), so it now uses `HU_SCRATCH_ROOT`, then the repo volume
+  (`/run/media/Daan/Opslagmonster/a14-work/tmp`), then `/tmp/opencode`, probed by an actual write. Measured
+  Nov 18 after the fix: the mirror reaches the NAS and the verify reports 241 mirrored files, 0 mismatches,
+  0 strays under a `--delete` dir, with the NAS-only device files kept.
 
 Scratch left behind on Nov 17, all regenerable and none of it payload-critical: NAS
 `/tmp/raw-super-a14.img` (the shape-A container, kept deliberately because it is the staged payload
