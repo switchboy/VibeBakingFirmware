@@ -71,10 +71,10 @@ Treble vendor: `target-level 4`, `ro.vndk.version=29`, all HALs HIDL.
 | `vulkan.rk30board.so` | 11 MB Mali blob | `ro.cpvulkan.version=4198400`, `ro.hardware.egl=mali`, `ro.hwui.use_vulkan=` (empty) |
 | `wifi@1.0`, `wifi.supplicant`, `wifi.hostapd` | `android.hardware.wifi@1.0-service` (427 KB), wpa_supplicant, hostapd | `wifi.interface=wlan0`, Realtek/Broadcom blobs |
 | `bluetooth@1.0` | `android.hardware.bluetooth@1.0-service` | UART BT: `vendor.bluetooth.channel=/dev/ttyS1`, `/dev/rtkbt_dev`, `/dev/rtk_btusb`, rfkill0 |
-| `gnss@1.0` + `gps.default.so` | UART GPS `vendor.gps.channel=/dev/ttyS0`, `/system/bin/glgps` |
-| `sensors@1.0` | `sensors.rk30board.so` |
-| `keymaster@3.0`, `gatekeeper@1.0`, `weaver@1.0`, `health@2.0`, `power@1.0`, `light@2.0`, `memtrack@1.0`, `drm@1.0/1.2`, `cas@1.1`, `media.omx@1.0`, `rild` + `radio@1.0`/`radio.deprecated`, `usb@1.1` + `usb.gadget@1.0` | |
-| custom: `android.hardware.mtc.mfi@1.0` (`mfi.default.so`), `rockchip.hardware.rockit.hw@1.0` (`IRockitHwService`) | Rockchip/HCT specific |
+| `gnss@1.0` + `gps.default.so` | `android.hardware.gnss@1.0-service` + `gps.default.so` | UART GPS `vendor.gps.channel=/dev/ttyS0`, `/system/bin/glgps` |
+| `sensors@1.0` | `android.hardware.sensors@1.0-service` + `sensors.rk30board.so` | OEM impl, HIDL 1.0 |
+| `keymaster@3.0`, `gatekeeper@1.0`, `weaver@1.0`, `health@2.0`, `power@1.0`, `light@2.0`, `memtrack@1.0`, `drm@1.0/1.2`, `cas@1.1`, `media.omx@1.0`, `rild` + `radio@1.0`/`radio.deprecated`, `usb@1.1` + `usb.gadget@1.0` | dedicated HIDL services, all at Android 10 versions | no AIDL equivalents in the shipped vendor |
+| custom: `android.hardware.mtc.mfi@1.0` (`mfi.default.so`), `rockchip.hardware.rockit.hw@1.0` (`IRockitHwService`) | `mfi.default.so` + the rockit impl | Rockchip/HCT specific |
 
 Vendor init/config: `fstab.rk30board` (dynamic partitions `logical,first_stage_mount`, `/data` F2FS
 with `checkpoint=fs`, zram 50%, sdcard1/sdcard2 via `fe320000/fe310000.dwmmc`), `init.rk30board.rc`

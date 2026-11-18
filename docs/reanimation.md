@@ -341,8 +341,11 @@ Nov 11 (unbrick, chain restore, rollback) went through this route.
 3. Deep power cycle, power on with the card out. Expect kernel `4.19.111+`, `Created logical partition` for
    all five A14 partitions, then init stage 2. If it stops at the fstab messages the fix did not land - do
    not flash again, re-measure.
-4. Rollback is either `scripts/restore_stock_backup.sh` (from the D40 backup) or re-running the bootSD
-   recovery flash with `update(1).zip`. Both were proven working on Nov 11.
+4. Rollback is either the rescue route `scripts/restore_oem_android10.sh` (writes only `super` + `boot`,
+   from the rescue dir built off the D40 backup) or re-running the bootSD recovery flash with
+   `update(1).zip`. The recovery flash was proven on Nov 11. Nov 18's actual rollback was the owner
+   re-flashing their own package; this whole payload-first ladder is superseded by **D62**, which runs a
+   boot-only ladder before any `super` write.
 
 ## 10. Troubleshooting
 

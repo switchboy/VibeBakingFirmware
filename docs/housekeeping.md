@@ -98,6 +98,12 @@ Two of the offline gates need more room than SSData currently has (5.2 GiB free 
   dir (a real payload copy plus a `dd`-filled fake super partition, peaking near 6.6 GiB). Nov 17 used
   `TMPDIR=/run/media/Daan/Opslagmonster/a14-work/smoke-tmp` on the repo volume (~439 GiB free). It
   leaves its scratch behind afterwards; that directory is disposable - nothing in it is a payload.
+* `tests/test_doc_edit.py` writes small markdown files, so it needs almost nothing - but `/tmp` is a
+  16 GiB tmpfs with a per-user quota and it is currently full, which made every test fail with
+  `Disk quota exceeded` (Errno 122) instead of a real assertion failure. It now probes roots in order -
+  `HU_SCRATCH_ROOT`, then `/tmp/opencode`, then the system temp dir, then `REPO/.scratch_tests` - and
+  accepts a root only if a file can actually be written there, because creating a directory alone
+  succeeds on a quota-limited tmpfs. Measured Nov 18: 12/12 pass on the repo-volume fallback.
 
 Scratch left behind on Nov 17, all regenerable and none of it payload-critical: NAS
 `/tmp/raw-super-a14.img` (the shape-A container, kept deliberately because it is the staged payload

@@ -19,3 +19,28 @@ on property:ro.boot.wificountrycode=NL
     # Europe regdomain. Without this the driver keeps the vendor default CN map, which
     # marks channels 12/13 "no IR" and disables 14 - the 2.4 GHz-only behaviour we measured.
     exec /system/bin/iw reg set NL root root
+
+# ---- bring-up observability ---------------------------------------------------------------
+# One service that exists only to make a failed boot readable without UART and without adb: it mounts
+# the SD card itself and dumps logcat + RAMoops there. Triggered on early-fboot AND early-boot, so it
+# runs whether or not the /data mount succeeded - the snapshot's `mount` list is the point of the run.
+service hu_sdlog /system/bin/hu_sdlog.sh
+    class core
+    user root
+    group root
+    seclabel u:r:shell:s0
+
+on early-fboot
+    start hu_sdlog
+
+on early-boot
+    start hu_sdlog
+
+# Bring-up aid, userdebug only: open TCP adb on every boot. /data is wiped by every install
+# attempt (D10), so the persisted `persist.internet_adb_enable` trick does not survive, and the
+# factory-settings password `adbon` (D28) needs a working framework + someone at the screen.
+# Gated on ro.debuggable=1 so a release build never gets it, and only if nothing else already
+# chose a port. The off switch is `setprop service.adb.tcp.port 0`.
+on property:ro.debuggable=1 && property:service.adb.tcp.port=
+    setprop service.adb.tcp.port 5555
+    restart adbd

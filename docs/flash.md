@@ -300,6 +300,30 @@ are informational, not gates). Shape B is therefore a real fallback now, but sha
   unchanged: its ramdisk fstab has no `system_ext`, which Android 14 needs. Writing either chain is gated on
   the offline gate set (**D47**), with the stock backup and rescue card staged first.
 
+## Nov 18 attempt: route 2 ran twice, and both payloads died before init started a service
+
+Two raw `dd` writes over TCP adb (**D28**), each writing exactly `super` then `boot` (**D18**/**D19**), no
+wipe, both verified by read-back digest:
+
+| attempt | images | sha256 | result |
+|---|---|---|---|
+| 1 | `super-diag.img` 3,263,168,512 B + `boot-diag.img` 28,233,728 B | `da9961f757dd6a3d7cb9682f30b9585d99bb2124f5ec6c57352c6f0ce70fe2dc` / `85dd11383ca132ec68196fbdbdc9ee8fad6af5028ed4430aefc382b84b71f409` | OEM boot logo, repeating: no animation, no text. The SD logger `hu_sdlog.sh` (hung off `early-fboot`/`early-boot`) wrote nothing to the card, so init never reached its service stage |
+| 2 | `super-min.img` 3,263,168,512 B + `boot-min.img` 28,233,728 B | `354ce4c5b08e4ea8b61ef3c48e78114bd6ea1cbd08c117b5b0533d16c5080417` / `3cf4012980d0a824c37ed3f24982a9c7e50d2c8c8497030be139e1184a647375` | completely black - no logo at all |
+
+The two boot images differ by **exactly 9 header bytes** (`" panic=12"` at bytes 397..405); kernel, ramdisk
+and `second` are identical. The two panels are therefore one failure seen through two reboot paths, not two
+different payload problems.
+
+**Do not read the logo as a boot indicator.** The OEM logo is drawn by u-boot/trust from the RSCE blob in the
+boot image's `second` stage and the board's `reserved-memory/drm-logo` region, before Android exists, and
+Android's boot animation needs `/data` plus SurfaceFlinger. Neither attempt reached a service, so
+"reached SurfaceFlinger" was never established, and the missing logo in attempt 2 says nothing about the
+payload. Full measurement and the corrected header decode: `docs/findings.md`, "Nov 18 - the two payload
+writes".
+
+After both attempts the owner restored Android 10 with their own route; `/data` was never formatted, and the
+unit runs the refreshed stock firmware again. Nothing beyond `boot` + `super` was ever written (**D30**).
+
 ## Getting into the recovery
 
 Three routes are reported for PX6/RK3399 head units; they are not guesses, they are what owners did:
@@ -406,8 +430,11 @@ lists, `lpmake` for the super, verified with `lpdump` + `debugfs`.
 partition changed when the owner re-flashed the OEM package on Nov 13 (**D39**): the refreshed
 `hu-stock-backup-refresh/boot.bin` is 33,554,432 B sha256 `4121b58f77598d73b1b7958c36d1c5a81c8b82ba176cce9f6863b67992ce5b3d`, and it differs from the Nov 11 `3d2741f0…` capture by 1,625,326 bytes that all
 sit in boot's `second` stage - the kernel bytes, the first-stage ramdisk and the DTB inside `second`
-(157,962 B, sha `530b84129eb0`) are identical, only the blob before the DTB differs (**D38** names that
-stage as the board's display description). Roll back partition 7 with the **refreshed** file, because
+(152,425 B, sha `cd4eeb3daece`) are identical, only the blob before the DTB differs (**D38** names that
+stage as the board's display description). Re-measured Nov 18 with the correct DTB magic: the same file also
+holds two tail DTB copies (157,962 B, sha `530b84129eb0`) at bytes 32,093,696 and 32,636,928, which are the
+A11-era variant carrying the `mmc0`/`mmc1`/`mmc2` aliases - an earlier line here named that variant as the
+one inside `second`, which was wrong. Roll back partition 7 with the **refreshed** file, because
 that is what boots today with a working screen. Everything else in the chain is unchanged: `uboot.bin`
 `a28fd6a0e6c6`, `trust.bin` `7f2c4e52e595`, `dtb.bin` `bb9f8df61474`, `dtbo.bin` `e5c1d28c4b6f`,
 `vbmeta.bin` `76ff77959f24`, `security.bin` `6ff044d01c2b`, `recovery.bin` `1fdf5ea77fc6` (the stock
@@ -415,6 +442,12 @@ recovery the D42 patch works on), `frp.bin` `07854d2fef29`, and the backup GPT `
 refreshed super capture is `11e91ea677e1` and it differs from Nov 11 only in its first 2 MiB - all
 logical partition bytes beyond that are identical - so the dynamic content is the same and only the
 metadata region moved. Full measurement: `docs/findings.md`, "Stock backup refresh on Nov 17".
+
+**Nov 18 rollback, as actually used.** Both payload writes were undone by the owner re-flashing their own OEM
+package, and `/data` survived. Partition 7's rollback file stays the refreshed `boot.bin` (`4121b58f7759…`),
+and because partition 7 is 33,554,432 B while the payload images were 28,233,728 B, a rollback `dd` has to
+write the whole stock file: the tail bytes of partition 7, including those two 157,962-byte DTB copies, are
+part of what boots today. A read-only sha of partition 7's tail region is still owed once adb is reachable.
 
 ## Fastboot is not used
 

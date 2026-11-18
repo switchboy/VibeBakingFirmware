@@ -54,7 +54,7 @@ draft-only here (**D45**), so this file remains a register, not a submission que
   checks `/system/etc/security/otacerts.zip`, `PRODUCT_EXTRA_RECOVERY_KEYS`),
   <https://source.android.com/docs/security/features/verifiedboot/boot-flow>.
   There is no `README.md` in AOSP `tools/releasetools` or `tools/signapk` (both 404).
-* **U-Boot / SD-boot docs** belong in mainline U-Boot (`docs/board/rockchip/rockchip.html` — RK3399,
+* **U-Boot / SD-boot docs** belong in mainline U-Boot (`board/rockchip/rockchip.html` upstream — RK3399,
   TF-A `PLAT=rk3399`, SD boot `dd if=u-boot-rockchip.bin of=/dev/sda seek=64`, MaskROM fastboot
   `2207:330c`; the page itself carries a "TODO – Document SPI flash boot"), staged Rockchip commits in
   `github.com/rockchip-linux/u-boot` (active, default `next-dev`), community debrick/maskrom notes on
@@ -264,7 +264,7 @@ source only. Kept here so it can be pasted verbatim if the owner ever decides to
 * `device/rk3399-px6-hct4/README.md` listed a `sepolicy/` directory that does not exist — fixed: the row
   now says permissive comes from `WITH_PERMISSIVE_SELINUX := true` (**D5**) and that a real sepolicy is a
   post-bring-up task.
-* `docs/build-host.md:420` pointed at `tools/check_super.py`; the live file is `scripts/check_super.py`
+* `docs/build-host.md:420` pointed at a `check_super.py` under `tools/`; the live file is `scripts/check_super.py`
   (used by `scripts/verify_artifacts.sh:75`) — fixed.
 * `hu_system/bin/hu_probe.sh` claimed `ro.adb.secure=0`; `device.mk:95` keeps `ro.adb.secure=1` (assigned
   by `build/make/core/main.mk`) and relies on the injected public key — comment fixed.

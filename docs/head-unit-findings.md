@@ -234,8 +234,6 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
 
 ## Open questions for the owner
 
-1. ~~Do you have a saved copy of the zip currently installed?~~ Answered Nov 13: yes —
-   `diatsia fw/update(1).zip`, and the running fingerprint/kernel match it
 1. ~~Do you have a saved copy of the zip currently installed?~~ Answered Nov 13: yes -
    `diatsia fw/update(1).zip`, and the running fingerprint/kernel match it
    (`eng.hct2.20250401.152740`, `#190`). The refresh (**D40**) ran Nov 17: `a14-work/hu-stock-backup-refresh/`
@@ -261,7 +259,7 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
    accelerometer data on our payload, that node is the thing to chase.
 6. Posting upstream: **declined Nov 15** - candidates 21/22 stay draft-only in `docs/upstream.md`, nothing
    posted. If you ever want it public, the draft is written to be pasted as-is.
-7. ~~GPS antenna~~ **Answered Nov 17 (**D58**): GPS is post-boot work, not a flash criterion, so no
+7. ~~GPS antenna~~ Answered Nov 17 (**D58**): GPS is post-boot work, not a flash criterion, so no
    antenna is needed to gate the write. The measurement to take once the unit runs our payload is a
    real fix plus a satellite list, and `tx` on `/dev/ttyS0` is the thing to watch (the stock HAL sent
    70 bytes in three minutes while the module streamed ~225 B/s).

@@ -138,7 +138,7 @@ feature parity.
 - Deliverable: `vendor_shim.img` (or shim files in the zip) + a short smoke-test script per HAL.
 
 ### M5 — packaging in the Rockchip Update.zip format
-**Status Nov 9: implemented, but not as `tools/mk_update_zip.py` (never written).** The live tooling is
+**Status Nov 9: implemented, but not as a dedicated `mk_update_zip.py` (never written).** The live tooling is
 `tools/gen_hu_payload.py` (payload parts), `scripts/build_hu_package.sh` (assembles the zip) and
 `scripts/sign_hu_package.sh` (SignApk PKCS#7 in the zip EOCD comment). The bullets below are the original
 plan; **D18** removed the loader/uboot/trust/dtbo/recovery writes, so the payload touches only `super` +
@@ -149,7 +149,7 @@ plan; **D18** removed the loader/uboot/trust/dtbo/recovery writes, so the payloa
 - reuse the shipped custom `update-binary` (it knows `write_raw_loader_image()` / `do_rk_firmware_upgrade()`)
   and a new `updater-script` asserting `ro.product.device == "rk3399"`;
 - sign with our own key (`signapk`), keep `RKLoader.bin`/`uboot`/`trust`/`dtbo` byte-identical unless we change them.
-- Deliverable: flashable `Update.zip` + `docs/release.md`. Rollback is the stock Android 10 update.zip (owner decision Nov 6), so no restore tooling.
+- Deliverable: flashable `Update.zip` + release notes, which live in `docs/ota.md`. Rollback is the stock Android 10 update.zip (owner decision Nov 6), so no restore tooling.
 
 ### M6 — kernel rebuild (security upgrade, after a working Android 14)
 - Find GPL-published kernel source for this platform (Rockchip BSP 4.19 + the out-of-tree `mtc-*`
@@ -224,6 +224,19 @@ Two caveats before baking GApps in:
    is already built and validated against the real LBAs).
 5. M10 app layer: re-add the HCT apps, decide whether to bake GApps in; then M4 vendor-side gaps,
    M5 packaging, M7 hardening, M6 kernel rebuild. M9 stays parked (D12).
+
+**Nov 18 route change (D59-D63).** The two payload writes both died before init started a service, and the
+namespace harness that was meant to answer the logical-mount question is frozen - the running Android 10
+already owns the logical device-mapper names, so a clean result was never possible there. The order is now:
+
+- finish the offline analysis (`docs/findings.md`, "Nov 18 - the two payload writes"): boot-header fidelity,
+  DTB variants, super metadata, vendor provenance;
+- rebuild a byte-faithful boot image (**D60**) - OEM header verbatim except `ramdisk_size`, the content hash
+  and our own cmdline tokens, padded so the tail DTB region stays inside the image;
+- run the boot-only ladder (**D62**), one variable per flash, `super` untouched, stock `boot.bin` as rollback;
+- read UART (**D63**) once the owner consents to opening the unit - listen-only first, voltage measured before
+  anything is connected;
+- only then a payload write, and never one that can mount or format `/data`.
 
 ## M11 - the proven-kernel shape, plus a kernel build (Nov 15, owner direction - STARTED after the poll)
 

@@ -76,7 +76,17 @@ HCT4_KERNEL ?= vendor/hct4/prebuilt/kernel_a10
 TARGET_PREBUILT_KERNEL := $(HCT4_KERNEL)
 BOARD_KERNEL_PAGESIZE := 2048
 BOARD_KERNEL_BASE := 0x00000000
-BOARD_KERNEL_CMDLINE := console=ttyFIQ0 androidboot.baseband=N/A androidboot.wificountrycode=NL androidboot.veritymode=disabled androidboot.hardware=rk30board androidboot.console=ttyFIQ0 androidboot.verifiedbootstate=orange firmware_class.path=/vendor/etc/firmware init=/init rootwait ro loop.max_part=7 androidboot.selinux=permissive buildvariant=userdebug
+# androidboot.selinux=permissive is what makes **D5**'s "bring-up is permissive" actually true: the
+# kernel has CONFIG_SECURITY_SELINUX_DEVELOP=y (analysis/hu_kernel_config_live-20261113.txt:5282),
+# so init honours this and every avc denial is logged instead of enforced - which is the only way
+# hu_sdlog.sh can mount the card and hu_fblog can open /dev/fb0 before sepolicy is written for them.
+#
+# panic=12 holds the reboot for 12 s after a kernel panic. The kernel's own default is
+# CONFIG_PANIC_TIMEOUT=5 (analysis/hu_kernel_config_live-20261113.txt:5641) and there is no watchdog
+# (CONFIG_WATCHDOG is not set, line 2656), so nothing resets sooner than that. Userspace freezes
+# during a panic, so the extra seconds are what makes the last painted screen (hu_fblog's red band)
+# readable on the panel instead of flashing past.
+BOARD_KERNEL_CMDLINE := console=ttyFIQ0 androidboot.baseband=N/A androidboot.wificountrycode=NL androidboot.veritymode=disabled androidboot.selinux=permissive panic=12 androidboot.hardware=rk30board androidboot.console=ttyFIQ0 androidboot.verifiedbootstate=orange firmware_class.path=/vendor/etc/firmware init=/init rootwait ro loop.max_part=7 androidboot.selinux=permissive buildvariant=userdebug
 # wificountrycode=NL, not the vendor default CN: CN marks channels 12/13 "no IR" and 14
 # disabled, which is exactly the 2.4 GHz-only behaviour we measured on the unit.
 

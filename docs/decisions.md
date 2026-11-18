@@ -46,9 +46,9 @@ Current firmware is deliberately sloppy: SELinux permissive, Magisk in `/vendor/
 services running as root under `u:r:shell:s0`, world-writable UART/MTC device nodes, ADB-over-TCP on
 boot, NAT tethering, third-party OTA host.
 
-| Option | Effect |
-|---|---|
-| **Strict (recommended for the final release)** | enforcing SELinux, no Magisk, HCT services given dedicated SELinux domains with least privilege, device nodes 0600/0660, ADB disabled by default, own signed update package | risk: HCT apps break until policies are written |
+| Option | Effect | Risk |
+|---|---|---|
+| **Strict (recommended for the final release)** | enforcing SELinux, no Magisk, HCT services given dedicated SELinux domains with least privilege, device nodes 0600/0660, ADB disabled by default, own signed update package | HCT apps break until policies are written |
 | Pragmatic (dev milestone) | keep permissive + Magisk during bring-up, tighten at the end | faster iteration, less safe intermediate builds |
 
 ## D6 — head-unit app layer
@@ -169,8 +169,9 @@ Consequences now baked into the tree:
 - `BoardConfig.mk` uses `BOARD_SUPER_PARTITION_SIZE := 3263168512` with group `3258974208`, verified
   against the unit's real LBAs (`analysis/hu_partition_offsets.txt`: super = 1,379,328-7,752,703).
   Our images total 2,056 MB, ~1.2 GB spare, so the current layout already carries Android 14.
-- The 8 GiB pair stayed as a *proposal* only. `scripts/repartition_gpt.sh` and `docs/repartition.md`
-  were removed on Nov 6 (**D19**) - neither was ever written, so nothing implements a GPT rewrite here: a GPT rewrite is the class of write **D18** forbids, and growing
+- The 8 GiB pair stayed as a *proposal* only. The two files drafted for it (`repartition_gpt.sh` and
+  `repartition.md`) were removed Nov 6 (**D19**): neither was ever written, so nothing implements a GPT
+  rewrite here - a GPT rewrite is the class of write **D18** forbids, and growing
   super buys nothing for the first install.
 - If a layout change were ever made, `sgdisk` re-sorts entries by start sector, so `mmcblk2pN` numbers
   would change and every on-device step must use `/dev/block/by-name/*` instead of `mmcblk2pN`.
@@ -1068,7 +1069,7 @@ Full log: `docs/findings.md`, "Flash attempt Nov 9/10". The short version, as a 
   layout with ext4 slices matching an ext4 `fstab.rk30board`, AVB not enforced). ~~Prime suspect is the
   display stack: the vendor declares HIDL `composer@2.1::IComposer/default` plus OEM Midgard
   allocator/mapper blobs, and Android 14 may require AIDL composer3/allocator/mapper.~~
-  **Re-measured Nov 10 (**D32**): the prime suspect is now the DTB - our DTB drops the OEM LVDS panel
+  Re-measured Nov 10 (**D32**): the prime suspect is now the DTB - our DTB drops the OEM LVDS panel
   timings `mtc,panel_index` 0x21..0x26 and retimes timing4/17/76, which is the one measured difference
   between the firmware that works and ours. The kernel we flashed is also not the shipped one
   (`4.19.193 #24` vs `4.19.111+ #190`). `mali_kbase.ko` in our vendor slice is `vermagic=4.4.167` against
@@ -1827,3 +1828,81 @@ criteria that do gate the write are measured offline today: the graphics chain s
 because the running kernel has `CONFIG_ION=y` and no `DMA_HEAP`) and the WiFi closure (the RTL8188EU
 route, `init.connectivity.rc` + `librkwifi-ctrl` + the vendor WiFi HAL chain). Nothing is flashed yet
 (**D30**), and the offline gate set remains the safety net (**D47**).
+**D59 - the namespace harness is frozen; the route becomes offline-first (Nov 18).** The harness proved the
+payload's static first-stage `init` runs on this kernel, but it cannot answer the question it was built for:
+the running Android 10 already owns device-mapper targets named `system`, `vendor`, `product` and `odm`, so a
+namespace init either gets `EBUSY` on `DM_DEV_CREATE` or reuses Android 10's devices, and a clean
+logical-mount result is impossible. It also hurt the host: dropbox records `SYSTEM_RESTART`,
+`system_server_lowmem` and `system_server_crash` at harness timestamps, and one run ended in a kernel-level
+reboot. Mount and PID namespaces do not isolate device-mapper, block devices, binder, GPU, panel, sysctls,
+sysrq or power state, and `toybox unshare -mp` does not fork, so init is never PID 1 of its PID namespace and
+a fatal `LOG(FATAL)` reaches the host's `reboot(2)`. Decision: no further harness runs. Offline analysis
+first, then a boot-only ladder on the real chain, then UART. Measurement: `docs/findings.md`, "Nov 18 - the
+two payload writes".
+
+**D60 - boot-image fidelity: the OEM header stays verbatim except three fields (Nov 18).** The re-measured
+header diff between the refreshed stock `boot.bin` and the flashed payload image shows exactly five
+deviating regions, and two of them were produced by our own packing rather than intended:
+`dtb_load_address` was zeroed (`scripts/rebuild_boot_with_fstab.sh` writes `dtb_size` and `dtb_addr` at
+bytes 1648/1652 and sets both to 0), and the image was truncated to 28,233,728 B, so it carries only the
+152,425-byte DTB variant inside `second` while the OEM partition also holds two 157,962-byte tail DTBs that
+add the `mmc0`/`mmc1`/`mmc2` aliases and the `logo,uboot` route properties. Rule from now on: keep every
+OEM header field byte-for-byte - kernel blob, `second` blob, load addresses, page size, header version,
+`dtb_size`, `dtb_load_address` - and change only `ramdisk_size`, the content hash, and the cmdline tokens we
+deliberately set. The image stays padded to the partition's 33,554,432 B so the tail DTB region is carried,
+not left to whatever an earlier flash wrote there. `mkbootimg` is still not usable here: header v2 refuses a
+DTB-less build and would drop the OEM `second` stage. Nothing is flashed under **D60** until the rebuilt
+image is byte-verified against the stock one field by field.
+
+**D61 - the payload's vendor is our own rebuild, and D56's missing-library claim is corrected (Nov 18).**
+Carving both `vendor` extents and diffing them settles the provenance question the reviews needed: the
+payload vendor carries `ro.vendor.build.fingerprint = HCT/lineage_rk3399/rk3399:14/AP2A.240905.003/eng.root…
+:userdebug/test-keys` and `ro.product.first_api_level=34`, not the stock
+`rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1…` with `first_api_level=29`. It is built by our tree (D15's
+staging route) with OEM blobs carried in: 15 of the 41 `lib64/hw` files are byte-identical to stock
+(including `hwcomposer.rk30board.so`, `gralloc.rk30board.so`, `camera.rk30board.so`,
+`audio.primary.rk30board.so`, `vulkan.rk30board.so` and `gps.default.so`), 15 are rebuilt Android 14 stubs, 6
+exist only in stock and 5 only in the payload. The vendor manifest still says `target-level="4"` under an
+api-34 build, so the VINTF/API-level question is a **second-stage** risk, not a first-stage one. And
+`libhwbinder.so` is present in the payload vendor (133,384 B) together with `libbinder.so` and
+`libhidlbase.so` - D56's "declared absent" was wrong, and what is actually at risk is Android 10-era blobs
+linking against Android 14-built binder libs. Measurement: `docs/findings.md`, "Payload vendor provenance".
+
+**D62 - the next writes are boot-only, one variable at a time, `super` untouched (Nov 18).** No further
+`super` write until a hypothesis predicts success. The ladder, in order: **L0** repack the stock boot image
+with our tooling and no content change - if Android 10 does not boot that, the packing tool is wrong and
+nothing else is trusted; **L1** stock Android 10 ramdisk plus the payload cmdline, one variable per flash
+(`printk.devkmsg=on`, then `panic`, then `androidboot.init_fatal_panic`), which separates cmdline effects from
+payload effects; **L2** Android 14's own static first-stage `init` inside the stock Android 10 ramdisk
+against the Android 10 `super`, which tests the real chain - kernel, cmdline, by-name creation - with no dm
+name clash and no Android 14 logical content. Every step rolls back by dd'ing the refreshed stock
+`boot.bin` (D57), and the partition's rollback size is its own 33,554,432 B. The diagnostic tokens to use
+are verified against the payload `init` by `strings` before they are written, because an unverified token is
+a silent no-op. Note for whoever builds the ladder images: `device/rk3399-px6-hct4/BoardConfig.mk` currently
+ships a tree-default cmdline carrying `panic=12` and a duplicated `androidboot.selinux=permissive`, so each
+ladder step is built by editing the header field with `tools/patch_boot_cmdline.py` on the byte-faithful
+image, not by trusting the tree default.
+
+**D63 - UART is the next hardware step and needs the owner's consent (Nov 18).** The running kernel declares
+`earlycon=uart8250,mmio32,0xff1a0000` and `console=ttyFIQ0`, so the board's debug UART exists and u-boot
+talks on it. It is Rockchip's FIQ console at 1.5 Mbaud 8N1, not 115200. Plan: ask the owner to open the
+unit, find TX/RX/GND, **measure the idle TX voltage before connecting anything** (1.8 V or 3.3 V, never
+adapter VCC), connect listen-only first, and capture a normal stock Android 10 boot before any payload boot.
+That single capture separates u-boot rejection, kernel entry, DTB choice and init failure, which is the thing
+no offline method can tell apart. `androidboot.first_stage_console=1` is not a passive logging switch - AOSP
+launches a console process and a shell when it is set - so it is not used for the first capture. Nothing is
+opened or soldered without the owner's answer.
+
+**D64 - a live harness may only run with a guard set that is designed, not improvised (Nov 18).** The guard
+list is recorded so a future session cannot resume the old harness: a native helper doing
+`unshare(CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWIPC|CLONE_NEWUTS)` followed by
+`mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)` before any mount; `fork()` so init really is PID 1 of its
+namespace; a seccomp filter denying `reboot`, `kexec_load`, module loading, `swapon`, `klogctl` actions 5-8
+and the `DM_*`/`BLKDISCARD`/`BLKZEROOUT`/`BLKROSET` ioctls, plus a ptrace supervisor filtering `open`/`openat`
+paths, because seccomp cannot see paths; `BLKROSET` on the partitions the harness must never write and never
+on the whole disk; `/proc/diskstats` write-sector deltas before and after instead of head-region sha
+fingerprints; `boot_id` snapshot for a kernel reboot and saved `system_server`/zygote/surfaceflinger/vold PIDs
+plus `logcat -b events | grep am_proc_died` for a framework restart; `/sys/kernel/uevent_seqnum` delta to
+detect init's cold-boot uevent flood; `printk_devkmsg` saved and restored; namespace-wide kill, not a kill of
+the one init PID. Real `/data` is never mounted by anything under D64. Even with all of that, D59 still
+stands: the logical-mount question needs the offline loop mounts, not this harness.

@@ -2039,7 +2039,8 @@ install time, and Soong's ELF check runs before that. Fixed in
 ## GPS survives because Android 14's `gnss@1.0` service is a legacy wrapper, not a fixture (Nov 15, source read)
 
 The shape-A restage produced a larger drop list than shape B's: 199 destinations the build installs
-itself (`device/rk3399-px6-hct4/vendor_build_wins.txt`), among them `bin/hw/android.hardware.gnss@1.0-service`,
+itself (the `vendor_build_wins.txt` drop list, generated during the restage and not tracked), among them
+`bin/hw/android.hardware.gnss@1.0-service`,
 `lib/hw/android.hardware.gnss@1.0-impl.so`, `lib64/hw/android.hardware.gnss@1.0-impl.so`,
 `etc/init/android.hardware.gnss@1.0-service.rc`, and the same trio for `sensors@1.0` and
 `composer@2.1`. That looked like a GPS criterion break (**D49** says keep the OEM GNSS trio), so the
@@ -2363,7 +2364,7 @@ Measured against files dumped out of `vendor.img` with `debugfs -R dump`:
 
 ### OMX plugin: invisible to the DT_NEEDED walk
 
-`android.hardware.media.omx@1.0-service` (kept and requested) **dlopen`s**
+`android.hardware.media.omx@1.0-service` (kept and requested) **dlopen**s
 `lib*/libstagefright_softomx_plugin.so`, so it is not a DT_NEEDED entry and
 `tools/vendor_link_closure.py` could not see it. Android 14 builds the plugin with
 `vendor_available: true`, so `libstagefright_softomx_plugin.vendor` / `.vendor_32` put it in
@@ -2854,7 +2855,7 @@ diff), so the story is measured rather than guessed:
   the Rockchip loader area marked `RK28`, and the changed bytes are its version/date fields
   (`…24 01 04` -> `…26 01 05`, `44 56` -> `46 56`). The partition payloads themselves are unchanged
   (`uboot.bin`/`trust.bin` identical), so the Nov 13 re-flash touched only the loader copies' version
-  fields, never the boot chain's payload. Our routes never write that area (**D18**/****D19**), and the
+  fields, never the boot chain's payload. Our routes never write that area (**D18**/**D19**), and the
   refreshed head file is kept as a record of what the disk holds today.
 
 The pull script's own guard held: it refused nothing, required `adb shell id` = uid 0 and the fingerprint
@@ -2917,3 +2918,230 @@ sha `2a1246aaf055…`, raw `boot.img` sha `cf05255148b8…`, `recovery.img` 44,6
 `eb0f86b37bf7…`. What remains non-blocking is informational only: `vendor_diff.py`'s
 "only the intended changes = False" (build-owned `etc/usb_modeswitch.d/*` destinations plus the intended
 init/manifest edits) and the stale Nov 8 OTA zip (`931bbb45…`, since `m dist` is skipped).
+
+## Nov 18 - the two payload writes, and the offline re-measure that corrected four claims
+
+### The two writes, both failing
+
+| attempt | boot image | sha256 | super image | sha256 | what the panel showed |
+|---|---|---|---|---|---|
+| 1, ~10:25 | `boot-diag.img` 28,233,728 B | `85dd11383ca132ec68196fbdbdc9ee8fad6af5028ed4430aefc382b84b71f409` | `super-diag.img` 3,263,168,512 B | `da9961f757dd6a3d7cb9682f30b9585d99bb2124f5ec6c57352c6f0ce70fe2dc` | OEM boot logo only, repeating in a loop; no animation, no text. The SD logger (`hu_sdlog.sh`, hung off `early-fboot`/`early-boot`) wrote **nothing** to the card |
+| 2, ~11:05 | `boot-min.img` 28,233,728 B | `3cf4012980d0a824c37ed3f24982a9c7e50d2c8c8497030be139e1184a647375` | `super-min.img` 3,263,168,512 B | `354ce4c5b08e4ea8b61ef3c48e78114bd6ea1cbd08c117b5b0533d16c5080417` | completely black - no logo, no animation |
+
+Only `boot` + `super` were written (**D18**/**D19**), no wipe, and the owner restored Android 10 with their
+own route afterwards; `/data` was never formatted. Both images sit in `a14-work/a14diag/` with
+`sha256.txt`.
+
+### What the two attempts actually prove, and what they do not
+
+* The logo is drawn by **u-boot/trust**, from the RSCE blob in the boot image's `second` stage and the
+  board's `reserved-memory/drm-logo` region, before Android exists. Android's boot animation needs `/data`
+  plus SurfaceFlinger. So "reached SurfaceFlinger" was never true for any Android 14 attempt: every attempt
+  died **before init started a service**, and the SD logger proves that independently of the panel.
+* `boot-min.img` and `boot-diag.img` differ by **exactly 9 header bytes**, at bytes 397..405: `" panic=12"`.
+  Kernel, ramdisk, `second`, and every load address are byte-identical. So the black screen in attempt 2 is
+  not a payload-content regression; the two attempts are one failure read through two reboot paths. With
+  `panic=12` a dying PID 1 warm-resets and u-boot redraws the logo each cycle; without it the kernel can
+  finish the DRM handover and then sit on a black panel.
+* Neither attempt tells us *where* it died. That is still the open question, and the offline work below
+  narrows it.
+
+### Boot-header byte diff, stock `boot.bin` against the flashed `boot-min.img`
+
+Decoded with `unpack_bootimg` (authoritative), then confirmed as a raw byte diff of the 2048-byte header
+page. The whole deviation set is five regions:
+
+| bytes | field | stock `boot.bin` | `boot-min.img` |
+|---|---|---|---|
+| 16..19 | `ramdisk_size` | 803,440 | 1,631,866 |
+| 44..47 | `os_version` / `os_patch_level` | 10.0.0, 2020-05 | 14.0.0, 2026-10 |
+| 133..397 | cmdline field | `wificountrycode=US`, `veritymode=enforcing` | `wificountrycode=NL`, `veritymode=disabled` (the later ranges are the same text shifted by one byte because `disabled` is longer than `enforcing`) |
+| 576..595 | content hash over kernel+ramdisk+second | `cd0eda5e…` | `1f7c25f6…` |
+| 1654..1659 | `dtb_load_address` (uint64 at 1652) | `0x11f00000` | `0x00000000` |
+
+`dtb_size` is 0 in **both** images, and these are the only differences: kernel blob identical
+(`25,671,688` B, sha `a514a3ffb77e`), `second` blob identical (`924,672` B, sha `fb80617e7c97`), page size
+2048, header v2, kernel `0x10008000`, ramdisk `0x11000000`, second `0x10f00000`, tags `0x10000100`. So the
+payload keeps the OEM kernel and the OEM `second` stage, and carries only a different first-stage ramdisk.
+
+Two earlier claims in this repo were wrong and are corrected here:
+
+* "second size points at 285,212,672" was a field mislabel. `0x11000000` is the **ramdisk load address** at
+  byte 20; the real `second_size` is 924,672 at byte 24, and byte 32 is `kernel_tags_addr` `0x10000100`.
+* The `dtb_load_address` was zeroed by our own packing step: `scripts/rebuild_boot_with_fstab.sh` writes
+  `dtb_size` and `dtb_addr` at bytes 1648/1652 and sets both to 0, mirroring the OEM `dtb_size 0` but
+  discarding the OEM address. Restoring `0x11f00000` is a header-page-only edit that moves nothing.
+
+### DTB re-measured - my earlier "no DTB in the images" was a wrong magic
+
+The DTB magic is big-endian `d00dfeed` (`\xd0\x0d\xfe\xed`). An earlier scan searched `d0fe0fb`, which
+matches nothing, and produced the false "no DTB present" conclusion. Re-scanned with the correct magic:
+
+| file | DTB blobs found (offset, declared total size) | sha |
+|---|---|---|
+| `hu-stock-backup-refresh/boot.bin` (33,554,432 B) | 26,482,688 (152,425) inside `second`; 32,093,696 and 32,636,928 (157,962 each) in the tail | `cd4eeb3daece` / `530b84129eb0` |
+| `a14diag/boot-min.img` and `boot-diag.img` (28,233,728 B) | 27,310,080 (152,425) inside `second`; **no tail DTB** | `cd4eeb3daece` |
+| `hu-stock-backup-refresh/dtb.bin` (partition 4) | none - 4 MiB with no `d00dfeed` anywhere | - |
+| `hu-stock-backup-refresh/dtbo.bin` (partition 5) | 64 (739) | `e48134ad0ec7` |
+
+The payload's DTB is **byte-identical** to stock's `second`-embedded DTB (`cd4eeb3daece`), so the DTB the
+board needs is present. The two tail DTBs are a *different variant* (5,091 differing `dtc` lines): they add
+the mmc aliases `mmc0 = /dwmmc@fe310000`, `mmc1 = /dwmmc@fe320000`, `mmc2 = /sdhci@fe330000` and change the
+display routes to `logo,uboot = "logo.bmp"` + `logo,kernel = "logo_kernel.bmp"`, where the `second` variant
+has no mmc aliases and `logo,kernel = "logo.bmp"`. They are the A11-era DTB the OEM package ships (`530b8412…`,
+already recorded at `docs/decisions.md:1176`).
+
+Because partition 4 holds no DTB at all, the kernel's device tree can only come from the boot image. Two
+consequences worth measuring separately:
+
+* The flashed image's own bytes stop at 28,233,728, and `dd` wrote exactly that into the 33,554,432 B
+  partition, so the stock tail DTBs at 32,093,696 and 32,636,928 were **never overwritten** and survived both
+  attempts. That is inference from the write length, not a measurement - the read-only check owed is a sha of
+  partition 7's tail region once adb is reachable again.
+* The header's `dtb_load_address` went to 0. If the OEM boot path uses that field to place the DTB, a zero
+  address is a real defect; if it uses its own fixed address, it is harmless. Only a UART read of u-boot's
+  own log can settle which.
+
+### The byte-faithful boot rebuild, built offline (**D60**)
+
+`tools/rebuild_boot_faithful.py` produces the image the boot-only ladder needs. The layout rule it uses is
+the one a Rockchip boot loader computes - `kernel @ 2048`, `ramdisk @ roundup(2048 + kernel_size)`,
+`second @ roundup(ramdisk_offset + ramdisk_size)` - rounding **after** adding the header page. Rounding each
+size by itself puts every component one page early; the RSCE magic and the DTB magic sit exactly at the
+add-then-round offsets in the OEM boot image, the payload image and the OEM recovery image, which is what
+settled the rule.
+
+Measured output for OEM `boot.bin` + `boot-min.img`:
+
+| field | value |
+|---|---|
+| size | 33,554,432 B - the partition's own size, so a rollback `dd` and this write cover the same span |
+| sha256 | `8073406527126838443a3df744aeb37d80b8401db254ee39421ae919f83bb1a1` |
+| kernel | carried verbatim, sha `a514a3ffb77e`, `25,671,688` B |
+| `second` | carried verbatim, sha `fb80617e7c97`, `924,672` B, at offset 27,308,032 |
+| ramdisk | the payload's, padded to offset 25,675,776, declared size 1,631,866 |
+| DTBs | three: 27,310,080 (152,425, `cd4eeb3daece`), 32,093,696 and 32,636,928 (157,962 each, `530b84129eb0`) |
+| header page | differs only in `ramdisk_size` (bytes 16..19) and the cmdline field (64..575) |
+| `dtb_load_address` | restored to the OEM `0x11f00000`; `dtb_size` stays 0 like the OEM image |
+| `os_version` / `os_patch_level` | OEM `10.0.0` / `2020-05` - the failed payload shipped `14.0.0` / `2026-10`, so this is now a ladder variable, not a silent change |
+
+The tool refuses if the kernel blob or the `second` blob differs from the OEM image, if the components reach
+the tail DTB region, or if any header byte outside `ramdisk_size` and the cmdline field changed. It re-reads
+the finished image and checks every component at the offsets a loader computes.
+
+One field stays unresolved and is deliberately **not** recomputed: the 20 bytes at header offset 576. Stock,
+payload and recovery each carry a different value there, and no sha1 of any concatenation of the header page,
+kernel, ramdisk, `second`, DTB or tail pieces reproduces the OEM value, so we cannot derive the rule. The
+byte-faithful image carries the OEM value verbatim, and step L0 (**D62**) is the experiment that tells us
+whether the boot loader reads it: L0 repacks the stock content with this tool and must boot Android 10.
+
+This image is **not flashed**. Nothing under **D60** goes to the unit before L0 passes.
+
+### Payload vendor provenance - it is a rebuild, not the stock vendor
+
+Carved both `vendor` extents and compared them:
+
+| fact | stock Android 10 vendor | payload vendor (Nov 18 `super-min.img`) |
+|---|---|---|
+| extent | super sectors 1,928,824..2,560,720 (323,530,752 B) | super sectors 1,980,416..3,066,496 (556,072,960 B) |
+| filesystem | ext4, volume `vendor`, UUID `2b96c597-1e2f-5ee1-9851-c4a9fa9de36e` | ext4, volume `vendor`, **same UUID** |
+| fingerprint | `rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/hct204011522:userdebug/release-keys` | `HCT/lineage_rk3399/rk3399:14/AP2A.240905.003/eng.root.20261115.223943:userdebug/test-keys` |
+| api level | `ro.product.first_api_level=29` | `ro.product.first_api_level=34`, `ro.board.api_level=202404` |
+| VINTF manifest | version `1.0`, `target-level="4"` | version `8.0`, `target-level="4"` |
+
+So the payload's vendor is built by our own tree (D15's staging route), with the OEM blobs carried in. The
+`lib64/hw` union across the two vendors is 41 files: **15 byte-identical** (the OEM hardware blobs -
+`hwcomposer.rk30board.so` 506,816, `gralloc.rk30board.so` 24,136, `camera.rk30board.so` 1,475,440,
+`audio.primary.rk30board.so` 318,280, `vulkan.rk30board.so` 16,755,032, `gps.default.so` 32,440,
+`sensors.rk30board.so`, `keystore.rk30board.so`, `lights.rk3399.so`, `memtrack.rk3399.so`, `mfi.default.so`,
+`power.rk3399.so`, `weaver@1.0-impl`, `mtc.mfi@1.0-impl`, `graphics.composer@2.1-impl.so`), **15 rebuilt**
+(the generic `.default.so` stubs and interface impls, each ~134 KB), **6 stock-only**
+(`gatekeeper@1.0-impl`, `keymaster@3.0-impl`, `light@2.0-impl`, `audio@5.0-impl`, `audio.effect@5.0-impl`,
+`gatekeeper.rk30board.so`) and **5 payload-only** (`audio@6.0-impl`, `audio.effect@6.0-impl`,
+`health@2.0-impl-2.1`, `android.hidl.memory@1.0-impl`, `vulkan.pastel.so` 27,616,872).
+
+Correction to **D56**: `libhwbinder.so` is **not** missing from the payload. The payload vendor ships
+`lib64/libhwbinder.so` 133,384 B (`7c91089433ae`), `lib64/libbinder.so` 799,688 B (`ddbb6e0174ec`) and
+`lib64/libhidlbase.so` 859,288 B (`25a32abb331b`). Stock vendor ships none of those three - its HALs link
+against spliced VNDK libs instead - so the Android 14 libs are there, but they are Android 14 builds sitting
+underneath Android 10-era blobs, which is the compatibility question, not a missing-file question.
+
+### Payload super metadata against stock super
+
+| fact | stock super | payload super |
+|---|---|---|
+| metadata | version 10.0, slot 0, 668 B used / 65,536 max, 2 slots | version 10.0, slot 0, 592 B used, 2 slots |
+| group | `rockchip_dynamic_partitions`, max 3,258,974,208 | `hct_dynamic_partitions`, max 3,258,974,208 |
+| partitions | product 1,926,776 / vendor 631,896 / system 2,490,880 / odm 1,054,592 sectors, all `readonly`, **no system_ext** | system 1,978,264 / vendor 1,086,080 / product 890,936 / system_ext 751,568 / odm 1,584 sectors, attributes **none** |
+| backing | super first sector 2048, size 3,263,168,512 | identical |
+
+`lpdump` reports a coherent layout for the payload in both slots: five logical partitions inside one group,
+extents non-overlapping, and the group ceiling matches. The payload adds `system_ext` and drops the OEM's
+`readonly` flags; the super size is untouched (**D19**).
+
+### Live facts measured Nov 18 (read-only, adb)
+
+| probe | result | what it means |
+|---|---|---|
+| `uname -r` | `4.19.111+` | the kernel is 4.19, not the 4.4-class I had assumed; Android 14 userspace on 4.19 is supported for upgrade paths, so the kernel wall is far lower than estimated |
+| `/sys/block/dm-*/dm/name` | `product vendor system odm` | the running Android 10 already owns dm targets with the logical partition names, so a harness that asks for those names can never succeed cleanly |
+| `/proc/sys/kernel/printk_devkmsg` | `ratelimit` | "N output lines suppressed due to ratelimiting" is the kernel's `/dev/kmsg` ratelimiter, not init's own; `on` defeats it, and `printk.devkmsg=on` does it on the boot cmdline |
+| `/proc/iomem` | no `ramoops` entry | RAMoops is not registered in iomem on this kernel; `/sys/fs/pstore` is mounted (pstore, rw) but reads empty |
+| `/proc/filesystems` | `vfat` present (1 match) | an SD-card logger is mountable by the stock kernel |
+| `/sys/kernel/uevent_seqnum` | 2978 | the uevent counter is live and readable - a cheap read-only detector for init's cold-boot uevent flood |
+| `/proc/sys/kernel/random/boot_id` | `092756bc-1f4b-4a29-9452-d992e8cc4d9d` | a reboot detector that does not need pstore: snapshot it before a run, compare after |
+
+### The namespace harness is frozen, and why
+
+The harness proved the payload's static first-stage `init` can execute on this kernel
+(`init first stage started!`, `ReadFstabFromDt()` failing harmlessly, `Failed to read vbmeta partitions.`
+nonfatal, `AVB is not enabled, skip verity setup for '/metadata'`, `/metadata` `check_fs()` success), but it
+cannot answer the question it was built for, and it damaged the host:
+
+* The host already owns dm targets named `system`/`vendor`/`product`/`odm`, so the payload init either gets
+  `EBUSY` on `DM_DEV_CREATE` or reuses Android 10's devices. Either way a valid logical-mount outcome is
+  impossible here.
+* Mount and PID namespaces do not isolate device-mapper, block devices, binder, GPU, panel, sysctls, sysrq,
+  power state or physical storage. Runs correlated with `SYSTEM_RESTART`, `system_server_lowmem` and
+  `system_server_crash` in dropbox, and eventually a kernel-level reboot (`up 0 min`).
+* `toybox unshare -mp` does not fork, so init is not PID 1 of its PID namespace; a fatal abort in it reaches
+  the host PID namespace's `reboot(2)`. That is the likely reboot mechanism.
+* Android's `/data` is a shared mount, so namespace mounts propagate back into the host mount table; the fix
+  is `mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)` before any mount, which toybox cannot do and needs a
+  native helper.
+* First-stage init's device scan writes `add` to every `/sys/**/uevent`, which broadcasts to the host's
+  `ueventd`, `vold`, `healthd` and `system_server`; `/sys/kernel/uevent_seqnum` is the read-only detector.
+* A head-region sha fingerprint of a partition proves almost nothing. A real guard must remove write access
+  (`BLKROSET` per partition, never the whole disk) and diff `/proc/diskstats` write sectors before/after, plus
+  `boot_id` for a kernel reboot and saved `system_server`/zygote/surfaceflinger/vold PIDs and
+  `logcat -b events | grep am_proc_died` for a framework restart.
+
+Not resumed until those are implemented, and even then it cannot answer the logical-mount question.
+
+### Dead ends, recorded
+
+* **QEMU**: `-machine virt` boots EDK2 and prints, but neither the OEM kernel blob nor the tree kernel prints
+  under it; the failing stage needs real GPT names, the real DTB and the PMIC.
+* **kexec**: `# CONFIG_KEXEC is not set` on the running kernel.
+* **RAMoops**: attached per the boot log but no `/proc/iomem` entry and `/sys/fs/pstore` empty after reboot;
+  the record dies on power-off. A warm `reboot` test is still owed.
+
+### Ranked causes after the Nov 18 re-measure
+
+Three frontier reviews (Gemini, ChatGPT, Claude) converged on the same route: offline first, then a
+boot-only ladder, then UART. Claude's four checks were verified: the `second_size` mislabel, the host dm-name
+clash, the uevent flood being detectable, and the 9-byte `panic=12` difference. The kernel correction moves
+the estimates:
+
+| rank | hypothesis | confidence | state |
+|---|---|---|---|
+| 1 | PID 1 aborts in first stage or early second stage, then panic or fatal reboot | ~35% | unproven; harness cannot test it |
+| 2 | boot-image header fidelity: `dtb_load_address 0`, and the image carrying only the 152,425 DTB variant while the boot chain's other variant (157,962, with the mmc aliases) lives in the tail | ~25% | partially measurable offline, fixable offline |
+| 3 | OEM u-boot/trust boot-chain acceptance | ~15% | only UART can settle it |
+| 4 | Android 14 userspace against an Android 10 vendor: manifest `target-level 4` under `api_level 34`, Android 10-era blobs under Android 14 binder libs | ~15% | a second-stage wall, not a first-stage one |
+| 5 | AVB / vbmeta / `misc` | ~5% | not the leading suspect: the payload fstab has no `avb=` row and init continues after the vbmeta message |
+
+One suspect is now **ruled out**: the live cmdline carries `androidboot.boot_devices=fe330000.sdhci`,
+`storagemedia=emmc`, `board.sel`, `b.mode`, `dtbo_idx`, `serialno`, `slot_suffix`, `earlycon`, `swiotlb` and
+`coherent_pool`, and **none of those are in the stock header cmdline either** - so u-boot appends them, and
+the payload inherits them too. "Missing `boot_devices`" is not a payload defect.
