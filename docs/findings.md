@@ -2996,8 +2996,11 @@ consequences worth measuring separately:
 
 * The flashed image's own bytes stop at 28,233,728, and `dd` wrote exactly that into the 33,554,432 B
   partition, so the stock tail DTBs at 32,093,696 and 32,636,928 were **never overwritten** and survived both
-  attempts. That is inference from the write length, not a measurement - the read-only check owed is a sha of
-  partition 7's tail region once adb is reachable again.
+  attempts. **Measured later on Nov 18**, not inference: the live partition's tail region
+  (32,093,696..32,795,136) reads `d00dfeed` with declared size 157,962 and sha256
+  `bfbf7e1c58cedf7e039b5d4ef5ce1b6ef5590d6c044e9907d9727946cdafda5f`, identical to the carve of the same
+  region out of the stock capture. The first read attempt looked like zeros only because `toybox dd`'s
+  `skip` counts input *blocks*: 32,093,696 / 512 = 62,683, and `skip=62879` lands at 32,194,048.
 * The header's `dtb_load_address` went to 0. If the OEM boot path uses that field to place the DTB, a zero
   address is a real defect; if it uses its own fixed address, it is harmless. Only a UART read of u-boot's
   own log can settle which.
@@ -3086,7 +3089,7 @@ extents non-overlapping, and the group ceiling matches. The payload adds `system
 | `uname -r` | `4.19.111+` | the kernel is 4.19, not the 4.4-class I had assumed; Android 14 userspace on 4.19 is supported for upgrade paths, so the kernel wall is far lower than estimated |
 | `/sys/block/dm-*/dm/name` | `product vendor system odm` | the running Android 10 already owns dm targets with the logical partition names, so a harness that asks for those names can never succeed cleanly |
 | `/proc/sys/kernel/printk_devkmsg` | `ratelimit` | "N output lines suppressed due to ratelimiting" is the kernel's `/dev/kmsg` ratelimiter, not init's own; `on` defeats it, and `printk.devkmsg=on` does it on the boot cmdline |
-| `/proc/iomem` | no `ramoops` entry | RAMoops is not registered in iomem on this kernel; `/sys/fs/pstore` is mounted (pstore, rw) but reads empty |
+| `/proc/iomem` | no `ramoops` entry | **Re-measured Nov 18: this proves nothing.** `dmesg` shows `ramoops: attached 0xf0000@0x110000`, `pstore: Registered ramoops as persistent store backend` and `console [pstore-1] enabled`, so the driver does register; reserved-memory regions simply are not listed in `/proc/iomem`. `/sys/fs/pstore` is mounted (pstore, rw) and read empty on the boot after the owner's cold restore |
 | `/proc/filesystems` | `vfat` present (1 match) | an SD-card logger is mountable by the stock kernel |
 | `/sys/kernel/uevent_seqnum` | 2978 | the uevent counter is live and readable - a cheap read-only detector for init's cold-boot uevent flood |
 | `/proc/sys/kernel/random/boot_id` | `092756bc-1f4b-4a29-9452-d992e8cc4d9d` | a reboot detector that does not need pstore: snapshot it before a run, compare after |
@@ -3123,8 +3126,11 @@ Not resumed until those are implemented, and even then it cannot answer the logi
 * **QEMU**: `-machine virt` boots EDK2 and prints, but neither the OEM kernel blob nor the tree kernel prints
   under it; the failing stage needs real GPT names, the real DTB and the PMIC.
 * **kexec**: `# CONFIG_KEXEC is not set` on the running kernel.
-* **RAMoops**: attached per the boot log but no `/proc/iomem` entry and `/sys/fs/pstore` empty after reboot;
-  the record dies on power-off. A warm `reboot` test is still owed.
+* **RAMoops**: works, and the earlier "not registered" reading was a wrong probe (`dmesg` shows
+  `ramoops: attached 0xf0000@0x110000`, `pstore: Registered ramoops as persistent store backend`,
+  `console [pstore-1] enabled`, `pstore: Using compression: deflate`). Its limits are real: the record lives
+  in DRAM, so a cold power cycle destroys it, and reading a pstore file deletes it. A warm `reboot` test is
+  still owed.
 
 ### Ranked causes after the Nov 18 re-measure
 
@@ -3136,7 +3142,7 @@ the estimates:
 | rank | hypothesis | confidence | state |
 |---|---|---|---|
 | 1 | PID 1 aborts in first stage or early second stage, then panic or fatal reboot | ~35% | unproven; harness cannot test it |
-| 2 | boot-image header fidelity: `dtb_load_address 0`, and the image carrying only the 152,425 DTB variant while the boot chain's other variant (157,962, with the mmc aliases) lives in the tail | ~25% | partially measurable offline, fixable offline |
+| 2 | boot-image header fidelity: `dtb_load_address 0`, and the image carrying only the 152,425 DTB variant while the boot chain's other variant (157,962, with the mmc aliases) lives in the tail | ~25% | partially measurable offline, fixable offline - **lowered to ~10% by the Nov 18 live session**, see "The unit came back" below: the running stock kernel has no mmc aliases at all, so the small variant is what the board actually uses |
 | 3 | OEM u-boot/trust boot-chain acceptance | ~15% | only UART can settle it |
 | 4 | Android 14 userspace against an Android 10 vendor: manifest `target-level 4` under `api_level 34`, Android 10-era blobs under Android 14 binder libs | ~15% | a second-stage wall, not a first-stage one |
 | 5 | AVB / vbmeta / `misc` | ~5% | not the leading suspect: the payload fstab has no `avb=` row and init continues after the vbmeta message |
@@ -3145,3 +3151,114 @@ One suspect is now **ruled out**: the live cmdline carries `androidboot.boot_dev
 `storagemedia=emmc`, `board.sel`, `b.mode`, `dtbo_idx`, `serialno`, `slot_suffix`, `earlycon`, `swiotlb` and
 `coherent_pool`, and **none of those are in the stock header cmdline either** - so u-boot appends them, and
 the payload inherits them too. "Missing `boot_devices`" is not a payload defect.
+
+## Nov 18 (late session) - the unit came back, and partition 7's real state is measured
+
+`192.168.1.120` answers again. The blocker was the host's own `adb` daemon, not the unit: `adb kill-server`,
+`adb start-server`, `adb connect 192.168.1.120:5555` gives `connected` and `adb root` returns
+`restarting adbd as root`. `ping` shows 0% loss. The unit runs the stock April 2025 Android 10 again
+(`ro.build.fingerprint = rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.20250401.152740:userdebug/release-keys`,
+`ro.build.date = Tue Apr 1 15:22:29 CST 2025`), kernel `4.19.111+ #190`, uptime 984 s. Everything below is
+read-only; nothing was written and the unit was not rebooted.
+
+### Partition 7 is not the rollback capture - it is a truncated restore plus payload remnants
+
+The live partition reads 33,554,432 B sha256 `0bd1cc806740a1f3c69b95d222ef51f7e1fc47e5a91446e0217fd732b817bc51`,
+which is **not** the Nov 17 capture (`4121b58f7759…`) and not the Nov 11 capture (`3d2741f04f31…`). Pulling it
+over `adb exec-out` with `dd | toybox base64` and stripping the CR characters reproduces the device digest
+exactly, so the comparison below is trustworthy (a plain `exec-out dd` adds 88 CR bytes and hashes differently).
+
+| region | live content | how it was identified |
+|---|---|---|
+| 0..27,406,336 | exactly `vibe-rescue/a10pkg/boot.img` (27,406,336 B, sha256 `04a43ea931de08734d8a25afe9920cba69a099095ab4b4490dbbe4368d0b89c6`) | byte-equal, and also byte-equal to the capture's first 27,406,336 B |
+| 27,406,336..28,233,728 | exactly the same slice of `a14diag/boot-min.img` - the Android 14 payload's padding, not stock bytes | byte-equal to that slice |
+| 28,233,728..33,554,432 | identical to the capture's same region, tail DTBs included | byte-equal; tail region sha `bfbf7e1c58cedf…` matches the capture carve |
+
+So the restore wrote **only 27,406,336 bytes** and left the payload's bytes sitting in the middle of the boot
+partition. That is harmless for booting because the loader consumes only through `second`'s padded end
+(`roundup(26,480,640 + 924,672) = 27,407,104`), and the stock `second` blob is intact: the exact 924,672 B at
+26,480,640 hashes `fb80617e7c970501c6ef63f39e4779ab017a20417f482a37ca021aa97f63f2f3` in both live and capture.
+The 606,121 differing bytes against the capture all sit in 27,406,336..28,192,288, i.e. stock zero padding
+replaced by payload padding. Restoring the full 33,554,432 B capture is therefore a write of stock content, not
+a regression, and it also clears the payload remnants.
+
+### The rest of the boot chain is verified byte-exact against the Nov 17 capture
+
+| partition | live sha256 (16-hex) | capture | verdict |
+|---|---|---|---|
+| uboot (p1) | `a28fd6a0e6c63ef8` | `a28fd6a0e6c6…` | identical |
+| trust (p2) | `7f2c4e52e595b792` | `7f2c4e52e595…` | identical |
+| misc (p3) | `909bdd979111bcd5` | `909bdd979111…` | identical |
+| dtb (p4) | `bb9f8df61474d25e` | `bb9f8df61474…` | identical |
+| dtbo (p5) | `e5c1d28c4b6f9161` | `e5c1d28c4b6f…` | identical |
+| vbmeta (p6) | `76ff77959f2451ee` | `76ff77959f24…` | identical |
+| recovery (p8) | `1fdf5ea77fc66f48` | `1fdf5ea77fc6…` | identical, so no patched recovery is on the disk (**not** state S2) |
+| security (p10) | `6ff044d01c2b8631` | `6ff044d01c2b…` | identical |
+| frp (p13) | `07854d2fef297a06` | `07854d2fef29…` | identical |
+| metadata (p12) | `f92994ce1c2a1daf5f866c8c9f594da98a544a882477b1a824bd952fb3514b04` | `055d780c5cae…` | differs - update_engine's own metadata moved during the restore |
+
+This is the first digest-level verification of **D30**'s claim that nothing beyond `boot` + `super` was ever
+written: nine partitions hash exactly as captured.
+
+### Super: logical content identical to stock, only the metadata slots moved
+
+Live super (p14) is 3,263,168,512 B, sha256 `535dac26946dee10a6040b8b2431120485d198437ec66058a629e0e395acc5b1`,
+head 2 MiB `bfc68890ef2e60eb313b8835b1c45876be360ba4feb11b45f98e4510f3c09e72`, tail 8 MiB
+`2daeb1f36095b44b318410b3f4e8b5d989dcc7bb023d1426c492dab0a3053e74`. The tail digest matches the Nov 17 capture
+**and** both payload supers, so the logical partition bytes are stock again. Against the capture's head 2 MiB the
+live bytes differ in only 148 bytes across two regions (77,836..77,904 + 78,212..78,340 and the mirrored
+208,908..208,976 + 209,284..209,380) - the two metadata slots. The geometry block at offset 4096 is byte-identical.
+
+### The live device tree has no mmc aliases, which settles the DTB-variant suspect
+
+`/proc/device-tree/aliases/mmc0`, `mmc1`, `mmc2` read **empty**; `serial2 = /serial@ff1a0000`. The stock kernel
+on this board therefore runs with the device tree that has no mmc aliases - the 152,425-byte variant inside
+`second` - and storage works anyway, because u-boot brings up the storage itself and appends
+`androidboot.boot_devices=fe330000.sdhci`, `storagemedia=emmc`, `board.sel`, `b.mode`, `dtbo_idx`, `serialno`,
+`slot_suffix` to the cmdline (`/proc/cmdline` and `/proc/device-tree/chosen/bootargs` read identical). Our
+payload's DTB is byte-identical to that variant (`cd4eeb3daece`), so "the image carries only the small variant"
+is not a boot-blocking defect, and **D60**'s tail-DTB carry is fidelity work, not a fix candidate.
+
+### pstore works; the earlier reading of it was wrong
+
+`dmesg` on the live kernel shows `console [pstore-1] enabled`, `pstore: Registered ramoops as persistent store
+backend`, `ramoops: attached 0xf0000@0x110000`, `pstore: Using compression: deflate`. The DTB declares
+`ramoops@110000` with `reg = <0x00 0x110000 0x00 0xf0000>` (983,040 B) and `record-size 0x20000`
+(131,072), `console-size 0x80000` (524,288), `pmsg-size 0x50000` (327,680) - the three declared sizes sum to
+exactly the region. `/sys/fs/pstore` is mounted and reads empty today because the last boot was a cold power
+cycle after the owner's restore, and records are deleted when read; the Nov 13 record
+(`analysis/panic-20261113-2003-ramoops.txt`) and the Nov 17 clean-boot records prove the channel works. The
+warm-`reboot` probe is still owed.
+
+### Kernel config answers that close three open questions in the proposed blind plan
+
+From `incoming/probe-20261113-2016.md`, cross-checked against the live kernel:
+
+| option | state | consequence |
+|---|---|---|
+| `CONFIG_PSTORE_RAM`, `CONFIG_PSTORE_CONSOLE`, `CONFIG_PSTORE_PMSG`, `CONFIG_PSTORE` | `y` | pstore console is a real channel |
+| `CONFIG_VT`, `CONFIG_TTY_PRINTK` | **not set** | `console=tty0` / fbcon screen output is impossible - that channel does not exist on this kernel |
+| `CONFIG_USER_NS` | **not set** | the namespace route can never work here; it reinforces **D59**'s freeze and makes **D64**'s guard set impossible on this kernel |
+| `CONFIG_DRM_FBDEV_EMULATION` | `y` | DRM keeps fbdev, but without `CONFIG_VT` nothing can print through it |
+| `CONFIG_MMC_DW_ROCKCHIP`, `CONFIG_MMC_SDHCI`, `CONFIG_MMC_SDHCI_PLTFM` | `y` | both storage controllers are built in; an SD card is usable for logging without a driver load |
+| `CONFIG_VFAT_FS` support set (`NLS_CODEPAGE_437`, `NLS_ISO8859_1` `y`), `/proc/filesystems` lists `vfat` | present | the earlier vfat logger was mountable, so "logger never worked" is not a driver problem |
+| `CONFIG_USB_STORAGE` | `y` | a USB stick is a possible log target, though the ports are host-side |
+| `CONFIG_CGROUPS`, `CONFIG_CGROUP_BPF`, `CONFIG_BPF_SYSCALL`, `CONFIG_MEMCG`, `CONFIG_PSI`, `CONFIG_SECCOMP_FILTER` | `y` | Android 14 init's cgroup/BPF/PSI needs are met by the OEM 4.19.111 kernel |
+| `CONFIG_CONSOLE_LOGLEVEL_DEFAULT` | `7` | a quiet cmdline really does drop lines from the pstore console; `loglevel=8`/`ignore_loglevel` is worth carrying |
+
+### Two arithmetic traps measured today, both cheap to avoid
+
+* `toybox dd`'s `skip` counts **input blocks**, like GNU dd. 32,093,696 / 512 = 62,683; using `skip=62879`
+  lands on 32,194,048 and reads unrelated bytes. This is what produced the "the tail DTB is gone" reading.
+* Android's mksh does 32-bit arithmetic: `sz=$(( sectors * 512 ))` for super's 6,373,376 sectors wraps to
+  -1,031,798,784 and `dd count=` then reads nothing (`sha256sum` of empty input). Use exact counts: super is
+  3112 MiB, so `dd bs=1M count=3112`.
+
+### What is owed next
+
+1. Warm `reboot` pstore probe: `adb reboot`, then read `/sys/fs/pstore/console-ramoops-0` on the next boot.
+   This is rung L0 of the ladder and needs no write.
+2. A `boot`-only identity round-trip: repack the stock capture content with our tooling and prove the result is
+   byte-identical or differs only in documented bytes. `tools/rebuild_boot_faithful.py` already exists; the
+   gate that compares its output against the stock image field by field does not exist yet.
+3. The `misc` partition is untouched (`909bdd97…`) and stays that way unless the owner approves a BCB write.

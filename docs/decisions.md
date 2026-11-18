@@ -1906,3 +1906,30 @@ plus `logcat -b events | grep am_proc_died` for a framework restart; `/sys/kerne
 detect init's cold-boot uevent flood; `printk_devkmsg` saved and restored; namespace-wide kill, not a kill of
 the one init PID. Real `/data` is never mounted by anything under D64. Even with all of that, D59 still
 stands: the logical-mount question needs the offline loop mounts, not this harness.
+**D65 - the instrument is pstore console, not a namespace and not the panel (Nov 18).** Measured on the live
+kernel: `dmesg` prints `ramoops: attached 0xf0000@0x110000`, `pstore: Registered ramoops as persistent store
+backend` and `console [pstore-1] enabled`, with `CONFIG_PSTORE_RAM`/`_CONSOLE`/`_PMSG` all `y`, and the DTB's
+`ramoops@110000` region (983,040 B) exactly fits its declared record/console/pmsg sizes. So a failed boot can
+be read afterwards through `/sys/fs/pstore` provided the next boot is a **warm** reset and nobody reads the
+record before the reader does. Two routes are closed by config: `# CONFIG_VT is not set` means
+`console=tty0`/fbcon cannot print anything on this kernel, and `# CONFIG_USER_NS is not set` means the
+namespace harness could never run even with **D64**'s guards. Measurement: `docs/findings.md`, "Kernel config
+answers".
+
+**D66 - partition 7's rollback image is the whole stock capture, and today's partition is not it (Nov 18).**
+The live partition hashes `0bd1cc806740…`, not the refreshed capture `4121b58f7759…`: the owner's restore wrote
+27,406,336 B (exactly `vibe-rescue/a10pkg/boot.img`), leaving the payload's padding bytes at
+27,406,336..28,233,728 and untouched stock beyond 28,233,728 including both tail DTBs. The boot chain is verified
+byte-exact (uboot, trust, misc, dtb, dtbo, vbmeta, recovery, security, frp), and the patched recovery is not on
+the disk, so the unit is in state S0, not S2. A rollback write must therefore cover all 33,554,432 B with the
+capture, which restores the complete stock image and clears the remnants; it is still only a `boot` write
+(**D18**/**D30**) and needs the owner's go. Measurement: `docs/findings.md`, "Nov 18 (late session)".
+
+**D67 - proposed, pending owner: an identity round-trip gate before any image is proposed for writing
+(Nov 18).** The proposed blind plan's strongest idea, and it needs nothing from the unit: repack the *stock*
+boot content through our own tooling and require the result to be byte-identical to the stock capture, or to
+differ only in documented bytes; same for `super` metadata (`lpdump` both sides). Until that gate passes, no
+Android 14 image may be proposed for a write, because a pipeline defect would make every later result
+uninterpretable. `tools/rebuild_boot_faithful.py` already builds a byte-faithful image (**D60**); the comparison
+gate that checks it against the capture field by field is not written yet. Status: proposed, awaiting owner
+approval of the ladder and this gate.

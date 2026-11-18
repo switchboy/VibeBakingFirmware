@@ -71,6 +71,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D53-D57 | decided Nov 16-17 | kernel rebuild stays blocked on vendor GPL source (D53); shape B stays parked pending an owner review (D54); the gate list shape B needs is its own (D55); shape A's boot image keeps the OEM kernel (D56, now corrected in `docs/findings.md`: `libhwbinder.so` is present); partition 7's rollback image is the refreshed capture (D57) |
 | D58 | decided Nov 17 (owner) | first-boot criteria shrink to boot + WiFi + screen; GPS and sound input become post-boot work |
 | D59-D64 | decided Nov 18 | the namespace harness is frozen and cannot answer the logical-mount question (D59); the OEM boot header stays byte-verbatim except `ramdisk_size`, the content hash and our cmdline tokens, and the image keeps the tail DTB region (D60); the payload's vendor is our own rebuild with OEM blobs carried in, and D56's missing-library claim is corrected (D61); the next writes are boot-only, one variable at a time, `super` untouched (D62); UART needs the owner's consent before anything is opened (D63); a live harness may only run with the full guard set, designed not improvised (D64) |
+| D65-D67 | D65/D66 decided Nov 18 from measurement, D67 proposed | pstore console is the instrument and the two alternative channels are closed by kernel config (`# CONFIG_VT`, `# CONFIG_USER_NS`) (D65); partition 7 today is not the byte-exact capture - the restore wrote 27,406,336 B and left payload padding mid-partition, so a rollback write must cover all 33,554,432 B (D66); an identity round-trip gate must pass before any image is proposed for writing (D67, awaiting owner) |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 13/14)
@@ -223,3 +224,23 @@ This file is the index plus the risk register, and it must not restate numbers -
     live checks that were queued - partition 7's tail sha, `/proc/device-tree/aliases`, a warm-reboot RAMoops
     test - are owed on the next reachable session. Nothing beyond `boot` + `super` was ever written (**D30**),
     and `/data` was never formatted.
+
+17. **Nov 18 late session: the unit came back, partition 7's real state is measured, and three claims were
+    corrected.** The unreachable-unit blocker was the workstation's own `adb` daemon, not the unit: restart the
+    daemon and `adb connect 192.168.1.120:5555` gives root adb on the stock April 2025 Android 10. Read-only
+    measurements: partition 7 hashes `0bd1cc806740…`, which is **not** the rollback capture `4121b58f7759…`,
+    because the restore wrote only 27,406,336 B and left the payload's padding at 27,406,336..28,233,728, with
+    untouched stock (both tail DTBs) beyond 28,233,728 (**D66**). Nine boot-chain partitions hash exactly as
+    captured, so **D30** is now digest-verified and the patched recovery is not on the disk - the unit is state
+    S0, not S2. Super's logical bytes are stock again; only the two metadata slots differ from the capture, by
+    148 bytes. The live device tree has no mmc aliases, which lowers the DTB-variant suspect to ~10%: the small
+    variant inside `second` is what the board actually uses, and our payload carries it byte-identically. Two of
+    our own probes were wrong and are fixed: the "tail DTB is gone" reading came from `toybox dd`'s block-based
+    `skip` (32,093,696/512 = 62,683, not 62,879), and the "RAMoops not registered" row was wrong - `dmesg` shows
+    `ramoops: attached 0xf0000@0x110000` with `console [pstore-1] enabled`, so pstore console works (**D65**),
+    while `# CONFIG_VT is not set` rules out screen console and `# CONFIG_USER_NS is not set` rules out any
+    namespace route permanently. The owner also forwarded a "blind plan" (no UART, no USB debugging); its
+    corrections are recorded in `docs/blind-plan-corrections.md`, and its questions are batched in
+    `docs/head-unit-findings.md` items 8-12. `scripts/repo_update.sh` is fixed: its rsync targets lacked the
+    `$HOST:` prefix, so the NAS mirror silently did nothing while the ssh-side checks still looked correct.
+    Nothing was written, and the unit was not rebooted.

@@ -91,9 +91,15 @@ if [ "$DRY" = 1 ]; then
   TARGET=/tmp/opencode/repo_update_dryrun
   rm -rf "$TARGET"
   mkdir -p "$TARGET"
+  RSYNC_DEST="$TARGET"
   echo "== mirror (DRY RUN: local scratch $TARGET; the NAS is not contacted) =="
 else
   echo "== mirror -> $HOST:$DEST =="
+  # A remote rsync target needs the host prefix. Without it rsync treats the NAS path as a local
+  # path and tries to mkdir it here - measured Nov 18: `rsync: [Receiver] mkdir
+  # "/srv/dev-disk-by-label-SSData/aospbuild/VibeBakingFirmware/docs" failed: No such file or
+  # directory (2)`, so the mirror silently did nothing while the ssh-side checks stayed correct.
+  RSYNC_DEST="$HOST:$DEST"
   # rsync creates the leaf dir but not the parent, so the parents are made in one ssh call.
   parents=""
   for d in ${DELETE_DIRS[@]+"${DELETE_DIRS[@]}"} ${KEEP_DIRS[@]+"${KEEP_DIRS[@]}"}; do
@@ -105,16 +111,16 @@ fi
 for d in ${DELETE_DIRS[@]+"${DELETE_DIRS[@]}"}; do
   [ -d "$REPO/$d" ] || continue
   if [ "$DRY" = 1 ]; then mkdir -p "$TARGET/$d"; fi
-  rsync $RSYNC_OPTS --delete --exclude __pycache__ -e "ssh $SSH_OPTS" "$REPO/$d/" "$TARGET/$d/"
+  rsync $RSYNC_OPTS --delete --exclude __pycache__ -e "ssh $SSH_OPTS" "$REPO/$d/" "$RSYNC_DEST/$d/"
 done
 for d in ${KEEP_DIRS[@]+"${KEEP_DIRS[@]}"}; do
   [ -d "$REPO/$d" ] || continue
   if [ "$DRY" = 1 ]; then mkdir -p "$TARGET/$d"; fi
-  rsync $RSYNC_OPTS --exclude __pycache__ -e "ssh $SSH_OPTS" "$REPO/$d/" "$TARGET/$d/"
+  rsync $RSYNC_OPTS --exclude __pycache__ -e "ssh $SSH_OPTS" "$REPO/$d/" "$RSYNC_DEST/$d/"
 done
 for f in ${SOLO_FILES[@]+"${SOLO_FILES[@]}"}; do
   [ -f "$REPO/$f" ] || continue
-  rsync $RSYNC_OPTS -e "ssh $SSH_OPTS" "$REPO/$f" "$TARGET/$f"
+  rsync $RSYNC_OPTS -e "ssh $SSH_OPTS" "$REPO/$f" "$RSYNC_DEST/$f"
 done
 
 # ---------------------------------------------------------------- 4. verify sha256 on both sides

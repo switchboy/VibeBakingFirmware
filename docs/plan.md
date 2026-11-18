@@ -340,8 +340,10 @@ Target `root@192.168.1.29` (OMV NAS, Debian 13, 16 CPUs / 24 GB, docker holds ~1
 Auth is **password only** through a wrapper kept outside the repo: `sh /tmp/opencode/omv.sh`, backed by
 `/tmp/opencode/askpass.sh` + `/tmp/opencode/build_host.env` (mode 600, credential never in argv); the
 raw form is in `scripts/cold_storage_move.sh:65` (`SSH_ASKPASS=... SSH_ASKPASS_REQUIRE=force ssh -o
-PreferredAuthentications=password -o PubkeyAuthentication=no`). **Those wrapper files are gone - `/tmp` was
-cleared - so the credential has to be re-supplied before any build.** Rules that burned us before: long
+PreferredAuthentications=password -o PubkeyAuthentication=no`). Re-checked Nov 18: the wrappers are **present**
+(`/tmp/opencode/omv.sh`, `/tmp/opencode/askpass.sh`, `/tmp/opencode/build_host.env`, mode 600), and
+`scripts/repo_update.sh` reaches the NAS through them - the mirror failure that day was a missing `$HOST:`
+prefix in the script's rsync targets, not a credential problem. Rules that burned us before: long
 NAS jobs must be `setsid nohup ... > log 2>&1 < /dev/null &` (ssh sessions over ~60 s return nothing, and
 `ssh ... > file` can come back 0 bytes in this shell), never `systemd-run` (its unit env breaks
 `envsetup.sh`), and directory verification is one ssh call comparing `find . -type f -printf '%P %s\n' |

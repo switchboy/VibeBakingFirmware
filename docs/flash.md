@@ -443,11 +443,17 @@ refreshed super capture is `11e91ea677e1` and it differs from Nov 11 only in its
 logical partition bytes beyond that are identical - so the dynamic content is the same and only the
 metadata region moved. Full measurement: `docs/findings.md`, "Stock backup refresh on Nov 17".
 
-**Nov 18 rollback, as actually used.** Both payload writes were undone by the owner re-flashing their own OEM
-package, and `/data` survived. Partition 7's rollback file stays the refreshed `boot.bin` (`4121b58f7759…`),
-and because partition 7 is 33,554,432 B while the payload images were 28,233,728 B, a rollback `dd` has to
-write the whole stock file: the tail bytes of partition 7, including those two 157,962-byte DTB copies, are
-part of what boots today. A read-only sha of partition 7's tail region is still owed once adb is reachable.
+**Nov 18 rollback, as actually used, and what partition 7 holds now.** Both payload writes were undone by the
+owner re-flashing their own OEM package, and `/data` survived. Measured afterwards: partition 7 reads
+33,554,432 B sha256 `0bd1cc806740a1f3c69b95d222ef51f7e1fc47e5a91446e0217fd732b817bc51`, which is **not** the
+refreshed capture `4121b58f7759…` - the restore wrote only 27,406,336 B (exactly `vibe-rescue/a10pkg/boot.img`),
+so bytes 27,406,336..28,233,728 still hold the Android 14 payload's padding and 28,233,728..33,554,432 is
+untouched stock, tail DTBs included (region sha `bfbf7e1c58cedf…`, matching the capture carve). The boot chain is
+verified byte-exact against the capture: `uboot`, `trust`, `misc`, `dtb`, `dtbo`, `vbmeta`, `recovery`,
+`security` and `frp` all hash as captured, so the patched recovery is **not** on the disk. Restoring partition 7
+means writing the whole `hu-stock-backup-refresh/boot.bin` (33,554,432 B): that restores the complete stock image
+and clears the payload remnants, and it changes only bytes the boot loader does not read today. Full measurement:
+`docs/findings.md`, "Nov 18 (late session)".
 
 ## Fastboot is not used
 

@@ -264,6 +264,20 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
    real fix plus a satellite list, and `tx` on `/dev/ttyS0` is the thing to watch (the stock HAL sent
    70 bytes in three minutes while the module streamed ~225 B/s).
 
+8. Warm-reset pstore probe (rung L0, no write): may I run `adb reboot` on the stock Android 10 unit and read
+   `/sys/fs/pstore/console-ramoops-0` on the next boot? It costs one boot cycle and tells us whether a failed
+   boot can be read afterwards. The records die on a cold power cycle, which is why the Nov 18 read came back
+   empty after your restore.
+9. How did you enter the bootSD recovery last time - card inserted before power, or a button held? Is there any
+   button or pin that reaches recovery at power-on without the card? That decides whether a dead boot can reach a
+   reader at all.
+10. Is the bootSD route always a cold power cycle (RAM lost), or can it be done from a warm reset?
+11. Is a second SD card available for logging? Your 32 GB media card is never used as a log target. A FAT32 USB
+    stick would also work (`CONFIG_USB_STORAGE=y`), though the ports are host-side.
+12. Permission for one new write surface: the `misc` partition (boot control block) so a failed boot can be sent
+    into recovery instead of needing a card. It hashes `909bdd979111…` exactly as captured today, i.e. untouched,
+    and **D30** currently forbids writing it. Answer yes/no; if no, the ladder stays card-driven.
+
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)
 
