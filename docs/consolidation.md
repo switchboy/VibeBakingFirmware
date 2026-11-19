@@ -39,10 +39,10 @@ numbers in other files, so numeric facts over-report duplication; the sha and pr
 | docs/upstream.md | 1 | the unpublished drafts repeat a payload path |
 | docs/termux.md | 1 | the old transport repeats a path fact |
 
-Docs by size, for context: findings.md 3625, decisions.md 2055, build-host.md 644, flash.md 563,
-reanimation.md 374, plan.md 374, head-unit-findings.md 366, agentPlan.md 342, upstream.md 285,
+Docs by size, for context: findings.md 3625, decisions.md 2055, build-host.md 644, flash.md 564,
+reanimation.md 374, plan.md 374, head-unit-findings.md 366, agentPlan.md 344, upstream.md 285,
 feasibility.md 212, consolidation.md 183, README.md 171, housekeeping.md 133, firmware-analysis.md 122,
-ota.md 100, blind-plan-corrections.md 74, termux.md 36, index.md 27 (9686 lines total, `facts.tsv` 195 facts).
+ota.md 100, blind-plan-corrections.md 74, termux.md 36, index.md 27 (9689 lines total, `facts.tsv` 195 facts).
 
 Two naming/content fixes the earlier pass noted and they still stand (they are lint findings, not audit rows):
 `docs/firmware-analysis.md` has a table column mismatch, and `docs/upstream.md` names the super checker under

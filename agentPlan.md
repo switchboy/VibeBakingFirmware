@@ -339,4 +339,6 @@ This file is the index plus the risk register, and it must not restate numbers -
     therefore *not* recorded: the console record is in RAM, and a cold power cycle erases it. Nothing else was
     written; `super` stays `535dac26946d…`, `/data` and every boot-chain partition are untouched, and the rollback
     stays available at `a14-work/hu-stock-backup-refresh/boot.bin` and on the unit at `/data/local/tmp/stock.img`.
-    Restore is owner-side (bootSD card **D39**, or USB adb inside recovery **D74**) - owner question 15.
+    Restore is owner-side (bootSD card **D39**, or USB adb inside recovery **D74**) - owner question 15. Re-probed
+    Nov 20 00:06 CET: `adb connect` still says "No route to host" and `ping -c 3` loses every packet, so the unit
+    has not come back by itself and the agent stops here until the owner restores it (**D75**).

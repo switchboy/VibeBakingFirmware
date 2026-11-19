@@ -193,7 +193,8 @@ Restore needs the owner, because no route we can reach writes the partition:
   recovery does not mount.
 
 Nothing else may be written in that state, and no further Android 14 image goes on the unit until a boot that keeps
-TCP adb is designed (**D75**). Full measurement: `docs/findings.md`, "Nov 19 (night, third half)".
+TCP adb is designed (**D75**). Re-probed Nov 20 00:06 CET: `adb connect` still fails with "No route to host" and
+`ping -c 3` loses every packet. Full measurement: `docs/findings.md`, "Nov 19 (night, third half)".
 
 ## Install, route 1: the signed zip through recovery
 

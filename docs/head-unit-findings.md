@@ -6,7 +6,7 @@ non-root, report uploaded over LAN. Kernel config recovered from the embedded gz
 `analysis/hu_vendor_manifest.xml`. Later facts come from the root probe `incoming/probe-20261113-2016.md`
 and the RAMoops record `analysis/panic-20261113-2003-ramoops.txt`.
 
-## Current state: unreachable since Nov 19 23:35 CET
+## Current state: unreachable since Nov 19 23:35 CET (re-probed Nov 20 00:06 CET, still silent)
 
 L2 (**D62**) was written to `boot` at 23:32-23:34 CET and the unit stopped answering after the reboot: TCP adb on
 `192.168.1.120:5555` fails with "No route to host", `ping` loses every packet, and eight further probes over ten
