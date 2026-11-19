@@ -3327,6 +3327,10 @@ images `a14diag/boot-min.img` and `super-min.img`.
   28,233,728 B to the partition end (5,320,704 B: splash, resource header, both DTB copies). Content differs
   in 56,362 ranges totalling 2,273,364 B, all inside the ramdisk span (25,675,776..27,307,642) and the
   padding span (28,232,704..28,233,728) - nothing outside them.
+* The same gate run against `boot-diag.img` + `super-diag.img` also passes, and the only header difference
+  against the min variant is the 9-byte ` panic=12` tail in the cmdline field; its faithful image is
+  `9ed667e99c39b7a7ad5f5761698861c71282a1a8117a0c91022719d3016a7db7`. Both payload variants therefore enter
+  the ladder through the same verified pipeline (**D62**), one variable per rung.
 * **Check 3 - super metadata: PASS with a documented delta.** Device size identical (3,263,168,512 B), first
   sector identical (2048), metadata slots identical (2); metadata size 592 -> 668; group
   `rockchip_dynamic_partitions` -> `hct_dynamic_partitions`, both maximum 3,258,974,208; attributes
