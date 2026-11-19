@@ -96,7 +96,9 @@ image is allowed to change (`ramdisk_size`, the cmdline field, the ramdisk and p
 not (**D68** - the kernel blob, `second`, and everything from the payload's content end onward: splash bytes, the
 tail resource header and its DTB copies), and finally diffs `lpdump` on both supers. The Nov 19 run passes all
 three checks; the Nov 19 *first* run failed and found the zero-filled tail, which is the defect class the gate
-exists to catch.
+exists to catch. Step **P0**, which costs no write, runs first: `scripts/pstore_probe.sh` reboots the unit once
+and reads `/sys/fs/pstore/*` on the next boot (RAMoops is the only instrument this kernel offers, **D65**);
+without `HU_CONSENT=1` it is a dry run that touches nothing, so the owner's go is required to run it for real.
 
 1. `scripts/verify_artifacts.sh <tree>` must pass: `VENDOR/` + `vendor.map`, the injected vendor
    libraries, super layout, VINTF parsing, boot header, the kernel/module/manifest coupling gate, the

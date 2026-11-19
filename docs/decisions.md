@@ -1868,7 +1868,9 @@ api-34 build, so the VINTF/API-level question is a **second-stage** risk, not a 
 `libhidlbase.so` - D56's "declared absent" was wrong, and what is actually at risk is Android 10-era blobs
 linking against Android 14-built binder libs. Measurement: `docs/findings.md`, "Payload vendor provenance".
 
-**D62 - the next writes are boot-only, one variable at a time, `super` untouched (Nov 18).** No further
+**D62 - the next writes are boot-only, one variable at a time, `super` untouched (Nov 18).** Before any of
+them, step **P0** costs no write at all: one warm `reboot` through `scripts/pstore_probe.sh` (gated on
+`HU_CONSENT=1`) to see whether a failed boot's console log can be read afterwards (**D65**). No further
 `super` write until a hypothesis predicts success. The ladder, in order: **L0** repack the stock boot image
 with our tooling and no content change - if Android 10 does not boot that, the packing tool is wrong and
 nothing else is trusted; **L1** stock Android 10 ramdisk plus the payload cmdline, one variable per flash

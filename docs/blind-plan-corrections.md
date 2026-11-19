@@ -61,11 +61,11 @@ halves are listed, because the plan is worth adopting with these edits.
 
 | rung | change | why it is still the right order |
 |---|---|---|
-| L0 | no write; `adb reboot`, read `/sys/fs/pstore/console-ramoops-0` on the next boot | proves pstore survives a warm reset and holds init-era lines, for free |
-| L1 | identity round-trip: repack stock boot content with our tooling, require byte-identity or documented-only diffs (**D67**) | eliminates the pipeline defect before any Android 14 claim is interpretable |
-| L2 | stock content + our diagnostic cmdline tokens, one variable per flash | separates cmdline effects from payload effects (**D62**) |
-| L3 | Android 14's own static first-stage init inside the stock Android 10 ramdisk | tests the real chain without the dm-name clash that froze the harness (**D59**) |
-| L4+ | only then a payload write, and never one that can mount or format `/data` | **D42**/**D43** limits unchanged |
+| P0 | no write; one warm `reboot` via `scripts/pstore_probe.sh` (gated on `HU_CONSENT=1`), read `/sys/fs/pstore/*` on the next boot | decides whether a failed boot can be read afterwards at all; costs one boot cycle and nothing else |
+| L0 | identity round-trip: repack stock boot content with our tooling, byte-identical to the capture (**D67** gate already proves this offline) | eliminates a pipeline defect before any Android 14 claim can be interpreted |
+| L1 | stock content + our diagnostic cmdline tokens, one variable per flash | separates cmdline effects from payload effects (**D62**) |
+| L2 | Android 14's own static first-stage init inside the stock Android 10 ramdisk | tests the real chain without the dm-name clash that froze the harness (**D59**) |
+| L3+ | only then a payload write, and never one that can mount or format `/data` | **D42**/**D43** limits unchanged |
 
 UART stays parked (**D63**) and needs the owner's consent to open the unit. The owner questions the plan batches
 are recorded in `docs/head-unit-findings.md`.

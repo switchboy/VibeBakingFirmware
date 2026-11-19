@@ -3259,8 +3259,14 @@ From `incoming/probe-20261113-2016.md`, cross-checked against the live kernel:
 
 ### What is owed next
 
-1. Warm `reboot` pstore probe: `adb reboot`, then read `/sys/fs/pstore/console-ramoops-0` on the next boot.
-   This is rung L0 of the ladder and needs no write.
+1. Warm `reboot` pstore probe (step **P0**, no write): `scripts/pstore_probe.sh` (added Nov 19). Without
+   `HU_CONSENT=1` it is a dry run that reads nothing from `/sys/fs/pstore` and touches nothing - measured today,
+   it prints the unit's boot id, uptime, the empty pstore listing and the four RAMoops lines pulled from
+   `dmesg`. With the owner's consent (`HU_CONSENT=1`) it reboots once, reconnects, and pulls
+   `console-ramoops-0`, `dmesg-ramoops-0` and `pmsg-ramoops-0` into the scratch dir through `toybox base64` (a
+   plain `exec-out cat` of binary data adds CR bytes and corrupts the digest). It costs one boot cycle, no
+   write, and it comes before the ladder's first flash because it decides whether a failed boot can be read at
+   all.
 2. A `boot`-only identity round-trip: repack the stock capture content with our tooling and prove the result is
    byte-identical or differs only in documented bytes. `tools/identity_gate.py` now does that (**D67**), and its
    Nov 19 run proved the round trip byte-identical after fixing the zero-filled tail (**D68**).

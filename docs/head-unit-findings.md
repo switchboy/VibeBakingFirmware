@@ -264,10 +264,11 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
    real fix plus a satellite list, and `tx` on `/dev/ttyS0` is the thing to watch (the stock HAL sent
    70 bytes in three minutes while the module streamed ~225 B/s).
 
-8. Warm-reset pstore probe (rung L0, no write): may I run `adb reboot` on the stock Android 10 unit and read
-   `/sys/fs/pstore/console-ramoops-0` on the next boot? It costs one boot cycle and tells us whether a failed
-   boot can be read afterwards. The records die on a cold power cycle, which is why the Nov 18 read came back
-   empty after your restore.
+8. Warm-reset pstore probe (step P0, no write): may I run `scripts/pstore_probe.sh` with `HU_CONSENT=1` on the
+   stock Android 10 unit? It reboots once and reads `/sys/fs/pstore/*` on the next boot; without the flag it is
+   a dry run that touches nothing (tested Nov 19). It costs one boot cycle and tells us whether a failed boot
+   can be read afterwards. The records die on a cold power cycle, which is why the Nov 18 read came back empty
+   after your restore.
 9. How did you enter the bootSD recovery last time - card inserted before power, or a button held? Is there any
    button or pin that reaches recovery at power-on without the card? That decides whether a dead boot can reach a
    reader at all.

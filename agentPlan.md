@@ -261,4 +261,7 @@ This file is the index plus the risk register, and it must not restate numbers -
     payload image changes only `ramdisk_size`, the cmdline field, the ramdisk span and the padding span, keeps
     the kernel and `second` identical, and keeps the tail identical from 28,233,728 B; `super` metadata differs
     only in group name, attributes, the added `system_ext` and extents, with device size and first sector
-    unchanged (**D18**). Nothing was flashed; the ladder still awaits the owner (**D62**).
+    unchanged (**D18**). The diag variant passes the same gate (`9ed667e99c39…`, differing from the min variant
+    by the 9-byte ` panic=12` cmdline tail). Step **P0** - `scripts/pstore_probe.sh`, gated on `HU_CONSENT=1`,
+    dry-run tested Nov 19 - runs before the first flash, because it decides whether a failed boot can be read
+    at all. Nothing was flashed; the ladder still awaits the owner (**D62**).
