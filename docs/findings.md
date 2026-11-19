@@ -3390,3 +3390,87 @@ stock init already creates the by-name logical devices - the dm-name clash that 
 
 Nothing is flashed. Each rung needs the owner's go (**D38**/**D40**), and step **P0** (the warm-reset pstore
 probe, `scripts/pstore_probe.sh`) comes before the first write.
+
+## Nov 19 (evening) - P0 ran, L0 was written, and stock Android 10 boots from our repack
+
+The owner's answers, recorded here because they change the rules (**D71**): **P0 then L0** approved for the
+session; **UART stayed declined** (**D63** stays parked, pstore stays the instrument); **`misc` is now permitted**
+for a recovery hand-off, which supersedes **D30**'s blanket ban for that one partition only - `uboot`, `trust`,
+`dtb`, `dtbo`, `vbmeta`, `security`, `recovery`, the loader and the GPT stay forbidden, and `super` is never
+resized (**D18**/**D19**).
+
+### P0: the console record survives a warm reset, and it is readable
+
+`HU_CONSENT=1 sh scripts/pstore_probe.sh` at 19:32 CET: one `adb reboot`, no partition write. Boot ids in order:
+`62cab3af-fa50-401c-8131-cc73fd945a14` (the boot we left), `c8dd902a-d41e-49d5-b871-c5f700a5d95b` (the boot P0
+landed in), `1eb3055f-734f-44e7-babf-74fd34f9c997` (the boot now running our repacked image). Two records were
+present after the reset, and no `dmesg-ramoops-0` (this kernel has no pstore *record* backend, only console and
+pmsg):
+
+| file | size | sha256 |
+|---|---|---|
+| `console-ramoops-0` | 97,430 B | `88e35fe7aa66655db5c8db8708401fbf538243ace161384148c143fc73de8ff5` |
+| `pmsg-ramoops-0` | 262,132 B | `2f4f26ae99db289e36d09b81d80b14105d763f67c508ff206b0e2b8be5c1cf2d` |
+| `dmesg-before.txt` (our capture) | 1,898 lines | `ecaab1934c6fd8f298db6187a3914747c63fb294ce3b5212591a8619fce2ab47` |
+| `dmesg-after.txt` (our capture) | 1,190 lines | `d23ddec142d41320e588bb5ba8238e1db48db055874777bc151da3783620315d` |
+
+The console record is plain uncompressed kernel text (deflate fails on it - the kernel did not compress this
+backend), 1,479 non-empty lines, from `Booting Linux on physical CPU 0x0000000000 [0x410fd034]` all the way to
+`reboot: Restarting system with command 'adb'` at 74,190 s. So it is the **whole boot**, PID-1's own messages
+included: `init: init first stage started!` at 1.022631, `ReadFstabFromDt(): failed to read fstab from dt`,
+`Using Android DT directory /proc/device-tree/firmware/android/`, `Created logical partition product on device
+/dev/block/dm-0` / `vendor` on dm-1 / `system` on dm-2 / `odm` on dm-3, `init: 15 output lines suppressed due to
+ratelimiting` at 1.145926 and `7 output lines suppressed due to ratelimiting` at 2.730404, `Loading SELinux
+policy` at 1.385886, `init: init second stage started!` at 1.620864, `Running restorecon...`, then
+`starting service 'adbd'...` at 8.911207. That is the log shape a payload boot is compared against, and it shows
+**the console backend is not subject to init's reader ratelimiting** - the suppression counters are init's own
+kmsg reader, and the console line still lands in the record. Reading a record deletes it, so the record of a
+failed boot is gone if anything else reads it first (**D65**).
+
+Captured afterwards at 19:52, from the boot that started at 19:32 and in which partition 7 was written:
+`console-ramoops-l0-boot.txt`, 67,502 B, sha256 `9a25b05dfa959fd53b263cd3a347e8bf69920241c942d9bbe590c3511cb2a366`,
+ending at `reboot: Restarting system with command 'adb'` 156.351318 s. Files:
+`a14-work/tmp/pstore-20261119-183202/`.
+
+### The live kernel cmdline is assembled by u-boot, not copied from our header field
+
+The record prints the assembled command line verbatim, 670 B. Our header's 334-byte field appears inside it
+byte-for-byte; the firmware **prepends** `storagemedia=emmc androidboot.storagemedia=emmc androidboot.mode=normal
+androidboot.dtbo_idx=0 androidboot.verifiedbootstate=orange androidboot.slot_suffix= androidboot.serialno=c3bc6b060ec025bb
+board.sel=306,0,0,403 b.mode=normal` and **appends** `earlycon=uart8250,mmio32,0xff1a0000 swiotlb=1
+coherent_pool=1m androidboot.boot_devices=fe330000.sdhci`. Two consequences: `androidboot.boot_devices` is
+supplied by the boot chain itself, so the payload's first-stage mount does not need that token in the header
+field (the header-fidelity suspect from Nov 18 stays dropped); and the ladder's tokens live inside the header
+field, which has 178 free bytes today, so an added token cannot overflow the field - the largest L1 image puts
+382 B in a 512 B field.
+
+### L0: our packing pipeline is now trusted by the unit, not just offline
+
+Executed 19:33-19:34 CET, `boot` only (**D18**), nothing else written. The pushed image hashed on the device as
+the manifest line before the write. `toybox dd if=/data/local/tmp/ladder.img of=/dev/block/by-name/boot
+bs=1M count=32 conv=fsync` moved 33,554,432 B (`32+0 records out`, 112 M/s), and partition 7 went from
+`0bd1cc806740…` to `4121b58f7759…` - the payload padding in 27,406,336..28,233,728 is gone (**D66** is now
+satisfied, see the amendment in `docs/decisions.md`). After `adb reboot`: `sys.boot_completed=1`, fingerprint
+`rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.20250401.152740:userdebug/release-keys` unchanged,
+`wlan0` `operstate` `up`, TCP adb reachable, partition 7 still `4121b58f7759…`, and `misc` still
+`909bdd979111…` exactly as captured - untouched, though now permitted. The owner's criteria (**D58**) are met:
+boot, WiFi and a panel showing content - `a14-work/tmp/screencap-l0.png`, 219,026 B, sha256
+`fa5d5f66f9d389c6b9e2ef480c4eef651959ccc40cbc0a2d066ddd34b53a4077`, IHDR 1024x600 colortype 6, 614,400 pixels,
+488,393 of them pure black, 1,346 distinct sampled colours. That is a rendered UI on a dark background, not the
+black panel of Nov 9.
+
+**What L0 buys**: the identity gate (**D67**) now holds *live* - the byte-identical repack our own tooling
+produced boots exactly as the OEM image does. So every L1 rung measures its token, not our pipeline, and a
+payload result after L1 is interpretable. Nothing in this session tested Android 14 content: L0 changed no
+content byte at all.
+
+### Traps measured this session (they cost a false reading each)
+
+* `adb reboot` drops adbd root, and `/dev/block/mmcblk2p7` is `brw------- root root`, so a partition read after
+  a reboot returns `Permission denied` and `dd` yields empty input - its hash is `e3b0c44298fc…` (the empty-input
+  digest), which looks like a "changed partition" if it is not spotted. Re-run `adb root` after every reboot.
+* `toybox getprop` does not exist on this build; `getprop` resolves to `/system/bin/getprop` in the shell's own
+  PATH, so a `toybox getprop …` line silently prints nothing.
+* `adb exec-out 'screencap -p' | tr -d '\r'` corrupts a PNG: `0x0D` is a legal byte inside compressed IDAT data,
+  so stripping CR truncates the stream (`zlib: incomplete or truncated`). Pull screenshots only through
+  `exec-out 'screencap -p | toybox base64'` then `tr -d '\r\n' | base64 -d`, the same route partitions need.

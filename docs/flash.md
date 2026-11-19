@@ -137,6 +137,8 @@ written (**D18**/**D19**/**D30**), and `super` is never resized (**D18**).
 
 0. **P0, no write.** `HU_CONSENT=1 sh scripts/pstore_probe.sh` - one warm reboot, then read `/sys/fs/pstore/*`.
    Without the flag it is a dry run that touches nothing. This decides whether a failed boot can be read at all.
+   **Executed Nov 19 19:32 CET with the owner's go**: the console record survived (97,430 B) and carried the whole
+   boot including PID-1's messages, so the instrument works - **D69**.
 1. Put the image on the unit and check it there before writing, so a corrupt transfer cannot be mistaken for a
    boot failure: `adb -s <dev> root`, `adb push <image> /data/local/tmp/ladder.img`, then on the unit
    `sha256sum /data/local/tmp/ladder.img` must equal the manifest line.
@@ -144,13 +146,20 @@ written (**D18**/**D19**/**D30**), and `super` is never resized (**D18**).
    - 33,554,432 B, the partition's own size, so the payload remnants in 27,406,336..28,233,728 are cleared
    (**D66**). Expected result: stock Android 10 boots exactly as it does today, and partition 7 hashes as the
    capture. If it does not boot, the packing pipeline is wrong and no Android 14 result can be trusted.
+   **Executed Nov 19 19:33-19:34 CET with the owner's go**: the device-side digest matched the manifest before the
+   write, partition 7 went `0bd1cc806740…` -> `4121b58f7759…`, and Android 10 booted from our repack with WiFi
+   and a rendering panel - **D70**, the pipeline is trusted live.
 3. **L1** flashes one token at a time, in the order `printk.devkmsg=on`, `panic=12`, `loglevel=8`,
    `androidboot.init_fatal_reboot_target=bootloader`. After each boot, read the pstore console before anything
    else consumes it. Every rung must still boot Android 10; a rung that does not boot tells us what that token
    costs, and the rollback below restores the unit.
 4. **Rollback after any rung**: `adb reboot recovery` (or the owner's bootSD card) and `dd` the whole
    `hu-stock-backup-refresh/boot.bin` (33,554,432 B) onto partition 7. Verify on the device against the
-   capture's digest afterwards. **L2** (Android 14's static first-stage init inside the stock Android 10
+   capture's digest afterwards. Since Nov 19 the partition's content *is* that capture (**D66** amendment), so a
+   rollback restores bytes the unit already boots from. Two traps when verifying: `adb reboot` drops adbd root, so
+   re-run `adb root` before reading a partition (`Permission denied` otherwise, and an empty `dd` hashes
+   `e3b0c44298fc…` which looks like a change), and binary reads must go through `toybox base64` because `dd`'s CR
+   injection corrupts raw output. **L2** (Android 14's static first-stage init inside the stock Android 10
    ramdisk) is built only after L0 and L1 behave.
 
 ## Install, route 1: the signed zip through recovery
@@ -489,6 +498,12 @@ verified byte-exact against the capture: `uboot`, `trust`, `misc`, `dtb`, `dtbo`
 means writing the whole `hu-stock-backup-refresh/boot.bin` (33,554,432 B): that restores the complete stock image
 and clears the payload remnants, and it changes only bytes the boot loader does not read today. Full measurement:
 `docs/findings.md`, "Nov 18 (late session)".
+
+**Nov 19 - partition 7 now is that capture.** L0 (**D70**) was written with the owner's go, so the live partition
+hashes `4121b58f7759…` byte-equal to `hu-stock-backup-refresh/boot.bin`: the payload padding is gone and the
+rollback image equals the partition's current content. Re-measured after the reboot, all nine boot-chain
+partitions still hash as captured and `misc` still hashes `909bdd979111…` - untouched, though the owner now
+permits BCB writes there (**D71**). Full measurement: `docs/findings.md`, "Nov 19 (evening)".
 
 ## Fastboot is not used
 

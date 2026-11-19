@@ -1900,6 +1900,11 @@ no offline method can tell apart. `androidboot.first_stage_console=1` is not a p
 launches a console process and a shell when it is set - so it is not used for the first capture. Nothing is
 opened or soldered without the owner's answer.
 
+**Nov 19 answer: declined ("Not yet").** The case stays closed and this decision stays parked. The consequence is
+not that we lost the ability to read a failed boot - **D69** proved the pstore console carries the whole kernel
+boot including PID-1's messages - it is that u-boot's own stage remains unreadable, so a boot that never reaches
+the kernel still has no evidence. Reopen only if a payload boot produces no pstore record at all.
+
 **D64 - a live harness may only run with a guard set that is designed, not improvised (Nov 18).** The guard
 list is recorded so a future session cannot resume the old harness: a native helper doing
 `unshare(CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWIPC|CLONE_NEWUTS)` followed by
@@ -1932,6 +1937,12 @@ the disk, so the unit is in state S0, not S2. A rollback write must therefore co
 capture, which restores the complete stock image and clears the remnants; it is still only a `boot` write
 (**D18**/**D30**) and needs the owner's go. Measurement: `docs/findings.md`, "Nov 18 (late session)".
 
+**Nov 19 update - the remnants are gone.** L0 was written with the owner's go, so partition 7 now hashes
+`4121b58f7759…`, byte-equal to the refreshed capture, and Android 10 boots from it with WiFi and a rendering
+panel. The rollback rule is unchanged (write all 33,554,432 B of the capture), but the partition's current
+content *is* the rollback image, so a rollback after any later rung restores content the unit already boots from.
+Measurement: `docs/findings.md`, "Nov 19 (evening)".
+
 **D67 - proposed, pending owner: an identity round-trip gate before any image is proposed for writing
 (Nov 18).** The proposed blind plan's strongest idea, and it needs nothing from the unit: repack the *stock*
 boot content through our own tooling and require the result to be byte-identical to the stock capture, or to
@@ -1954,3 +1965,36 @@ carry the tail from its own content end onward byte-for-byte (zero-filling it is
 identity gate caught), the DTB inside `second` legitimately moves with the payload's ramdisk size while the tail
 copies must stay put, and the logo the boot path uses is the one inside `second` - the live kernel shows u-boot
 filling `/reserved-memory/drm-logo` with a 1,148,928 B buffer. Measurement: `docs/findings.md`, "Nov 19".
+
+**D69 - pstore console is confirmed usable on the live unit, so a failed boot can be read (Nov 19, EXECUTED).**
+Step P0 ran with the owner's go: one warm `adb reboot`, no partition write. Afterwards `/sys/fs/pstore` held
+`console-ramoops-0` (97,430 B) and `pmsg-ramoops-0` (262,132 B), and the console record carried the entire boot
+we left - first-stage init, the logical-partition creation lines, second-stage init, and the shutdown line
+`reboot: Restarting system with command 'adb'` - in plain uncompressed text. **D65**'s prediction holds live:
+the RAM records survive a warm reset, they die on a cold power cycle, and reading a record deletes it, so the
+reader must go first. It also settles the instrument's fidelity question: PID-1's own messages reach the console
+backend even when init's kmsg reader ratelimits them (that boot suppressed 15 + 7 lines in init's reader while
+the record kept the lines), which is exactly the log a dying Android 14 init would have to be diagnosed from.
+No `dmesg-ramoops-0` exists - this kernel has no pstore *record* backend. Measurement: `docs/findings.md`,
+"Nov 19 (evening)".
+
+**D70 - L0 was written and stock Android 10 boots from our repack: the packing pipeline is trusted by the unit
+(Nov 19, EXECUTED).** With the owner's go, `L0-stock.img` - the refreshed capture repacked through
+`tools/rebuild_boot_faithful.py` with no content change - was pushed, verified on the device against the
+manifest, then `dd`'d as all 33,554,432 B onto `/dev/block/by-name/boot`. Partition 7 went `0bd1cc806740…` ->
+`4121b58f7759…`, so **D66**'s payload remnants are cleared and the partition's content now equals the rollback
+image. After reboot: `sys.boot_completed=1`, the OEM fingerprint unchanged, `wlan0` up, TCP adb reachable, and
+`screencap` proves a rendering panel (1024x600, 1,346 distinct sampled colours). Consequences: **D67**'s identity
+gate now holds live and not only offline, so L1 rungs measure their token rather than our pipeline, and an
+Android 14 result after L1 is interpretable; nothing Android 14 content has been tested yet, because L0 changed
+zero content bytes. Measurement: `docs/findings.md`, "Nov 19 (evening)".
+
+**D71 - the owner permitted `misc` for a recovery hand-off; the ban on every other boot-chain partition stands
+(Nov 19, ANSWERED).** Asked as question 12 in `docs/head-unit-findings.md`, the owner answered *"Yes, misc
+allowed"*. That supersedes **D30**'s blanket ban for `misc` alone: a Boot Control Block write is now permitted as
+a way to land a dying init in recovery instead of needing the owner's card. It is *not* permission to write
+anything else - `uboot`, `trust`, `dtb`, `dtbo`, `vbmeta`, `security`, `recovery`, the RKLoader step and the GPT
+remain forbidden (**D18**/**D19**), and `super` is never resized (**D19**). `misc` still hashes
+`909bdd979111…` exactly as captured, i.e. nothing has been written to it yet. The ladder does not need a BCB
+write today: **D62**'s reboot-target token uses `bootloader`, and the `recovery` value is avoided precisely
+because it writes the BCB - so this permission is held in reserve, not used.

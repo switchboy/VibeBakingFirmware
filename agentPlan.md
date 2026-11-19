@@ -71,7 +71,8 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D53-D57 | decided Nov 16-17 | kernel rebuild stays blocked on vendor GPL source (D53); shape B stays parked pending an owner review (D54); the gate list shape B needs is its own (D55); shape A's boot image keeps the OEM kernel (D56, now corrected in `docs/findings.md`: `libhwbinder.so` is present); partition 7's rollback image is the refreshed capture (D57) |
 | D58 | decided Nov 17 (owner) | first-boot criteria shrink to boot + WiFi + screen; GPS and sound input become post-boot work |
 | D59-D64 | decided Nov 18 | the namespace harness is frozen and cannot answer the logical-mount question (D59); the OEM boot header stays byte-verbatim except `ramdisk_size`, the content hash and our cmdline tokens, and the image keeps the tail DTB region (D60); the payload's vendor is our own rebuild with OEM blobs carried in, and D56's missing-library claim is corrected (D61); the next writes are boot-only, one variable at a time, `super` untouched (D62); UART needs the owner's consent before anything is opened (D63); a live harness may only run with the full guard set, designed not improvised (D64) |
-| D65-D68 | D65/D66/D68 decided Nov 18-19 from measurement, D67 written Nov 19 | pstore console is the instrument and the two alternative channels are closed by kernel config (`# CONFIG_VT`, `# CONFIG_USER_NS`) (D65); partition 7 today is not the byte-exact capture - the restore wrote 27,406,336 B and left payload padding mid-partition, so a rollback write must cover all 33,554,432 B (D66); an identity round-trip gate must pass before any image is proposed for writing, and `tools/identity_gate.py` now passes offline (D67); the OEM partition tail - splash data plus a SHA1-verified Rockchip resource image with the DTB variant and the logo - is carried verbatim instead of zero-filled (D68) |
+| D65-D68 | D65/D66/D68 decided Nov 18-19 from measurement, D67 written Nov 19 | pstore console is the instrument and the two alternative channels are closed by kernel config (`# CONFIG_VT`, `# CONFIG_USER_NS`) (D65); partition 7 held payload padding mid-partition after the Nov 18 restore, so a rollback write must cover all 33,554,432 B - L0 did that on Nov 19 and the partition is now byte-equal to the capture (D66 amendment); an identity round-trip gate must pass before any image is proposed for writing, and `tools/identity_gate.py` passes offline and now holds live too (D67); the OEM partition tail - splash data plus a SHA1-verified Rockchip resource image with the DTB variant and the logo - is carried verbatim instead of zero-filled (D68) |
+| D69-D71 | D69/D70 executed Nov 19 (owner's go), D71 answered Nov 19 (owner) | P0 proved the pstore console on the unit: the console and pmsg records survive a warm reset and the console record is whole-boot text including PID-1's messages, so a failed boot can be read (**D69**); L0's byte-identical repack was written as the whole partition and stock Android 10 booted from it with WiFi up and a rendering panel, so our packing pipeline is trusted by the unit (**D70**); the owner permitted `misc` for a Boot Control Block write as a recovery hand-off, while every other boot-chain partition stays forbidden (**D71**) |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 13/14)
@@ -277,3 +278,25 @@ This file is the index plus the risk register, and it must not restate numbers -
     (`wait,logical,first_stage_mount`), so the dm-name clash that froze the harness (**D59**) is payload-side
     only. Digests: `docs/findings.md`, "Nov 19 (daytime)"; manifest `a14-work/ladder/MANIFEST.sha256`. Nothing is
     flashed; approvals are questions 8, 12 and 13 in `docs/head-unit-findings.md`.
+20. **Nov 19 (evening): P0 and L0 ran on the unit with the owner's go, and stock Android 10 boots from our
+    repack.** The owner approved "P0 then L0", declined UART ("Not yet", so **D63** stays parked), and permitted
+    `misc` for a Boot Control Block write (**D71** - it still hashes `909bdd979111…`, untouched). **P0**
+    (`HU_CONSENT=1 sh scripts/pstore_probe.sh`, one warm reboot, no write) proved the instrument: after the reset
+    `/sys/fs/pstore` held `console-ramoops-0` 97,430 B (`88e35fe7aa66…`) and `pmsg-ramoops-0` 262,132 B
+    (`2f4f26ae99db…`), no `dmesg-ramoops-0`, and the console record is plain uncompressed text covering the whole
+    boot we left - 1,479 lines from `Booting Linux…` to `reboot: Restarting system with command 'adb'`, PID-1's
+    own messages included (`init first stage started!`, the logical-partition creation lines, `init second stage
+    started!`), which is the log a dying Android 14 init would be diagnosed from (**D69**). The record also
+    printed the u-boot-assembled cmdline, 670 B: our header's 334-byte field sits inside it verbatim, with
+    firmware tokens before (`storagemedia`, `androidboot.mode`, `dtbo_idx`, `serialno`, `board.sel`…) and after
+    (`earlycon`, `swiotlb`, `coherent_pool`, `androidboot.boot_devices=fe330000.sdhci`), so the payload does not
+    need to add `boot_devices` itself. **L0** pushed `L0-stock.img`, verified its digest on the device against
+    `a14-work/ladder/MANIFEST.sha256`, then `dd bs=1M count=32 conv=fsync` wrote all 33,554,432 B: partition 7
+    went `0bd1cc806740…` -> `4121b58f7759…`, clearing **D66**'s payload remnants. After reboot:
+    `sys.boot_completed=1`, the OEM fingerprint unchanged, `wlan0` `up`, adb reachable, partition 7 still the
+    capture, and `screencap` proves a rendering panel (`screencap-l0.png`, `fa5d5f66f9d3…`, 1024x600, 1,346
+    distinct sampled colours) - the owner's criteria (**D58**) met (**D70**). Traps hit and recorded: `adb reboot`
+    drops adbd root (partition read then yields `Permission denied` and an empty `dd` whose hash is the
+    empty-input digest `e3b0c44298fc…`), `toybox getprop` does not exist, and stripping CR from a raw PNG corrupts
+    it (`0x0D` is legal inside IDAT) - screenshots must go through `toybox base64`. Next: the four L1 rungs one at
+    a time, each needing its own go, reading the pstore console before anything consumes it; then **L2**.

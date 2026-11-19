@@ -264,24 +264,31 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
    real fix plus a satellite list, and `tx` on `/dev/ttyS0` is the thing to watch (the stock HAL sent
    70 bytes in three minutes while the module streamed ~225 B/s).
 
-8. Warm-reset pstore probe (step P0, no write): may I run `scripts/pstore_probe.sh` with `HU_CONSENT=1` on the
-   stock Android 10 unit? It reboots once and reads `/sys/fs/pstore/*` on the next boot; without the flag it is
-   a dry run that touches nothing (tested Nov 19). It costs one boot cycle and tells us whether a failed boot
-   can be read afterwards. The records die on a cold power cycle, which is why the Nov 18 read came back empty
-   after your restore.
+8. ~~Warm-reset pstore probe (step P0, no write): may I run `scripts/pstore_probe.sh` with `HU_CONSENT=1` on the
+   stock Android 10 unit?~~ Answered and executed Nov 19 19:32: **yes, P0 then L0** were approved together. The
+   probe survived the warm reset - `console-ramoops-0` 97,430 B and `pmsg-ramoops-0` 262,132 B were there on the
+   next boot, and the console record carried the entire previous boot including PID-1's own messages (**D69**).
+   So a failed boot can be read, provided nothing else reads the record first and the reset is warm.
 9. How did you enter the bootSD recovery last time - card inserted before power, or a button held? Is there any
    button or pin that reaches recovery at power-on without the card? That decides whether a dead boot can reach a
    reader at all.
 10. Is the bootSD route always a cold power cycle (RAM lost), or can it be done from a warm reset?
 11. Is a second SD card available for logging? Your 32 GB media card is never used as a log target. A FAT32 USB
     stick would also work (`CONFIG_USB_STORAGE=y`), though the ports are host-side.
-12. Permission for one new write surface: the `misc` partition (boot control block) so a failed boot can be sent
-    into recovery instead of needing a card. It hashes `909bdd979111…` exactly as captured today, i.e. untouched,
-    and **D30** currently forbids writing it. Answer yes/no; if no, the ladder stays card-driven.
-13. Tonight's approvals: may I run **P0** (`HU_CONSENT=1 sh scripts/pstore_probe.sh`, one warm reboot, no write)?
-    And after that, **L0** - the byte-identical repack of your stock `boot` written to partition 7
-    (`4121b58f7759…`, 33,554,432 B), which both proves our packing tool is trusted and clears the payload bytes
-    still sitting mid-partition (**D66**)? The rollback for it is your own capture, re-flashed.
+12. ~~Permission for one new write surface: the `misc` partition (boot control block) so a failed boot can be
+    sent into recovery instead of needing a card.~~ Answered Nov 19: **"Yes, misc allowed"** (**D71**). It still
+    hashes `909bdd979111…` exactly as captured, because nothing has been written to it; the permission is held in
+    reserve, since the ladder's reboot-target token uses `bootloader` and never writes the BCB. Every other
+    boot-chain partition stays forbidden (**D18**/**D19**).
+13. ~~Tonight's approvals: may I run **P0** ... and after that, **L0**?~~ Answered Nov 19: **P0 then L0**, both
+    executed. P0 proved the console route (**D69**); L0 wrote `L0-stock.img` (33,554,432 B) as the whole
+    partition, partition 7 went `0bd1cc806740…` -> `4121b58f7759…`, and Android 10 rebooted from our repack with
+    WiFi up and a rendering panel (**D70**). The unit is adb-reachable and its boot partition is now byte-equal
+    to your capture, so the rollback for any later rung is content it already boots from.
+14. ~~UART listen-only probe: may I open the unit for a listen-only probe?~~ Answered Nov 19: **"Not yet"**, so
+    **D63** stays parked, the case stays closed, and nothing is soldered. What that still costs us is u-boot's own
+    stage - a boot that never reaches the kernel has no evidence at all, since the pstore console only starts at
+    `console [pstore-1] enabled`.
 
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)

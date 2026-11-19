@@ -132,20 +132,27 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
 * The unit is reachable again (the blocker was the workstation's own `adb` daemon, not the unit), and the
   whole boot chain now verifies byte-exact against the Nov 17 capture: nine partitions hash as captured, so
   nothing beyond `boot` + `super` has ever been written (**D30** is measured, not assumed) and the patched
-  recovery is not on the disk. Partition 7 itself is *not* the capture - the restore wrote only the stock
-  image's own length and left payload padding mid-partition, so a rollback write must cover the whole
-  partition (**D66**).
-* The instrument for a failed boot is pstore console, not a serial port and not the panel: `dmesg` shows
-  ramoops attached and `console [pstore-1] enabled`, while `# CONFIG_VT` and `# CONFIG_USER_NS` close the
-  screen-console and namespace routes on this kernel (**D65**). Reading a record needs a **warm** reset, so
-  the warm-`reboot` probe still needs the owner's go.
-* The boot-only ladder (**D62**) still awaits the owner's approval; UART (**D63**) needs consent before the
-  unit is opened. The owner's forwarded "blind plan" is checked line by line in `docs/blind-plan-corrections.md`.
-* `tools/identity_gate.py` (**D67**) now exists and passes offline: stock content round-trips through our own
-  tooling byte-for-byte, and a payload-fed image changes only `ramdisk_size`, the cmdline field, its own
+  recovery is not on the disk. Partition 7 *is* now the capture: L0 wrote the whole 33,554,432 B on Nov 19 and
+  the payload padding mid-partition is gone (**D66** amendment, **D70**).
+* The instrument for a failed boot is pstore console, not a serial port and not the panel, and it is now
+  **proved on the unit**: step P0 ran Nov 19 and the warm reset left `console-ramoops-0` (97,430 B) and
+  `pmsg-ramoops-0` (262,132 B) readable, the console record being whole-boot plain text that includes PID-1's
+  own messages (**D69**). `# CONFIG_VT` and `# CONFIG_USER_NS` still close the screen-console and namespace
+  routes (**D65**), and a record dies on a cold power cycle or on being read, so the reader must go first.
+* The boot-only ladder (**D62**) moved: P0 and **L0** ran Nov 19 with the owner's go, and stock Android 10
+  booted from our byte-identical repack with WiFi up and a rendering panel (**D70**) - so `tools/identity_gate.py`
+  (**D67**) holds live, not just offline, and an Android 14 result after L1 is interpretable. The four L1 rungs
+  each still need their own go. UART (**D63**) was declined again on Nov 19 ("Not yet"), so the case stays
+  closed and u-boot's own stage remains unreadable. The owner's forwarded "blind plan" is checked line by line
+  in `docs/blind-plan-corrections.md`.
+* `misc` is now permitted for a Boot Control Block write as a recovery hand-off (**D71**); it still hashes
+  `909bdd979111…` exactly as captured, because nothing has been written there, and every other boot-chain
+  partition stays forbidden.
+* `tools/identity_gate.py` (**D67**) passes offline: stock content round-trips through our own tooling
+  byte-for-byte, and a payload-fed image changes only `ramdisk_size`, the cmdline field, its own
   ramdisk and padding. Its **first run failed** and found a real defect - the byte-faithful rebuild used to
   zero-fill the OEM partition's tail. That tail is now decoded (**D68**): splash data, then a Rockchip
   resource image whose entries (`rk-kernel.dtb`, `logo.bmp`) declare SHA1 hashes that all verify, plus a
   second DTB copy; `second` is itself such a resource image, and the logo the boot path uses comes from it.
-* No image has been flashed since Nov 18, nothing beyond `boot` + `super` has ever been touched, and `super`
-  is never resized (**D18**/**D42**/**D43**/**D57**/**D62**/**D66**).
+* The only write since Nov 18 is L0's byte-identical repack of `boot`; nothing beyond `boot` + `super` has
+  ever been touched, and `super` is never resized (**D18**/**D42**/**D43**/**D57**/**D62**/**D66**/**D70**).
