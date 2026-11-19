@@ -128,6 +128,31 @@ without `HU_CONSENT=1` it is a dry run that touches nothing, so the owner's go i
    `backup/a10-update.zip` to the root as `update.zip` and install it; recovery still accepts it because
    it is signed with the cert recovery trusts.
 
+## The boot-only ladder (D62), staged Nov 19
+
+The rungs and their digests are in `docs/findings.md`, "Nov 19 (daytime)"; `scripts/stage_ladder.sh` rebuilds
+them from the stock capture and verifies each one, and the manifest is `a14-work/ladder/MANIFEST.sha256`. Each
+step below is one write of `boot` only, and each needs the owner's go (**D38**/**D40**). Nothing else is ever
+written (**D18**/**D19**/**D30**), and `super` is never resized (**D18**).
+
+0. **P0, no write.** `HU_CONSENT=1 sh scripts/pstore_probe.sh` - one warm reboot, then read `/sys/fs/pstore/*`.
+   Without the flag it is a dry run that touches nothing. This decides whether a failed boot can be read at all.
+1. Put the image on the unit and check it there before writing, so a corrupt transfer cannot be mistaken for a
+   boot failure: `adb -s <dev> root`, `adb push <image> /data/local/tmp/ladder.img`, then on the unit
+   `sha256sum /data/local/tmp/ladder.img` must equal the manifest line.
+2. **L0** writes the byte-identical repack: `dd if=/data/local/tmp/ladder.img of=/dev/block/by-name/boot bs=1M`
+   - 33,554,432 B, the partition's own size, so the payload remnants in 27,406,336..28,233,728 are cleared
+   (**D66**). Expected result: stock Android 10 boots exactly as it does today, and partition 7 hashes as the
+   capture. If it does not boot, the packing pipeline is wrong and no Android 14 result can be trusted.
+3. **L1** flashes one token at a time, in the order `printk.devkmsg=on`, `panic=12`, `loglevel=8`,
+   `androidboot.init_fatal_reboot_target=bootloader`. After each boot, read the pstore console before anything
+   else consumes it. Every rung must still boot Android 10; a rung that does not boot tells us what that token
+   costs, and the rollback below restores the unit.
+4. **Rollback after any rung**: `adb reboot recovery` (or the owner's bootSD card) and `dd` the whole
+   `hu-stock-backup-refresh/boot.bin` (33,554,432 B) onto partition 7. Verify on the device against the
+   capture's digest afterwards. **L2** (Android 14's static first-stage init inside the stock Android 10
+   ramdisk) is built only after L0 and L1 behave.
+
 ## Install, route 1: the signed zip through recovery
 
 1. Stick in before boot (or the power-button sequence - see "Getting into the recovery"), enter recovery,

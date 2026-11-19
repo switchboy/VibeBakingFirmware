@@ -1880,7 +1880,12 @@ against the Android 10 `super`, which tests the real chain - kernel, cmdline, by
 name clash and no Android 14 logical content. Every step rolls back by dd'ing the refreshed stock
 `boot.bin` (D57), and the partition's rollback size is its own 33,554,432 B. The diagnostic tokens to use
 are verified against the payload `init` by `strings` before they are written, because an unverified token is
-a silent no-op. Note for whoever builds the ladder images: `device/rk3399-px6-hct4/BoardConfig.mk` currently
+a silent no-op - measured Nov 19 on both extracted ramdisks, `androidboot.init_fatal_panic` is **not** a token
+either init reads, so it is dropped; the verified set is `printk.devkmsg=on`, `panic=12`, `loglevel=8` and
+`androidboot.init_fatal_reboot_target=bootloader` (the `recovery` value is avoided because it writes the boot
+control block in `misc`). `scripts/stage_ladder.sh` builds the rungs from the capture with a digest guard and
+verifies each output; the staged images are in `docs/findings.md`, "Nov 19 (daytime)". Note for whoever builds
+the ladder images: `device/rk3399-px6-hct4/BoardConfig.mk` currently
 ships a tree-default cmdline carrying `panic=12` and a duplicated `androidboot.selinux=permissive`, so each
 ladder step is built by editing the header field with `tools/patch_boot_cmdline.py` on the byte-faithful
 image, not by trusting the tree default.

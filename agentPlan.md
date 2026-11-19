@@ -265,3 +265,15 @@ This file is the index plus the risk register, and it must not restate numbers -
     by the 9-byte ` panic=12` cmdline tail). Step **P0** - `scripts/pstore_probe.sh`, gated on `HU_CONSENT=1`,
     dry-run tested Nov 19 - runs before the first flash, because it decides whether a failed boot can be read
     at all. Nothing was flashed; the ladder still awaits the owner (**D62**).
+19. **Nov 19 (daytime): the ladder images are staged and one token proved fake.** `scripts/stage_ladder.sh`
+    builds L0 (the capture repacked with no content change - byte-identical, so flashing it also clears
+    partition 7's payload remnants, **D66**) and four L1 images, one cmdline token each, refusing to run if the
+    capture digest is not `4121b58f7759…` and refusing any output whose bytes differ outside the header's
+    512-byte cmdline field; the tail resource header and the three DTB copies must stay where they are. Both
+    ramdisks were extracted and their `/init` checked by `strings`: `androidboot.init_fatal_panic` is **not** a
+    token either init reads, so that rung was dropped and replaced by the verified
+    `androidboot.init_fatal_reboot_target=bootloader` (the `recovery` value is avoided because it writes `misc`,
+    **D30**). The extraction also showed stock Android 10 init already runs a first-stage logical-mount chain
+    (`wait,logical,first_stage_mount`), so the dm-name clash that froze the harness (**D59**) is payload-side
+    only. Digests: `docs/findings.md`, "Nov 19 (daytime)"; manifest `a14-work/ladder/MANIFEST.sha256`. Nothing is
+    flashed; approvals are questions 8, 12 and 13 in `docs/head-unit-findings.md`.

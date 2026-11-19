@@ -3353,3 +3353,40 @@ first 826,624 bytes of the OEM splash region (27,406,336..28,233,728). That is i
 tooling choice, and the live partition proves it is survivable: today it holds payload bytes in exactly that
 slice and still boots Android 10 with a logo, because the logo the boot path needs lives in `second` (carried
 verbatim) and the tail resource header at 32,092,160 survived both Nov 18 writes.
+
+## Nov 19 (daytime) - the ladder images are staged offline, and one cmdline token turned out to be fake
+
+`scripts/stage_ladder.sh` builds the boot-only ladder (D62) from the stock capture and refuses to run if the
+capture's digest is not `4121b58f7759…`, so a stale input cannot produce an image nobody can trace. Every output
+is verified the same way the identity gate verifies: the only bytes that may differ from the capture are inside
+the header's 512-byte cmdline field, the tail resource header must still sit at 32,092,160, and the three DTB
+copies must still be at 26,482,688 / 32,093,696 / 32,636,928. Outputs and their digests (manifest at
+`a14-work/ladder/MANIFEST.sha256`):
+
+| image | sha256 | what it changes |
+|---|---|---|
+| `L0-stock.img` | `4121b58f77598d73b1b7958c36d1c5a81c8b82ba176cce9f6863b67992ce5b3d` | nothing - the capture repacked through our tooling, byte-identical. Writing it also clears partition 7's payload remnants (D66) |
+| `L1-printk-devkmsg-on.img` | `3a70fbf94444f6a0d789cdbee1b45d3c8c784dfe6981d519bd842ee357bb6c09` | one token: `printk.devkmsg=on` (kernel; today `printk_devkmsg=ratelimit` drops lines) |
+| `L1-panic-12.img` | `95e99c2188f892b0290e17e63d8d14bc715b0c9069b0e0c76bf0a26adb056d9a` | one token: `panic=12` - the 9-byte difference between the two Nov 18 payload images that produced a logo loop instead of a black panel |
+| `L1-loglevel-8.img` | `e8d352b3ce0a74d90cfec6a45a21784953c35536673ea533f581b597d54f9c8c` | one token: `loglevel=8` (`CONFIG_CONSOLE_LOGLEVEL_DEFAULT=7`, so a quiet cmdline really does lose lines from the pstore console) |
+| `L1-androidboot-init-fatal-reboot-target-bootloader.img` | `3de9da9f7f8b81d3ca24cf7202b5b6b0b2dd691b1a9842128e41dd8da4473385` | one token: `androidboot.init_fatal_reboot_target=bootloader` - a dying init would warm-reset into the boot chain instead of looping, using the DT's `reboot-mode` syscon node |
+
+The token set was checked against the ramdisks themselves, which **D62** demands because an unverified token is
+a silent no-op. Both ramdisks are gzip at 25,675,776: the stock Android 10 one is declared 803,440 B and
+decompresses to a 1,870,336 B cpio whose `/init` is 1,867,160 B; the payload's is declared 1,631,866 B and
+decompresses to 3,651,840 B with a 3,644,288 B `/init`. `strings` on both shows
+`androidboot.init_fatal_reboot_target=` and the values `bootloader` and `recovery`, and **neither contains
+`init_fatal_panic`** - so the token planned for that rung is not real and was dropped. `recovery` is deliberately
+not used as a value: it writes the boot control block in `misc`, a write surface **D30** forbids without the
+owner's go (question 12 in `docs/head-unit-findings.md`).
+
+Two other things the extraction settled: the stock Android 10 `/init` chain is a first-stage logical-mount chain
+like Android 14's (`fstab.rk30board` lists `system` and `vendor` with `wait,logical,first_stage_mount`), so
+stock init already creates the by-name logical devices - the dm-name clash that froze the namespace harness
+(**D59**) is a payload-side problem, not something stock init does. And the stock header's field order is
+`kernel_size @8`, `kernel_addr @12`, `ramdisk_size @16`, `second_size @24`, which is what
+`tools/rebuild_boot_faithful.py` reads; the offsets it computes match the magics on all three OEM images
+(ramdisk at 25,675,776, `second` at 26,480,640 on boot, 27,308,032 on the payload, 38,195,200 on recovery).
+
+Nothing is flashed. Each rung needs the owner's go (**D38**/**D40**), and step **P0** (the warm-reset pstore
+probe, `scripts/pstore_probe.sh`) comes before the first write.

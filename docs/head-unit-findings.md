@@ -278,6 +278,10 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
 12. Permission for one new write surface: the `misc` partition (boot control block) so a failed boot can be sent
     into recovery instead of needing a card. It hashes `909bdd979111…` exactly as captured today, i.e. untouched,
     and **D30** currently forbids writing it. Answer yes/no; if no, the ladder stays card-driven.
+13. Tonight's approvals: may I run **P0** (`HU_CONSENT=1 sh scripts/pstore_probe.sh`, one warm reboot, no write)?
+    And after that, **L0** - the byte-identical repack of your stock `boot` written to partition 7
+    (`4121b58f7759…`, 33,554,432 B), which both proves our packing tool is trusted and clears the payload bytes
+    still sitting mid-partition (**D66**)? The rollback for it is your own capture, re-flashed.
 
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)
