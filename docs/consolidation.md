@@ -8,39 +8,41 @@ payload sha or a criterion is stated in six files, so the next session can read 
 the wrong image. `facts.tsv` (repo root, built by `tools/facts.py`) is the authority: each fact has one
 `canonical_doc`, and `tools/facts.py audit` lists every other file that repeats it.
 
-## What the audit measured today (2026-11-19 evening, re-measured after the Nov 19 live session; earlier passes
-were 2026-11-17 and 2026-11-19 daytime)
+## What the audit measured on Nov 19 late night / Nov 20 (re-measured after L2; earlier passes were
+2026-11-17, Nov 19 daytime and Nov 19 evening)
 
-`python3 tools/facts.py audit` -> 155 registered facts, **236 duplicated mentions**, no fact missing
+`python3 tools/facts.py audit` -> 195 registered facts, **318 duplicated mentions**, no fact missing
 from its canonical doc. `python3 tools/facts.py check` -> clean: every 64-hex and 12-hex token in the
-docs is registered, so a sha cannot drift silently. The Nov 19 evening measurements added the pstore record
-digests, the post-L0 screencap digest and four decision records, which is why the count moved from 142 to 155.
+docs is registered, so a sha cannot drift silently. The night measurements added the per-rung console and
+pmsg record digests, the per-rung screencaps, the live partition digests, the ramoops sizes, and the L2
+image/ramdisk/init digests plus the L2 build measurements, which is why the count moved 155 -> 184 -> 195.
 One caveat when reading the duplicate count: small integer measurements (`670`, `97,430`) match unrelated
 numbers in other files, so numeric facts over-report duplication; the sha and prose facts are exact.
 
 | file | repeated facts | note |
 |---|---|---|
-| docs/decisions.md | 46 | decision text should carry D-numbers, not the payload values |
-| docs/flash.md | 45 | already the canonical home of the operator payload shas |
-| docs/findings.md | 34 | holds the Nov 11/Nov 12 staging lists and the Nov 19 record digests, restated later |
-| agentPlan.md | 25 | the lean index should point at docs, not restate values |
-| docs/reanimation.md | 13 | a run log; it repeats what flash.md owns |
-| docs/blind-plan-corrections.md | 13 | the Nov 18 corrections file quotes values owned elsewhere |
-| docs/head-unit-findings.md | 12 | live-unit facts duplicated from findings.md; questions 8/12/13/14 are now answered |
-| README.md | 11 | the front page repeats payload shas and package paths |
-| docs/build-host.md | 10 | NAS paths duplicated from housekeeping.md, plus the `670` numeric coincidence |
-| docs/plan.md | 9 | the pre-D52 plan; its criteria list is the superseded D49 wording |
-| docs/housekeeping.md | 6 | staging shas duplicated from findings.md |
-| docs/feasibility.md | 5 | pre-decision estimates, plus the `670` numeric coincidence |
-| docs/index.md | 3 | the map itself quotes a payload sha |
+| agentPlan.md | 61 | the lean index should point at docs, not restate values - now the biggest consolidation target |
+| docs/flash.md | 59 | already the canonical home of the operator payload shas, and it restates every live partition digest |
+| docs/decisions.md | 52 | decision text should carry D-numbers, not the payload values |
+| docs/findings.md | 37 | holds the Nov 11/Nov 12 staging lists and the Nov 19 record and L2 digests, restated later |
+| README.md | 19 | the front page repeats payload shas, ladder digests and package paths |
+| docs/head-unit-findings.md | 16 | live-unit facts duplicated from findings.md; owner questions 8-14 are answered, 15 is open |
+| docs/reanimation.md | 14 | a run log; it repeats what flash.md owns |
+| docs/blind-plan-corrections.md | 14 | the Nov 18 corrections file quotes values owned elsewhere |
+| docs/build-host.md | 12 | NAS paths duplicated from housekeeping.md, plus numeric coincidences |
+| docs/plan.md | 11 | the pre-D52 plan; its criteria list is the superseded D49 wording |
+| docs/housekeeping.md | 7 | staging shas duplicated from findings.md |
+| docs/feasibility.md | 6 | pre-decision estimates, plus numeric coincidences |
+| docs/index.md | 4 | the map itself quotes a payload sha |
+| docs/firmware-analysis.md | 2 | Phase 0 inventory repeats a partition fact |
 | docs/ota.md | 2 | future OTA story, quotes the payload zip |
-| docs/firmware-analysis.md | 1 | Phase 0 inventory repeats a partition fact |
 | docs/upstream.md | 1 | the unpublished drafts repeat a payload path |
+| docs/termux.md | 1 | the old transport repeats a path fact |
 
-Docs by size, for context: findings.md 3476, decisions.md 2000, build-host.md 644, flash.md 530,
-reanimation.md 374, plan.md 374, head-unit-findings.md 347, upstream.md 285, agentPlan.md 279,
-feasibility.md 212, consolidation.md 177, README.md 151, housekeeping.md 133, firmware-analysis.md 122,
-ota.md 100, blind-plan-corrections.md 71, termux.md 36, index.md 27 (9338 lines total, `facts.tsv` 155 facts).
+Docs by size, for context: findings.md 3625, decisions.md 2055, build-host.md 644, flash.md 563,
+reanimation.md 374, plan.md 374, head-unit-findings.md 366, agentPlan.md 342, upstream.md 285,
+feasibility.md 212, consolidation.md 183, README.md 171, housekeeping.md 133, firmware-analysis.md 122,
+ota.md 100, blind-plan-corrections.md 74, termux.md 36, index.md 27 (9686 lines total, `facts.tsv` 195 facts).
 
 Two naming/content fixes the earlier pass noted and they still stand (they are lint findings, not audit rows):
 `docs/firmware-analysis.md` has a table column mismatch, and `docs/upstream.md` names the super checker under

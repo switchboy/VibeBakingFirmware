@@ -6,6 +6,18 @@ non-root, report uploaded over LAN. Kernel config recovered from the embedded gz
 `analysis/hu_vendor_manifest.xml`. Later facts come from the root probe `incoming/probe-20261113-2016.md`
 and the RAMoops record `analysis/panic-20261113-2003-ramoops.txt`.
 
+## Current state: unreachable since Nov 19 23:35 CET
+
+L2 (**D62**) was written to `boot` at 23:32-23:34 CET and the unit stopped answering after the reboot: TCP adb on
+`192.168.1.120:5555` fails with "No route to host", `ping` loses every packet, and eight further probes over ten
+minutes found nothing. Partition 7 holds `eaf9b7de30f9…` (the L2 image), not the stock capture; `misc` still
+hashes `909bdd979111…` exactly as captured, `super` still `535dac26946d…`, `/data` untouched, and the boot chain
+partitions untouched. The likely physical state is the stock recovery partition, reached by
+`androidboot.init_fatal_reboot_target=recovery` (**D74**) - which runs `adbd` over USB only, so our TCP route is
+gone. The console record of the failed boot is still in RAM until a cold power cycle erases it. Restoring is
+owner-side: the bootSD card (**D39**) or USB adb inside recovery, per `docs/flash.md`, "L2 ran Nov 19 23:35 CET
+and the unit went silent". Nothing more may be written until the unit answers again (**D75**).
+
 ## Identity of the firmware actually installed
 
 Measured Nov 13 20:16 CET as root (`adb root`, `uid=0` / `u:r:su:s0`, SELinux **Permissive**), serial
@@ -289,6 +301,13 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
     **D63** stays parked, the case stays closed, and nothing is soldered. What that still costs us is u-boot's own
     stage - a boot that never reaches the kernel has no evidence at all, since the pstore console only starts at
     `console [pstore-1] enabled`.
+15. **The unit is unreachable (Nov 19 23:35 CET onward). Please restore it, and tell me which route you used.**
+    Partition 7 holds the L2 image `eaf9b7de30f9…`, so it will not boot Android 10 by itself. Either put your
+    bootSD card in before power and install your own Android 10 package (**D39**), or, if it is sitting in
+    recovery, connect a USB host directly and `dd` the stock `boot.bin` (`4121b58f7759…`, 33,554,432 B) onto
+    partition 7 (**D74**). Tell me afterwards which happened, because a **cold power cycle erases the RAM
+    records** - if you power-cycle, the console log of the failed boot is gone and L2's cause stays unknown.
+    Also: after it boots again, is TCP adb still reachable without re-setting the property?
 
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)

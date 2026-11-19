@@ -1975,8 +1975,13 @@ the RAM records survive a warm reset, they die on a cold power cycle, and readin
 reader must go first. It also settles the instrument's fidelity question: PID-1's own messages reach the console
 backend even when init's kmsg reader ratelimits them (that boot suppressed 15 + 7 lines in init's reader while
 the record kept the lines), which is exactly the log a dying Android 14 init would have to be diagnosed from.
-No `dmesg-ramoops-0` exists - this kernel has no pstore *record* backend. Measurement: `docs/findings.md`,
-"Nov 19 (evening)".
+No `dmesg-ramoops-0` exists - this kernel has no pstore *record* backend. Re-measured Nov 19 on the live
+`/proc/config.gz`: `CONFIG_PSTORE_RECORD` is absent while `CONFIG_PSTORE_CONSOLE`/`_PMSG`/`_RAM` are `y`, so a
+kernel panic cannot create `dmesg-ramoops-0` either - panic text goes into the console record. The DT node
+`/proc/device-tree/reserved-memory/ramoops@110000` declares `record-size` 131,072 B, `console-size` 524,288 B and
+`pmsg-size` 327,680 B (983,040 B total, matching `ramoops: attached 0xf0000@0x110000`), so the console record
+holds up to 524,288 B of text rather than the sizes observed so far. Measurement: `docs/findings.md`, "Nov 19 (evening)" and
+"Nov 19 (night)".
 
 **D70 - L0 was written and stock Android 10 boots from our repack: the packing pipeline is trusted by the unit
 (Nov 19, EXECUTED).** With the owner's go, `L0-stock.img` - the refreshed capture repacked through
@@ -1998,3 +2003,53 @@ remain forbidden (**D18**/**D19**), and `super` is never resized (**D19**). `mis
 `909bdd979111…` exactly as captured, i.e. nothing has been written to it yet. The ladder does not need a BCB
 write today: **D62**'s reboot-target token uses `bootloader`, and the `recovery` value is avoided precisely
 because it writes the BCB - so this permission is held in reserve, not used.
+
+**D72 - the first L1 rung ran, and `printk.devkmsg=on` is worth keeping; it also imposes a read-order rule
+(Nov 19, EXECUTED).** With the owner's go, `L1-printk-devkmsg-on.img` (`3a70fbf94444…`) was written as the whole
+partition and Android 10 booted from it unchanged: `sys.boot_completed=1`, OEM fingerprint, `wlan0` up, adb
+reachable, panel rendering, `misc` untouched, `/proc/cmdline` carrying the token. The measurement is decisive -
+the record of the boot that ran it has **no** ratelimit notice where the token-free baseline had three, and it
+holds 819 `init:` lines against the baseline's 65, so devkmsg ratelimiting really was dropping init's log output.
+Two consequences: keep the token for later rungs and for any payload boot, because a payload init that dies early
+now forwards its whole log instead of a ratelimited slice; and the console record fills at roughly 1.8 KB/s with
+the token on, against ~0.02 KB/s without it, so a boot that lives long evicts its own early lines inside the
+524,288 B `console-size` region. The rule therefore is: read `/sys/fs/pstore/console-ramoops-0` immediately after
+booting, and before anything else consumes it. Measurement: `docs/findings.md`, "Nov 19 (night)".
+
+**D73 - the diagnostic cmdline for later rungs is `printk.devkmsg=on` + `loglevel=8` + `panic=12`; the
+fatal-reboot-target token stays out of payload builds (Nov 19, DECIDED from the ladder).** All four L1 rungs
+booted stock Android 10 unchanged, so the three logging tokens are free: devkmsg=on unblocks init's log output
+(**D72**), loglevel=8 raises the console record from 1,085 to 1,254 lines so debug-level messages appear, and
+`panic=12` shortens a panic's hold so the console record reaches its reboot line instead of hanging - the Nov 18
+payload pair showed that token changing the failure mode from a black panel to a logo loop. They are now combined
+into one image for L2 and payload boots, which is legitimate only *after* each was validated alone (**D62**).
+`androidboot.init_fatal_reboot_target=bootloader` is deliberately **not** combined: on a fatal init it hands the
+unit to u-boot's reboot-mode, which has no adb, so it removes the only write route we have and turns a soft
+failure into an unrecoverable one on the single unit. Its correct counterpart, if we ever need a fatal-init
+hand-off, is the recovery route the owner now permits through the `misc` boot control block (**D71**), not
+`bootloader`. Measurement: `docs/findings.md`, "Nov 19 (night, second half)".
+
+**D74 - the recovery hand-off is a landing zone for a human, not a rescue route for our transport (Nov 19,
+MEASURED offline before the write, then confirmed by the unit going silent).** u-boot honours it: `uboot.bin`
+carries `reboot-recovery`, `b.mode=recovery`, `WARNING: Unable to load the BCB.` and `Could not found misc
+partition, just run recovery`, and the kernel has the `syscon-reboot-mode` driver, so
+`androidboot.init_fatal_reboot_target=recovery` lands in the stock recovery partition instead of handing the unit
+to u-boot's download mode (**D73**'s objection). But recovery gives us no shell: the recovery ramdisk's `init.rc`
+starts `adbd` with `--device_banner=recovery` and a USB gadget socket, and wireless adb needs
+`persist.internet_adb_enable`, which lives in `/data` that recovery does not mount. So the token is worth keeping
+as the safer failure target (recovery is bootable and restorable by the owner with USB adb or the bootSD card),
+while our own adb route is dead in that state.
+
+**D75 - the ladder rule after L2: never write an image whose boot cannot keep TCP adb, because the instrument is
+unreadable without it (Nov 19, LEARNED the hard way).** L2 left partition 7 holding `eaf9b7de30f9…` and the unit
+silent - no TCP adb through eight tries and eight further probes over ten minutes, and `ping` answers nothing. The
+console record of that boot is in RAM and needs a shell to read, so the failure is recorded without its cause:
+that is the limit **D69**/**D65** never stated. pstore only helps if the *next* boot is readable, and for us that
+means the boot must reach `adbd` over TCP (**D28**). Two rules follow. (1) An image may be proposed for a write
+only if a boot running it can still answer over adb long enough to read `/sys/fs/pstore/*` - Android 14's init
+brings `adbd` up late, after the framework's services, so a boot that dies in first stage or early second stage
+cannot be read, and the gate (**D58**) has to carry that transport requirement too. A next attempt must change one
+thing at a time *and* keep a route to adbd, e.g. stock init with Android 14 pieces that do not move PID 1, or a
+ramdisk that starts adb before the framework. (2) Writes stop until the owner restores the unit, because the only
+restore paths left are owner-side: the bootSD card (**D39**) or USB adb inside the stock recovery (**D74**).
+Measurement: `docs/findings.md`, "Nov 19 (night, third half)".

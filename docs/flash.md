@@ -153,6 +153,17 @@ written (**D18**/**D19**/**D30**), and `super` is never resized (**D18**).
    `androidboot.init_fatal_reboot_target=bootloader`. After each boot, read the pstore console before anything
    else consumes it. Every rung must still boot Android 10; a rung that does not boot tells us what that token
    costs, and the rollback below restores the unit.
+   **Rung 1 executed Nov 19 22:30-22:39 CET** (`L1-printk-devkmsg-on.img`, partition 7 `4121b58f7759…` ->
+   `3a70fbf94444…`): Android 10 booted unchanged, and the token's effect is visible in the record - no ratelimit
+   notice where the baseline had three, 819 `init:` lines instead of 65 (**D72**). Because that multiplies console
+   volume (~1.8 KB/s), a long-lived boot evicts its early lines inside the 524,288 B console region, so read the
+   record immediately after booting, and reboot promptly rather than letting the unit idle before the read.
+   **Rungs 2-4 executed Nov 19 22:49-22:56 CET** - `panic=12` (`95e99c2188f8…`), `loglevel=8` (`e8d352b3ce0a…`),
+   `androidboot.init_fatal_reboot_target=bootloader` (`3de9da9f7f8b…`): all three booted stock Android 10 with
+   WiFi up, and their records show the expected effects (ratelimit notices return when devkmsg is absent;
+   `loglevel=8` raises the record to 1,254 lines). Partition 7 was then restored to the capture `4121b58f7759…`
+   and verified again. The three logging tokens are combined for later rungs; the reboot-target token is not
+   combined, because it hands a fatal init to u-boot and removes the adb route (**D73**).
 4. **Rollback after any rung**: `adb reboot recovery` (or the owner's bootSD card) and `dd` the whole
    `hu-stock-backup-refresh/boot.bin` (33,554,432 B) onto partition 7. Verify on the device against the
    capture's digest afterwards. Since Nov 19 the partition's content *is* that capture (**D66** amendment), so a
@@ -161,6 +172,28 @@ written (**D18**/**D19**/**D30**), and `super` is never resized (**D18**).
    `e3b0c44298fc…` which looks like a change), and binary reads must go through `toybox base64` because `dd`'s CR
    injection corrupts raw output. **L2** (Android 14's static first-stage init inside the stock Android 10
    ramdisk) is built only after L0 and L1 behave.
+
+## L2 ran Nov 19 23:35 CET and the unit went silent - the ladder is halted
+
+`L2-init14-in-a10rd.img` (`eaf9b7de30f9…`, built by `tools/build_l2_boot.py` from the ramdisk
+`scripts/build_l2_ramdisk.sh` produced, `6456104e82c0…`) was pushed, verified on the device, and written as all
+33,554,432 B: partition 7 went `4121b58f7759…` -> `eaf9b7de30f9…`, `misc` untouched. After `adb reboot` the unit
+never answered again - no TCP adb through eight connection tries and eight further probes over ten minutes, and
+`ping` answers nothing (**D75**). The console record of that boot is in RAM and unreadable without a shell, so the
+failure is recorded without its cause.
+
+Restore needs the owner, because no route we can reach writes the partition:
+
+* bootSD card (**D39**) - insert the card before power, boot the OEM package, which rewrites `boot` from the
+  package's own image; afterwards re-verify partition 7 against `4121b58f7759…`.
+* USB adb inside the stock recovery (**D74**) - if the unit is sitting in recovery, a directly connected USB host
+  sees `recovery` in `adb devices`; then `adb root`, push `hu-stock-backup-refresh/boot.bin`, and
+  `dd if=/data/local/tmp/stock.img of=/dev/block/by-name/boot bs=1M count=32 conv=fsync`, verifying the digest
+  before rebooting. Wireless adb does not exist in recovery: `persist.internet_adb_enable` lives in `/data`, which
+  recovery does not mount.
+
+Nothing else may be written in that state, and no further Android 14 image goes on the unit until a boot that keeps
+TCP adb is designed (**D75**). Full measurement: `docs/findings.md`, "Nov 19 (night, third half)".
 
 ## Install, route 1: the signed zip through recovery
 

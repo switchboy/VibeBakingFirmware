@@ -73,6 +73,8 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D59-D64 | decided Nov 18 | the namespace harness is frozen and cannot answer the logical-mount question (D59); the OEM boot header stays byte-verbatim except `ramdisk_size`, the content hash and our cmdline tokens, and the image keeps the tail DTB region (D60); the payload's vendor is our own rebuild with OEM blobs carried in, and D56's missing-library claim is corrected (D61); the next writes are boot-only, one variable at a time, `super` untouched (D62); UART needs the owner's consent before anything is opened (D63); a live harness may only run with the full guard set, designed not improvised (D64) |
 | D65-D68 | D65/D66/D68 decided Nov 18-19 from measurement, D67 written Nov 19 | pstore console is the instrument and the two alternative channels are closed by kernel config (`# CONFIG_VT`, `# CONFIG_USER_NS`) (D65); partition 7 held payload padding mid-partition after the Nov 18 restore, so a rollback write must cover all 33,554,432 B - L0 did that on Nov 19 and the partition is now byte-equal to the capture (D66 amendment); an identity round-trip gate must pass before any image is proposed for writing, and `tools/identity_gate.py` passes offline and now holds live too (D67); the OEM partition tail - splash data plus a SHA1-verified Rockchip resource image with the DTB variant and the logo - is carried verbatim instead of zero-filled (D68) |
 | D69-D71 | D69/D70 executed Nov 19 (owner's go), D71 answered Nov 19 (owner) | P0 proved the pstore console on the unit: the console and pmsg records survive a warm reset and the console record is whole-boot text including PID-1's messages, so a failed boot can be read (**D69**); L0's byte-identical repack was written as the whole partition and stock Android 10 booted from it with WiFi up and a rendering panel, so our packing pipeline is trusted by the unit (**D70**); the owner permitted `misc` for a Boot Control Block write as a recovery hand-off, while every other boot-chain partition stays forbidden (**D71**) |
+| D72-D73 | decided Nov 19 from the ladder rungs | `printk.devkmsg=on` unblocks init's log lines (65 -> 819 console `init:` lines) and must be kept, and its console volume means records must be read immediately (**D72**); the validated logging set is devkmsg=on + loglevel=8 + panic=12, combined for L2 and payload boots, while `androidboot.init_fatal_reboot_target=bootloader` stays out because it removes the adb route (**D73**) |
+| D74-D75 | decided Nov 19 after L2 left the unit silent | u-boot honours a recovery hand-off (`reboot-recovery`, `b.mode=recovery`) but the recovery ramdisk's `adbd` is USB-gadget-only and wireless adb needs `persist.internet_adb_enable` in `/data` recovery does not mount, so recovery is a landing zone for a human, not a rescue route for our transport (**D74**); after L2 an image may be written only if a boot running it can still answer over TCP adb long enough to read `/sys/fs/pstore/*`, and writes stop until the owner restores the unit (**D75**) |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 13/14)
@@ -300,3 +302,41 @@ This file is the index plus the risk register, and it must not restate numbers -
     empty-input digest `e3b0c44298fc…`), `toybox getprop` does not exist, and stripping CR from a raw PNG corrupts
     it (`0x0D` is legal inside IDAT) - screenshots must go through `toybox base64`. Next: the four L1 rungs one at
     a time, each needing its own go, reading the pstore console before anything consumes it; then **L2**.
+21. **Nov 19 (night): the whole boot-only ladder ran, and the unit is back on the stock capture.** Baseline first
+    (one warm reboot, record pulled), then L1 rung 1 `printk.devkmsg=on` (`3a70fbf94444…`), rung 2 `panic=12`
+    (`95e99c2188f8…`), rung 3 `loglevel=8` (`e8d352b3ce0a…`) and rung 4
+    `androidboot.init_fatal_reboot_target=bootloader` (`3de9da9f7f8b…`), each written as the whole partition after
+    verifying its digest on the device, each followed by a boot check (`sys.boot_completed`, OEM fingerprint,
+    `wlan0` up, token present in `/proc/cmdline`, `misc` untouched). All four booted Android 10 unchanged, so the
+    tokens are free. The records prove the diagnostics were real: with devkmsg=on the ratelimit notices vanish and
+    `init:` console lines go 65 -> 819/824, without it they return; `loglevel=8` lifts the record from 1,085 to
+    1,254 lines (**D72**, measurement in `docs/findings.md`, "Nov 19 (night, second half)"). The DT's
+    `ramoops@110000` node declares `console-size` 524,288 B / `record-size` 131,072 B / `pmsg-size` 327,680 B, and
+    live `/proc/config.gz` has no `CONFIG_PSTORE_RECORD`, so a panic cannot create `dmesg-ramoops-0` - panic text
+    lands in the console record (**D69** amendment). Partition 7 was then restored to the capture
+    `4121b58f7759…` and re-verified (boot + WiFi + panel render, `super` still `535dac26946d…` = the Nov 18 live
+    digest, `misc` still `909bdd979111…`); `/data/local/tmp/stock.img` holds that capture on the unit as the
+    in-place rollback. Next build combines `printk.devkmsg=on` + `loglevel=8` + `panic=12` and keeps the
+    reboot-target token out of payload builds, because it hands a dying init to u-boot and removes the adb route
+    (**D73**).
+22. **Nov 19 (night, third half): L2 ran, and the unit went silent - the ladder is halted.** Two new tools built
+    it offline: `scripts/build_l2_ramdisk.sh` unpacked the capture's own ramdisk (gzip 803,440 B at 25,675,776, cpio
+    1,870,336 B), put Android 14's static first-stage `init` (`631f960cbb96…`, 3,644,288 B) at `/init`, and added
+    `/first_stage_ramdisk/fstab.rk30board` from the **stock** fstab - our payload fstab lists `system_ext`, which the
+    Android 10 `super` does not have - then verified the archive by unpacking it again
+    (`L2-ramdisk.gz`, gzip 1,628,683 B, cpio 3,650,048 B, `6456104e82c0…`). `tools/build_l2_boot.py` assembled the
+    partition with the OEM kernel (`a514a3ffb77e`) and OEM `second` (`fb80617e7c97`) verbatim, header changed only in
+    `ramdisk_size` and the 512-byte cmdline field (418 B: stock cmdline + devkmsg=on + loglevel=8 + panic=12 +
+    `androidboot.init_fatal_reboot_target=recovery`), `second` moving to 27,305,984 and the OEM tail carried verbatim
+    from 28,231,680 with both resource entries still verifying their declared SHA1s - giving
+    `L2-init14-in-a10rd.img`, 33,554,432 B, `eaf9b7de30f9…`. It was pushed, digest-checked on the device, written as
+    all 33,554,432 B (partition 7 `4121b58f7759…` -> `eaf9b7de30f9…`, `misc` untouched) and `adb reboot` ran at
+    23:34:56 CET. The unit never answered again: eight connection tries, then eight probes over ten minutes (last
+    23:44:09), `ping` losing every packet. So **D74** records that a recovery hand-off lands in the stock recovery,
+    whose `adbd` runs over the USB gadget only - wireless adb needs `persist.internet_adb_enable`, which lives in
+    `/data` recovery does not mount - and **D75** records that a write is only allowed when a boot running the image
+    can still answer over TCP adb, because a pstore record needs a shell to be read. The cause of the failure is
+    therefore *not* recorded: the console record is in RAM, and a cold power cycle erases it. Nothing else was
+    written; `super` stays `535dac26946d…`, `/data` and every boot-chain partition are untouched, and the rollback
+    stays available at `a14-work/hu-stock-backup-refresh/boot.bin` and on the unit at `/data/local/tmp/stock.img`.
+    Restore is owner-side (bootSD card **D39**, or USB adb inside recovery **D74**) - owner question 15.

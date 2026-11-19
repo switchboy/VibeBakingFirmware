@@ -139,12 +139,24 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   `pmsg-ramoops-0` (262,132 B) readable, the console record being whole-boot plain text that includes PID-1's
   own messages (**D69**). `# CONFIG_VT` and `# CONFIG_USER_NS` still close the screen-console and namespace
   routes (**D65**), and a record dies on a cold power cycle or on being read, so the reader must go first.
-* The boot-only ladder (**D62**) moved: P0 and **L0** ran Nov 19 with the owner's go, and stock Android 10
-  booted from our byte-identical repack with WiFi up and a rendering panel (**D70**) - so `tools/identity_gate.py`
-  (**D67**) holds live, not just offline, and an Android 14 result after L1 is interpretable. The four L1 rungs
-  each still need their own go. UART (**D63**) was declined again on Nov 19 ("Not yet"), so the case stays
-  closed and u-boot's own stage remains unreadable. The owner's forwarded "blind plan" is checked line by line
-  in `docs/blind-plan-corrections.md`.
+* The boot-only ladder (**D62**) ran in full on Nov 19: P0 proved the pstore console (**D69**), **L0**'s
+  byte-identical repack booted stock Android 10 so our packing pipeline is trusted by the unit (**D70**), and all
+  four L1 tokens booted unchanged with WiFi up (**D72**/**D73**). Partition 7 was then restored to the capture
+  `4121b58f7759…` and verified again. The three validated logging tokens (`printk.devkmsg=on`, `loglevel=8`,
+  `panic=12`) are combined for L2 and payload boots; the fatal-reboot-target token is excluded because it hands a
+  dying init to u-boot and removes the adb route (**D73**). UART (**D63**) was declined again on Nov 19 ("Not
+  yet"), so the case stays closed and u-boot's own stage remains unreadable. The owner's forwarded "blind plan"
+  is checked line by line in `docs/blind-plan-corrections.md`.
+ * **The unit is unreachable since Nov 19 23:35 CET and the ladder is halted.** **L2** - Android 14's static
+   first-stage `init` inside the stock Android 10 ramdisk, built by `scripts/build_l2_ramdisk.sh`
+   (`L2-ramdisk.gz` `6456104e82c0…`) and `tools/build_l2_boot.py` (`L2-init14-in-a10rd.img` `eaf9b7de30f9…`) - was
+   written to `boot` as the whole partition, and after `adb reboot` the unit never answered again: no TCP adb
+   through ten minutes of probes, no ping reply. Partition 7 now holds that image, so it cannot boot Android 10 by
+   itself; `misc` is still `909bdd979111…` (untouched), `super` is still `535dac26946d…`, `/data` and the boot-chain
+   partitions are untouched. The failure has **no recorded cause**: the console record of that boot is in RAM and
+   needs a shell to read (**D75**), and a cold power cycle erases it. Restoring is owner-side - the bootSD card
+   (**D39**) or USB adb inside the stock recovery (**D74**) - see `docs/flash.md`, "L2 ran Nov 19 23:35 CET and the
+   unit went silent", and owner question 15 in `docs/head-unit-findings.md`.
 * `misc` is now permitted for a Boot Control Block write as a recovery hand-off (**D71**); it still hashes
   `909bdd979111…` exactly as captured, because nothing has been written there, and every other boot-chain
   partition stays forbidden.
@@ -154,5 +166,6 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   zero-fill the OEM partition's tail. That tail is now decoded (**D68**): splash data, then a Rockchip
   resource image whose entries (`rk-kernel.dtb`, `logo.bmp`) declare SHA1 hashes that all verify, plus a
   second DTB copy; `second` is itself such a resource image, and the logo the boot path uses comes from it.
-* The only write since Nov 18 is L0's byte-identical repack of `boot`; nothing beyond `boot` + `super` has
-  ever been touched, and `super` is never resized (**D18**/**D42**/**D43**/**D57**/**D62**/**D66**/**D70**).
+* The only writes since Nov 18 are L0's byte-identical repack of `boot`, the four L1 token images and **L2**'s
+  image; each was the whole partition, nothing beyond `boot` + `super` has
+  ever been touched, and `super` is never resized (**D18**/**D42**/**D43**/**D57**/**D62**/**D66**/**D70**/**D75**).

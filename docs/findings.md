@@ -3474,3 +3474,152 @@ content byte at all.
 * `adb exec-out 'screencap -p' | tr -d '\r'` corrupts a PNG: `0x0D` is a legal byte inside compressed IDAT data,
   so stripping CR truncates the stream (`zlib: incomplete or truncated`). Pull screenshots only through
   `exec-out 'screencap -p | toybox base64'` then `tr -d '\r\n' | base64 -d`, the same route partitions need.
+
+## Nov 19 (night) - baseline record, and L1 rung 1 (`printk.devkmsg=on`) measured on the unit
+
+The owner approved a baseline capture and the first L1 rung. Both ran; nothing beyond `boot` was written.
+
+**Baseline** (one warm reboot, no write): the console record of the boot running our repacked L0 image, pulled at
+22:29 CET - `console-ramoops-0` 67,035 B sha256 `d0ec28e66adf…`, `pmsg-ramoops-0` 262,132 B `ab46803751b2…`,
+boot_id `0e246b97-1a3e-4bb5-836c-c3c87d885d29`, 1,085 lines spanning 0..10,466 s, head `[    0.000000] Booting
+Linux…`, tail `reboot: Restarting system with command 'adb'`. It carries three ratelimit notices -
+`init: 12 output lines suppressed due to ratelimiting` (1.113109), `apexd: 14 output lines suppressed…` (2.050219)
+and `init: 7 output lines suppressed…` (2.738234) - and 65 `init:` lines in total. Files:
+`a14-work/tmp/pstore-baseline-222912/`.
+
+**L1 rung 1** - `L1-printk-devkmsg-on.img` (`3a70fbf94444…`) was pushed and its digest verified on the device
+before the write, then `dd bs=1M count=32 conv=fsync` wrote all 33,554,432 B; partition 7 went
+`4121b58f7759…` -> `3a70fbf94444…`. After reboot: `sys.boot_completed=1`, OEM fingerprint unchanged, `wlan0` `up`,
+`/proc/cmdline` contains `printk.devkmsg=on`, partition 7 still `3a70fbf94444…`, `misc` still `909bdd979111…`,
+and the panel renders (`screencap-l1.png` sha256 `07f1110d4052…`, 1024x600, 488,080 of 614,400 pixels pure black,
+1,338 distinct sampled colours). Boot id `21da100f-6722-4863-8cd9-066e8c6b65fd`; the record of that boot was read
+after the next warm reboot into `a14-work/tmp/pstore-l1-223905/`.
+
+The token's effect is measurable and large. The record of the boot that ran it (`console-ramoops-0` 147,261 B
+sha256 `9d10b6ef4394…`, `pmsg-ramoops-0` 262,132 B `8daa5ecc2ffd…`) is 2,012 lines covering 0..80.718766 s, has
+**no** ratelimit notice at all, and carries **819 `init:` lines against the baseline's 65**. So the devkmsg
+ratelimit really was dropping init's log output on this build, and turning it off multiplies the console text
+roughly twentyfold during early boot (~1.8 KB/s against the baseline's ~0.02 KB/s over a 3-hour uptime).
+
+**Consequences recorded as D72**: (1) this rung is worth keeping, because a payload init that dies early now
+forwards its whole log instead of a ratelimited slice; (2) the console record's ceiling is the DT's declared
+`console-size` 524,288 B (node `/proc/device-tree/reserved-memory/ramoops@110000`: `record-size` 0x00020000 =
+131,072 B, `console-size` 0x00080000 = 524,288 B, `pmsg-size` 0x00050000 = 327,680 B, total 983,040 B =
+`ramoops: attached 0xf0000@0x110000`), so at devkmsg=on volume a boot that lives long **evicts its own early
+lines** - read the record soon after booting, and read it before anything else touches it. Live `/proc/config.gz`
+also settles a question **D69** left open: `CONFIG_PSTORE=y`, `CONFIG_PSTORE_CONSOLE=y`, `CONFIG_PSTORE_PMSG=y`,
+`CONFIG_PSTORE_RAM=y` are set, `CONFIG_PSTORE_RECORD` is **absent**, and `CONFIG_CONSOLE_LOGLEVEL_DEFAULT=7` with
+`CONFIG_MESSAGE_LOGLEVEL_DEFAULT=4` - so a kernel panic cannot create `dmesg-ramoops-0` on this kernel; panic text
+lands in the console record instead, which is why `loglevel=8` is the next rung.
+
+## Nov 19 (night, second half) - the other three L1 rungs ran, all booted, and the unit is back on the stock capture
+
+Rungs 2-4 ran one at a time without a prompt between them, each writing only `boot` (**D18**), each verified on
+the device before the write, each followed by a boot check (`sys.boot_completed`, fingerprint, `wlan0`,
+`/proc/cmdline` for the token, partition and `misc` digests). A copy of the rollback capture was staged on the
+unit first: `/data/local/tmp/stock.img` hashes `4121b58f7759…` there, byte-equal to `hu-stock-backup-refresh/boot.bin`.
+
+| rung | image | partition 7 after the write | boot result | the record of that boot (pulled after the next warm reboot) |
+|---|---|---|---|---|
+| 1 `printk.devkmsg=on` | `3a70fbf94444…` | `3a70fbf94444…` | boots, WiFi up, panel renders | console 147,261 B `9d10b6ef4394…`, 2,012 lines, **no** ratelimit notice, 819 `init:` lines |
+| 2 `panic=12` | `95e99c2188f8…` | `95e99c2188f8…` | boots, WiFi up, panel renders (`screencap-l2.png` `96e225641491…`) | console 148,104 B `c4d21f1d1231…` (the rung-1 verification boot, 605.996 s), still no ratelimit notice, 824 `init:` lines |
+| 3 `loglevel=8` | `e8d352b3ce0a…` | `e8d352b3ce0a…` | boots, WiFi up, panel renders (`screencap-l3.png` `799d11ba3ffe…`) | console 66,958 B `b91f069168ea…` (the rung-2 boot, 122.5 s), token `panic=12` in the record's cmdline, ratelimit notices back (12/13/7), 65 `init:` lines |
+| 4 `androidboot.init_fatal_reboot_target=bootloader` | `3de9da9f7f8b…` | `3de9da9f7f8b…` | boots, WiFi up; the token is in `/proc/cmdline`; no screencap taken for this rung | console 67,995 B `6dd7d37092b1…` (the rung-4 boot, 104.073 s), 1,094 lines, ratelimit notices present, 71 `init:` lines |
+
+The comparison is clean because each rung differs from the capture by one token only. Two pairs prove the
+diagnostics were real: with `printk.devkmsg=on` the ratelimit notices vanish and `init:` console lines go from 65
+to 819/824, and dropping it (rung 3's boot) brings them back - 12/13/7 suppressed lines and 65 `init:` lines.
+And `loglevel=8` raises the record from 1,085 lines (baseline) to 1,254 (`595168ba1c40…`, the rung-3 boot), i.e.
+the debug-level messages `CONFIG_CONSOLE_LOGLEVEL_DEFAULT=7` hides now reach the console. The console record's
+ceiling is 524,288 B, and at devkmsg=on the rung-1 boot wrote 148,104 B in 606 s (~0.24 KB/s steady after the
+early burst), so a boot that lives long enough can evict its own early lines; read the record soon after booting.
+
+**End state.** Partition 7 was restored with the staged capture at 22:57 CET: it hashes `4121b58f7759…` again, and
+after reboot `sys.boot_completed=1`, the OEM fingerprint, `wlan0` up, `misc` still `909bdd979111…` (untouched,
+though permitted - **D71**), `super` hashes `535dac26946d…` which is exactly the Nov 18 live digest, so super did
+not move this session, and the panel renders (`pstore-restore-225749/screencap-restored.png`, `8cee01af28a1…`).
+Boot ids this night: baseline `0e246b97-…`, L1 `21da100f-…`, rung-1 verification `cdaef4b1-…`, rung-2 `bc4a7ab8-…`,
+rung-3 `626cc2f4-…`, rung-4 `8d09fcba-…`, restored stock `aed8174e-…`. Files:
+`a14-work/tmp/pstore-baseline-222912/`, `pstore-l1-223905/`, `pstore-rung2-224916/`, `pstore-rung3-225115/`,
+`pstore-rung4-225401/`, `pstore-restore-225749/`. Nothing but `boot` was written all night; `misc` was never
+written; no `uboot`/`trust`/`dtb`/`dtbo`/`vbmeta`/`security`/`recovery`/loader/GPT write, and `super` was not
+resized (**D18**/**D19**).
+
+Full digests of the pulled records, so any later session can verify the file it is reading:
+`pstore-baseline-222912/console-ramoops-0` `d0ec28e66adfeb30bd1ac1574a5cd0fbae8f4c19a08584663366588dd597df3d`,
+`pstore-baseline-222912/pmsg-ramoops-0` `ab46803751b2245705c62d4d8c44e928273996a0f8008aabda08cf1e3ef5f6c8`,
+`pstore-l1-223905/console-ramoops-0` `9d10b6ef4394e8112569b8f6395cc15ad275c0e6c10f5ecd01ee4c046ee7ae6c`,
+`pstore-l1-223905/pmsg-ramoops-0` `8daa5ecc2ffd7ce3c1fad551cd15cc7e45b8acbac95ca78e585d3869bc5c2995`,
+`pstore-rung2-224916/console-ramoops-0` `c4d21f1d1231b2f314c992608adea9c9eb8a9abd895fc7232a51942a4cef5d5b`,
+`pstore-rung2-224916/pmsg-ramoops-0` `54af8364e13bdd65c72d615abc54ba3c113c3d65b543089a3ed823e4a519fb7f`,
+`pstore-rung3-225115/console-ramoops-0` `b91f069168ea77093da8a44c2dd0f62be3aef8f347c069fe61a90a030cf87683`,
+`pstore-rung3-225115/pmsg-ramoops-0` `9418f9c77cd1a9268342275c48b6bdad86c17a64db42640458203fd6b6458019`,
+`pstore-rung4-225401/console-of-rung3-boot.txt` `595168ba1c40d012fa8e3e2983c853c1b7a9ad2fe06873a0675d9f79fcd60070`,
+`pstore-rung4-225401/console-of-rung4-boot.txt` `6dd7d37092b163ee451e08247aa91ad7fdccaca73540200875e70e38d2030eed`,
+`pstore-rung4-225401/pmsg-of-rung4-boot.txt` `01336214d87c3d9b3b13a4d9dbbe1543a400d28db59e3b95e8e422d70461b875`,
+`screencap-l2.png` `96e2256414918c6114864d2d082ce08f10e5b7e53e3aa1efc62cf54fbf71290a`,
+`screencap-l3.png` `799d11ba3ffec45626e530ed84dc494e371bc9bd7deddbeb9ec8b8f4bb5c3c4b`,
+`screencap-l1.png` `07f1110d405265c3dc5eaf863a79ecddf3ffaaa54bed8bb244dffe239bf12d09`,
+`pstore-restore-225749/screencap-restored.png` `8cee01af28a18fe2ba58f96aff6c39309a1c8f2a7e3d7865cdb1fe0f71246a27`.
+
+## Nov 19 (night, third half) - L2 was written, and the unit stopped answering; no log could be read
+
+**L2** (**D62**: Android 14's static first-stage `init` inside the stock Android 10 ramdisk, against the Android
+10 `super`) was built offline with two new tools and written once. It is the only Android 14 content the unit has
+been given since Nov 18.
+
+What was built:
+
+* `scripts/build_l2_ramdisk.sh` unpacked the capture's own ramdisk (gzip 803,440 B at 25,675,776, cpio
+  1,870,336 B), replaced `/init` with Android 14's first-stage binary (`631f960cbb96…`, 3,644,288 B, extracted
+  from the payload ramdisk), and added `/first_stage_ramdisk/fstab.rk30board` - the **stock** fstab, not our
+  payload's, because our payload fstab lists `system_ext` which Android 10's `super` does not contain. Verified
+  by unpacking the archive again: `/init` hashes as the payload init, the fstab under `first_stage_ramdisk` is
+  byte-equal to the stock one. Result: gzip 1,628,683 B, sha256 `6456104e82c0…`.
+* `tools/build_l2_boot.py` assembled the partition from that ramdisk with the OEM kernel (`a514a3ffb77e`) and OEM
+  `second` (`fb80617e7c97`) carried verbatim, header changed only in `ramdisk_size` (1,628,683 B) and the
+  cmdline field, ramdisk at 25,675,776, `second` at 27,305,984, content end 28,231,680, and the OEM tail carried
+  verbatim from there - the resource header stays at 32,092,160 and both its entries still verify (`rk-kernel.dtb`
+  157,962 B `a6da38a41c07`, `logo.bmp` 384,572 B `a52ea8dbca38`). Cmdline 418 B: the stock 334-byte field plus
+  `printk.devkmsg=on`, `loglevel=8`, `panic=12` (**D72**/**D73**) and
+  `androidboot.init_fatal_reboot_target=recovery`.
+* Final image: `a14-work/ladder/L2-init14-in-a10rd.img`, 33,554,432 B, sha256 `eaf9b7de30f9…`.
+
+What happened: the image was pushed, its digest matched on the device before the write, `dd bs=1M count=32
+conv=fsync` wrote all 33,554,432 B, partition 7 went `4121b58f7759…` -> `eaf9b7de30f9…`, `misc` still
+`909bdd979111…`. `adb reboot` at 23:34:56 CET. After that the unit **never answered again**: no TCP adb through
+eight connection tries, then eight further probes over ten minutes (last 23:44:09), and `ping -c 3` returns 100 %
+packet loss with "No route to host". So this boot did not reach the point where adbd comes up, and the write left
+the unit unreachable.
+
+**The measurement we needed is lost.** The console record of the L2 boot lives in RAM; reading it needs a shell,
+and the only shell we have is TCP adb. A warm reboot would have handed it over - but the boot that ran L2 never
+came back up to be rebooted, and a cold power cycle erases the RAM records (the Nov 18 restore proved that). So we
+know *that* it failed and not *where*. What the record would have shown is what **D69** established for a working
+boot: init's own first-stage lines, and Android 14 init reports its failure reasons directly (`First stage mount
+skipped`, `Could not bind mount /first_stage_ramdisk to itself`, AVB and fstab errors, `Failed to mount required
+partitions early ...`). Two candidate causes are consistent with everything measured offline, and neither is
+provable from what we have: Android 14's init refusing the Android 10 SELinux policy (the payload's own vendor is
+A14-era while `/system` is A10's), or first-stage mount failing on the A10 partition set the stock fstab describes.
+`androidboot.init_fatal_reboot_target=recovery` was in the cmdline, and u-boot does honour a recovery hand-off
+(`uboot.bin` contains `reboot-recovery`, `b.mode=recovery`, `Could not found misc partition, just run recovery`),
+so the likely physical state now is the stock recovery partition - which runs `adbd` over the USB gadget only
+(`recovery.bin`'s ramdisk `init.rc`: `service adbd /system/bin/adbd --root_seclabel=u:r:su:s0
+--device_banner=recovery`, `socket adbd`, `setprop sys.usb.config adb`) and has no wireless-adb property, because
+`persist.internet_adb_enable` lives in `/data` and recovery does not mount `/data`. That is why our route is gone,
+and it is the rule **D75** now records.
+
+**Partition state at the moment it went silent** (all read before the reboot): partition 7 `eaf9b7de30f9…`, `misc`
+`909bdd979111…` exactly as captured - never written, `super` `535dac26946d…` = the Nov 18 live digest, unchanged,
+`uboot`/`trust`/`dtb`/`dtbo`/`vbmeta`/`security`/`recovery`/`frp` untouched, `/data` untouched. The rollback image
+is still on the unit at `/data/local/tmp/stock.img` (`4121b58f7759…`) and in
+`a14-work/hu-stock-backup-refresh/boot.bin`, but nothing we can reach can write it: the card route (**D39**, the
+owner's bootSD) or USB adb into the stock recovery are the only ways back to Android 10, and both are owner-side.
+
+Full digests of the L2 files, so any later session can verify what it is holding:
+`a14-work/ladder/L2-ramdisk.gz` `6456104e82c0a7cc32d7effdaaa2178a7e97af4aad0968f02912f942f780cd97` (gzip
+1,628,683 B, cpio 3,650,048 B), `a14-work/ladder/L2-init14-in-a10rd.img`
+`eaf9b7de30f9ee8447ca4a4f27e82782f253faa3388171a51c02962b8ade3b70` (33,554,432 B), and the Android 14
+first-stage `init` that went into it `631f960cbb96149069228b04287739129e40ac83c8c0b82ddd6c65f05d4a4c56`
+(3,644,288 B, from `a14-work/tmp/ramdisks/a14/init`). Partition 7 held that image when the unit went silent,
+and `/data/local/tmp/l2boot.img` on the unit carries the same digest.
