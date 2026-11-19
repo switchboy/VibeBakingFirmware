@@ -71,7 +71,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D53-D57 | decided Nov 16-17 | kernel rebuild stays blocked on vendor GPL source (D53); shape B stays parked pending an owner review (D54); the gate list shape B needs is its own (D55); shape A's boot image keeps the OEM kernel (D56, now corrected in `docs/findings.md`: `libhwbinder.so` is present); partition 7's rollback image is the refreshed capture (D57) |
 | D58 | decided Nov 17 (owner) | first-boot criteria shrink to boot + WiFi + screen; GPS and sound input become post-boot work |
 | D59-D64 | decided Nov 18 | the namespace harness is frozen and cannot answer the logical-mount question (D59); the OEM boot header stays byte-verbatim except `ramdisk_size`, the content hash and our cmdline tokens, and the image keeps the tail DTB region (D60); the payload's vendor is our own rebuild with OEM blobs carried in, and D56's missing-library claim is corrected (D61); the next writes are boot-only, one variable at a time, `super` untouched (D62); UART needs the owner's consent before anything is opened (D63); a live harness may only run with the full guard set, designed not improvised (D64) |
-| D65-D67 | D65/D66 decided Nov 18 from measurement, D67 proposed | pstore console is the instrument and the two alternative channels are closed by kernel config (`# CONFIG_VT`, `# CONFIG_USER_NS`) (D65); partition 7 today is not the byte-exact capture - the restore wrote 27,406,336 B and left payload padding mid-partition, so a rollback write must cover all 33,554,432 B (D66); an identity round-trip gate must pass before any image is proposed for writing (D67, awaiting owner) |
+| D65-D68 | D65/D66/D68 decided Nov 18-19 from measurement, D67 written Nov 19 | pstore console is the instrument and the two alternative channels are closed by kernel config (`# CONFIG_VT`, `# CONFIG_USER_NS`) (D65); partition 7 today is not the byte-exact capture - the restore wrote 27,406,336 B and left payload padding mid-partition, so a rollback write must cover all 33,554,432 B (D66); an identity round-trip gate must pass before any image is proposed for writing, and `tools/identity_gate.py` now passes offline (D67); the OEM partition tail - splash data plus a SHA1-verified Rockchip resource image with the DTB variant and the logo - is carried verbatim instead of zero-filled (D68) |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 13/14)
@@ -244,3 +244,21 @@ This file is the index plus the risk register, and it must not restate numbers -
     `docs/head-unit-findings.md` items 8-12. `scripts/repo_update.sh` is fixed: its rsync targets lacked the
     `$HOST:` prefix, so the NAS mirror silently did nothing while the ssh-side checks still looked correct.
     Nothing was written, and the unit was not rebooted.
+18. **Nov 19 (offline, no unit writes).** The identity gate **D67** is written - `tools/identity_gate.py` - and
+    its first run failed check 1, which is exactly the defect class it was built for: `rebuild_boot_faithful.py`
+    zero-filled the OEM partition's tail instead of carrying it, so feeding stock content through our own
+    tooling did not reproduce the capture. Decoding that tail settled what is in it (**D68**): from 27,407,104
+    there is 4,685,056 B of splash data, then a Rockchip resource image at 32,092,160 whose entries
+    (`rk-kernel.dtb` 157,962 B, `logo.bmp` 384,572 B) carry 20-byte SHA1s that all verify, plus an unlisted
+    second copy of the same DTB at 32,636,928; `second` is itself such a resource image with `rk-kernel.dtb`
+    (152,425 B) and two identical logo bitmaps (384,788 B). The OEM recovery image carries the same three
+    entries and hashes, so the format is the OEM convention. The live kernel's `/reserved-memory/drm-logo` reg
+    is filled by u-boot (base `0xf5f00000`, size 1,148,928), which means the logo the boot path uses comes from
+    `second` - the part our payload already carries verbatim - not from the tail. The tool now carries the tail
+    byte-for-byte from its own content end, refuses if components reach the resource header, and re-verifies the
+    carried entries; the corrected image is `e504655bd32c…` and the Nov 18 one (`807340652712…`) is superseded.
+    The gate then passes all three checks: stock content round-trips to `4121b58f7759…` byte-for-byte; the
+    payload image changes only `ramdisk_size`, the cmdline field, the ramdisk span and the padding span, keeps
+    the kernel and `second` identical, and keeps the tail identical from 28,233,728 B; `super` metadata differs
+    only in group name, attributes, the added `system_ext` and extents, with device size and first sector
+    unchanged (**D18**). Nothing was flashed; the ladder still awaits the owner (**D62**).

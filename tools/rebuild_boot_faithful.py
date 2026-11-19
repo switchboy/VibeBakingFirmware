@@ -5,8 +5,15 @@
 
 What it produces: the OEM image's header page verbatim EXCEPT `ramdisk_size` and the 512-byte cmdline
 field (copied from the payload image), with `dtb_load_address` restored to the OEM value, then the OEM
-kernel, the payload's first-stage ramdisk, the OEM `second` stage, and the OEM tail DTB copies - padded
-to the OEM image's own size so the partition ends up the same length as it already is.
+kernel, the payload's first-stage ramdisk, the OEM `second` stage, and from the rebuilt image's own
+content end onward **the OEM bytes verbatim** - splash data, the tail resource image and its DTB copies -
+padded or truncated to the OEM image's own size so the partition ends up the same length as it already is.
+
+Nothing in the tail is zero-filled. The Nov 19 identity gate (`tools/identity_gate.py`, **D67**) proved the
+earlier rule was a defect: the OEM partition keeps 2,624,960 non-zero bytes between the Android image's own
+end (27,407,104) and the tail resource header at 32,092,160, so zero-filling that span made a "faithful"
+image differ from the OEM image by 4.68 MB of content it did not change - and feeding stock content through
+the tooling was no longer a byte-identical round trip.
 
 Why this tool exists (measured Nov 18, docs/findings.md):
 * `scripts/rebuild_boot_with_fstab.sh` zeroes `dtb_load_address` (the OEM image carries 0x11f00000) and
@@ -20,8 +27,10 @@ Why this tool exists (measured Nov 18, docs/findings.md):
 Refusals, so a wrong image cannot be produced quietly:
 * kernel blob must be byte-identical between OEM and payload,
 * `second` blob must be byte-identical between OEM and payload,
-* components must not reach the tail DTB region,
+* components must not reach the OEM tail resource header (the RSCE region),
 * the finished image is read back and every component is checked at the offsets a loader computes,
+* the bytes from the rebuilt content end to the partition end must equal the OEM bytes at the same offsets,
+  and the tail resource header plus its DTB copies must sit exactly where the OEM image has them,
 * the header page is compared against the OEM header and the differing byte ranges are printed; anything
   outside `ramdisk_size`, the cmdline field and `dtb_load_address` is a failure.
 
@@ -36,8 +45,15 @@ import sys
 
 PAGE = 2048
 DTB_MAGIC = re.compile(re.escape(b'\xd0\x0d\xfe\xed'))
+RESOURCE_MAGIC = re.compile(re.escape(b'RSCE'))
+ENTRY_MAGIC = re.compile(re.escape(b'ENTR'))
 CMDLINE_OFF, CMDLINE_LEN = 64, 512
 DTB_SIZE_OFF, DTB_ADDR_OFF = 1648, 1652
+# A Rockchip resource image: a header page of RSCE + version + flag + entry count, then 512-byte entry
+# records (ENTR, a name padded to 224, a 20-byte SHA1, then hash_len / offset-in-512-byte-blocks / size).
+# Measured Nov 19: every declared SHA1 verifies on the OEM boot image and on the OEM recovery image.
+ENTRY_RECORD = 512
+ENTRY_NAME_OFF, ENTRY_HASH_OFF, ENTRY_HASH_LEN_OFF, ENTRY_OFF_OFF, ENTRY_SIZE_OFF = 4, 224, 256, 260, 264
 
 
 def roundup(n: int) -> int:
@@ -59,6 +75,26 @@ def dtb_positions(d: bytes):
         total = struct.unpack_from('>I', d, m.start() + 4)[0]
         if total and m.start() + total <= len(d):
             out.append((m.start(), total))
+    return out
+
+
+def resource_entries(d: bytes, base: int):
+    """The entries of the resource image at `base`, with each declared SHA1 checked against its bytes."""
+    n = struct.unpack_from('<I', d, base + 12)[0]
+    out = []
+    for i in range(n):
+        e = base + ENTRY_RECORD * (i + 1)
+        if d[e:e + 4] != b'ENTR':
+            continue
+        name = d[e + ENTRY_NAME_OFF:e + ENTRY_NAME_OFF + 220].split(b'\x00')[0].decode(errors='replace')
+        declared = d[e + ENTRY_HASH_OFF:e + ENTRY_HASH_OFF + 20]
+        h_len = struct.unpack_from('<I', d, e + ENTRY_HASH_LEN_OFF)[0]
+        blocks = struct.unpack_from('<I', d, e + ENTRY_OFF_OFF)[0]
+        size = struct.unpack_from('<I', d, e + ENTRY_SIZE_OFF)[0]
+        pos = base + blocks * 512
+        data = d[pos:pos + size]
+        out.append({'name': name, 'pos': pos, 'size': size, 'sha1': hashlib.sha1(data).hexdigest(),
+                    'declared': declared.hex(), 'hash_len': h_len, 'ok': hashlib.sha1(data).hexdigest() == declared.hex()})
     return out
 
 
@@ -87,13 +123,21 @@ def main(argv):
         raise SystemExit(f"second blob differs ({sha(payload[pay_so:pay_so + oem_ss])[:12]} vs {sha(second)[:12]})")
     ramdisk = payload[pay_ro:pay_ro + roundup(pay_rs)]
 
+    # The OEM tail is the region the Android boot image does not describe: splash content, then a second
+    # resource image carrying the other DTB variant and the panel logo. It is carried verbatim, from the
+    # rebuilt image's own content end to the end of the partition.
+    oem_content_end = roundup(oem_so + oem_ss)
+    pay_content_end = roundup(pay_so + pay_ss)
+    res_positions = [m.start() for m in RESOURCE_MAGIC.finditer(oem) if m.start() >= oem_content_end]
+    if not res_positions:
+        raise SystemExit(f"OEM image has no resource header at or after its content end ({oem_content_end:,} B)")
+    tail_res_start = min(res_positions)
+    if pay_content_end > tail_res_start:
+        raise SystemExit(f"components reach {pay_content_end:,} B, past the OEM tail resource header at {tail_res_start:,} B")
     dtbs = dtb_positions(oem)
-    tail_positions = [p for p, _ in dtbs if p >= oem_so + oem_ss]
-    if not tail_positions:
+    tail_dtbs = [p for p, _ in dtbs if p >= tail_res_start]
+    if not tail_dtbs:
         raise SystemExit("OEM image holds no tail DTB copies - nothing to carry")
-    tail_start = min(tail_positions)
-    tail_end = max(p + t for p, t in dtbs)
-    tail = oem[tail_start:tail_end]
 
     hdr = bytearray(oem[:PAGE])
     struct.pack_into('<I', hdr, 16, pay_rs)
@@ -104,24 +148,40 @@ def main(argv):
     body = bytearray(hdr) + kernel
     body += b'\x00' * (pay_ro - len(body))
     body += ramdisk
-    if len(body) > tail_start:
-        raise SystemExit(f"components reach {len(body)} B, past the tail DTB region at {tail_start:,} B")
-    out = body + b'\x00' * (pay_so - len(body)) + second
-    out += b'\x00' * (tail_start - len(out)) + tail
+    body += b'\x00' * (pay_so - len(body)) + second
+    body += b'\x00' * (pay_content_end - len(body))
+    if len(body) != pay_content_end:
+        raise SystemExit(f"assembled content is {len(body):,} B, not the loader's content end {pay_content_end:,} B")
+    out = bytes(body) + oem[pay_content_end:]
+    if len(out) > len(oem):
+        raise SystemExit(f"payload content plus the OEM tail is {len(out):,} B, past the partition's {len(oem):,} B")
     out += b'\x00' * (len(oem) - len(out))
 
     # Read it back exactly the way a boot loader would.
     ks, rs, ss, ro, so = offsets(out)
     if out[2048:2048 + ks] != kernel or out[so:so + ss] != second or out[ro:ro + roundup(rs)] != ramdisk:
         raise SystemExit("self-check failed: a component is not readable at its computed offset")
+    if out[pay_content_end:] != oem[pay_content_end:]:
+        raise SystemExit("self-check failed: the OEM tail is not carried verbatim from the content end")
     found = dtb_positions(out)
-    if len(found) != len(dtbs):
-        raise SystemExit(f"DTB count changed: OEM {len(dtbs)} vs rebuilt {len(found)}")
+    # The DTB inside `second` moves with the payload's ramdisk size; the tail copies must stay exactly where
+    # the OEM image has them, because the partition tail is carried verbatim.
+    in_second = [(p, t) for p, t in dtbs if oem_so <= p < oem_so + oem_ss]
+    tail = [(p, t) for p, t in dtbs if p >= tail_res_start]
+    expected = sorted([(so + (p - oem_so), t) for p, t in in_second] + tail)
+    if sorted(found) != expected:
+        raise SystemExit(f"DTB positions changed: expected {expected} vs rebuilt {sorted(found)}")
+    entries = resource_entries(out, tail_res_start)
+    if not entries or any(not e['ok'] for e in entries):
+        raise SystemExit(f"tail resource entries failed: {[(e['name'], e['declared'][:12], e['sha1'][:12]) for e in entries]}")
 
     print(f"oem      size {len(oem):,}  kernel {sha(kernel)[:12]}  second {sha(second)[:12]}  ramdisk {sha(oem[oem_ro:roundup(oem_ro + oem_rs)])[:12]}")
     print(f"payload  size {len(payload):,}  ramdisk {sha(ramdisk)[:12]}")
     print(f"rebuilt  size {len(out):,} sha256 {sha(out)}")
-    print(f"  kernel {sha(kernel)[:12]} (carried)  second {sha(second)[:12]} (carried)  tail DTBs carried from {tail_start:,} B ({len(tail):,} B)")
+    print(f"  kernel {sha(kernel)[:12]} (carried)  second {sha(second)[:12]} (carried)")
+    print(f"  OEM tail carried verbatim from {pay_content_end:,} B ({len(oem) - pay_content_end:,} B), resource header at {tail_res_start:,} B")
+    for e in entries:
+        print(f"  tail entry {e['name']} @{e['pos']:,} {e['size']:,} B sha1 {e['sha1'][:12]} {'MATCHES declared' if e['ok'] else 'MISMATCH'}")
     for pos, total in found:
         print(f"  DTB @{pos:,} size {total:,}")
     start = None

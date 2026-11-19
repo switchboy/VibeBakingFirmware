@@ -8,26 +8,31 @@ payload sha or a criterion is stated in six files, so the next session can read 
 the wrong image. `facts.tsv` (repo root, built by `tools/facts.py`) is the authority: each fact has one
 `canonical_doc`, and `tools/facts.py audit` lists every other file that repeats it.
 
-## What the audit measured today (2026-11-17)
+## What the audit measured today (2026-11-19, re-measured; the earlier pass was 2026-11-17)
 
-`python3 tools/facts.py audit` -> 110 registered facts, **180 duplicated mentions**, no fact missing
+`python3 tools/facts.py audit` -> 135 registered facts, **215 duplicated mentions**, no fact missing
 from its canonical doc. `python3 tools/facts.py check` -> clean: every 64-hex and 12-hex token in the
-docs is registered, so a sha cannot drift silently.
+docs is registered, so a sha cannot drift silently. The Nov 18/19 measurements added the resource-entry
+SHA1s, the corrected boot image and the live partition digests, which is why the count moved.
 
 | file | repeated facts | note |
 |---|---|---|
-| docs/decisions.md | 40 | decision text should carry D-numbers, not the payload values |
-| docs/flash.md | 35 | already the canonical home of the operator payload shas |
-| docs/findings.md | 28 | holds the Nov 11/Nov 12 staging lists, restated later |
-| agentPlan.md | 16 | the lean index should point at docs, not restate values |
-| docs/reanimation.md | 12 | a run log; it repeats what flash.md owns |
+| docs/decisions.md | 43 | decision text should carry D-numbers, not the payload values |
+| docs/flash.md | 40 | already the canonical home of the operator payload shas |
+| docs/findings.md | 32 | holds the Nov 11/Nov 12 staging lists, restated later |
+| agentPlan.md | 23 | the lean index should point at docs, not restate values |
+| docs/reanimation.md | 13 | a run log; it repeats what flash.md owns |
+| docs/blind-plan-corrections.md | 12 | the Nov 18 corrections file quotes values owned elsewhere |
 | README.md | 10 | the front page repeats four payload shas and two package paths |
 | docs/plan.md | 9 | the pre-D52 plan; its criteria list is the superseded D49 wording |
 | docs/build-host.md | 9 | NAS paths duplicated from housekeeping.md |
-| docs/head-unit-findings.md | 6 | live-unit facts duplicated from findings.md |
-| docs/housekeeping.md | 5 | staging shas duplicated from findings.md |
+| docs/head-unit-findings.md | 7 | live-unit facts duplicated from findings.md |
+| docs/housekeeping.md | 6 | staging shas duplicated from findings.md |
 | docs/feasibility.md | 4 | pre-decision estimates |
-| docs/index.md | 2 | the map itself quotes a payload sha |
+| docs/index.md | 3 | the map itself quotes a payload sha |
+| docs/ota.md | 2 | future OTA story, quotes the payload zip |
+| docs/firmware-analysis.md | 1 | Phase 0 inventory repeats a partition fact |
+| docs/upstream.md | 1 | the unpublished drafts repeat a payload path |
 | docs/ota.md | 2 | path facts |
 | docs/firmware-analysis.md | 1 | table column mismatch (see lint below) too |
 | docs/upstream.md | 1 | upstream.md names tools/check_super.py; the real file is `scripts/check_super.py` |

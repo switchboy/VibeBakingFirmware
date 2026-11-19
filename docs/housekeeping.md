@@ -104,6 +104,11 @@ Two of the offline gates need more room than SSData currently has (5.2 GiB free 
   `HU_SCRATCH_ROOT`, then `/tmp/opencode`, then the system temp dir, then `REPO/.scratch_tests` - and
   accepts a root only if a file can actually be written there, because creating a directory alone
   succeeds on a quota-limited tmpfs. Measured Nov 18: 12/12 pass on the repo-volume fallback.
+* `tests/test_boot_faithful.py` (Nov 19) builds synthetic boot images - header page, kernel, ramdisk,
+  `second`, splash bytes and a resource record whose entry declares a SHA1 - and asserts **D60**/**D68**: the
+  stock round trip is byte-identical, a payload image may change only `ramdisk_size`, the cmdline field, its own
+  ramdisk and padding, and the tail past its content end must equal the OEM bytes. It uses the same scratch-root
+  probe. Measured Nov 19: 19/19 pass.
 * `scripts/repo_update.sh` writes the target-side sha verification script and the dry-run tree to scratch.
   It used `/tmp/opencode` and failed there with "Schijfquotum is overschreden" (Errno 122 on a write, after a
   successful `mktemp` directory), so it now uses `HU_SCRATCH_ROOT`, then the repo volume

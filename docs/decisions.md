@@ -1931,5 +1931,19 @@ boot content through our own tooling and require the result to be byte-identical
 differ only in documented bytes; same for `super` metadata (`lpdump` both sides). Until that gate passes, no
 Android 14 image may be proposed for a write, because a pipeline defect would make every later result
 uninterpretable. `tools/rebuild_boot_faithful.py` already builds a byte-faithful image (**D60**); the comparison
-gate that checks it against the capture field by field is not written yet. Status: proposed, awaiting owner
-approval of the ladder and this gate.
+gate is `tools/identity_gate.py`, written Nov 19. Its first run failed and found the zero-filled tail (**D68**);
+after the fix all three checks pass offline against the Nov 17 capture and the Nov 18 payload images
+(`docs/findings.md`, "Nov 19"). Status: gate written and passing offline, no unit involved; the ladder itself
+still awaits the owner's approval.
+
+**D68 - the OEM partition tail is carried verbatim, and its resource entries are verified by SHA1 (Nov 19).**
+Beyond the Android boot image the OEM `boot` partition keeps 6,148,096 bytes no header field describes: splash
+data from 27,407,104 to the resource header at 32,092,160, then a Rockchip resource image whose entries are
+`rk-kernel.dtb` (157,962 B) and `logo.bmp` (384,572 B) plus an unlisted second copy of that DTB at 32,636,928;
+`second` is itself such a resource image (`rk-kernel.dtb` 152,425 B, `logo.bmp` and `logo_kernel.bmp` 384,788 B
+each). Every declared 20-byte SHA1 in those records verifies against the bytes on disk, on both the boot image
+and the recovery image, so the format is decoded and checkable rather than guessed. Consequences: a rebuild must
+carry the tail from its own content end onward byte-for-byte (zero-filling it is a defect, which is what the
+identity gate caught), the DTB inside `second` legitimately moves with the payload's ramdisk size while the tail
+copies must stay put, and the logo the boot path uses is the one inside `second` - the live kernel shows u-boot
+filling `/reserved-memory/drm-logo` with a 1,148,928 B buffer. Measurement: `docs/findings.md`, "Nov 19".

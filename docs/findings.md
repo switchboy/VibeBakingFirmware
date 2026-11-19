@@ -3019,7 +3019,7 @@ Measured output for OEM `boot.bin` + `boot-min.img`:
 | field | value |
 |---|---|
 | size | 33,554,432 B - the partition's own size, so a rollback `dd` and this write cover the same span |
-| sha256 | `8073406527126838443a3df744aeb37d80b8401db254ee39421ae919f83bb1a1` |
+| sha256 | `8073406527126838443a3df744aeb37d80b8401db254ee39421ae919f83bb1a1` - Nov 18, **superseded**: it zero-filled the splash region (**D68**). The corrected image is `e504655bd32c3c9c6bcb0de3de6a2a9a3f67c33f3638e7bac022151217b11f4f` |
 | kernel | carried verbatim, sha `a514a3ffb77e`, `25,671,688` B |
 | `second` | carried verbatim, sha `fb80617e7c97`, `924,672` B, at offset 27,308,032 |
 | ramdisk | the payload's, padded to offset 25,675,776, declared size 1,631,866 |
@@ -3029,8 +3029,11 @@ Measured output for OEM `boot.bin` + `boot-min.img`:
 | `os_version` / `os_patch_level` | OEM `10.0.0` / `2020-05` - the failed payload shipped `14.0.0` / `2026-10`, so this is now a ladder variable, not a silent change |
 
 The tool refuses if the kernel blob or the `second` blob differs from the OEM image, if the components reach
-the tail DTB region, or if any header byte outside `ramdisk_size` and the cmdline field changed. It re-reads
-the finished image and checks every component at the offsets a loader computes.
+the OEM tail resource header, or if any header byte outside `ramdisk_size` and the cmdline field changed. It
+re-reads the finished image and checks every component at the offsets a loader computes, checks that the bytes
+from its own content end to the partition end equal the OEM bytes, and re-verifies the carried resource entries
+against their declared SHA1 (**D68**). The Nov 19 identity gate showed the earlier rule zero-filled the splash
+region instead of carrying it; that output (`807340652712…`) is superseded by the corrected one below.
 
 One field stays unresolved and is deliberately **not** recomputed: the 20 bytes at header offset 576. Stock,
 payload and recovery each carry a different value there, and no sha1 of any concatenation of the header page,
@@ -3259,6 +3262,84 @@ From `incoming/probe-20261113-2016.md`, cross-checked against the live kernel:
 1. Warm `reboot` pstore probe: `adb reboot`, then read `/sys/fs/pstore/console-ramoops-0` on the next boot.
    This is rung L0 of the ladder and needs no write.
 2. A `boot`-only identity round-trip: repack the stock capture content with our tooling and prove the result is
-   byte-identical or differs only in documented bytes. `tools/rebuild_boot_faithful.py` already exists; the
-   gate that compares its output against the stock image field by field does not exist yet.
+   byte-identical or differs only in documented bytes. `tools/identity_gate.py` now does that (**D67**), and its
+   Nov 19 run proved the round trip byte-identical after fixing the zero-filled tail (**D68**).
 3. The `misc` partition is untouched (`909bdd97…`) and stays that way unless the owner approves a BCB write.
+
+## Nov 19 - the identity gate ran, found a real pipeline defect, and now passes
+
+`tools/identity_gate.py` (**D67**) is the gate that must pass before any image is proposed for a write. Its
+first run failed check 1, and that failure is what exposed a defect in our own packing tooling - exactly the
+class of problem the gate was built to catch. Nothing was written to the unit; the gate is offline.
+
+### What the OEM boot partition actually holds past the Android boot image
+
+The Android boot image proper ends at 27,406,336 (the padded end of `second`). The partition is 33,554,432 B,
+so 6,148,096 bytes of OEM content sit past it, and none of it was described by any header field:
+
+| region | content | evidence |
+|---|---|---|
+| 27,407,104..32,092,160 | 4,685,056 B of splash data, 2,624,960 of them non-zero (ARGB-looking pixel runs, no magic) | sha256 of the region `be1b54c9debfedbd6a1a85a4ffc894bf5b477107d6f413ebc1fda0eae3bbba9a` |
+| 32,092,160 | a second Rockchip resource image: `RSCE`, version 0, flag `0x10101`, entry count 2 | magic and header fields read from the capture |
+| entry records | 512 B each: `ENTR`, a name padded to 224, a 20-byte **SHA1** at record+224, then `hash_len` u32 at record+256, an offset in **512-byte blocks** at +260, a size u32 at +264 | decoded Nov 19; every declared SHA1 verifies |
+| 32,093,696 | `rk-kernel.dtb`, 157,962 B, declared SHA1 `a6da38a41c07…`, computed `a6da38a41c07…` | matches the declared hash exactly |
+| 32,251,904 | `logo.bmp`, 384,572 B, declared SHA1 `a52ea8dbca38…`, computed identical | matches |
+| 32,636,928 | a second copy of the same 157,962 B DTB (same SHA1), **not** listed in the header; ends 32,794,890 | magic scan plus SHA1 equality with the declared entry |
+| 32,794,890..33,554,432 | zeros | byte scan |
+
+`second` is itself a resource image of the same format at 26,480,640, with three entries: `rk-kernel.dtb`
+(4 blocks -> 26,482,688, 152,425 B, SHA1 `0ce0df4dcbe6…`), `logo.bmp` (302 blocks -> 26,635,264, 384,788 B,
+SHA1 `aee81fc3c0dc…`) and `logo_kernel.bmp` (1054 blocks -> 27,020,288, 384,788 B, the same SHA1, so it is a
+second copy of the same bitmap). All three declared hashes verify. The OEM recovery image carries the same
+three entries at its resource header (offset 38,195,200) with the same hashes, so the format is the OEM's
+convention, not an artefact of one image.
+
+The kernel's own device tree confirms which of these the running board uses: `/reserved-memory/drm-logo` reads
+`reg = <0x00000000f5f00000 0x00000000119800>` - u-boot fills the logo node with a DRAM buffer of 1,148,928 B,
+which is the logo carried inside `second`. The variant the kernel receives has no logo aliases; only the tail
+variant adds `logo,uboot`/`logo,kernel`. So the logo path runs through `second`, which our payload carries
+verbatim.
+
+### The defect the gate caught: the rebuild zero-filled that region
+
+`tools/rebuild_boot_faithful.py` (**D60**) carried only the tail DTBs and zero-filled everything between the
+payload's content end and the first DTB. Measured on the Nov 18 artifact `boot-faithful-tool.img`:
+4,613,900 zero bytes inside the 4,685,056 B splash region and no `RSCE` header at 32,092,160. So feeding the
+stock capture through our own tooling did **not** reproduce it byte-for-byte, and a "byte-faithful" image
+actually deleted 4.6 MB of OEM content the partition keeps.
+
+The rule is now: the OEM bytes from the rebuilt image's own content end to the partition end are carried
+**verbatim**; the tool refuses if the payload's components reach the tail resource header (32,092,160), and it
+re-verifies every carried resource entry against its declared SHA1. The DTB check distinguishes the DTB inside
+`second` (which moves with the payload's ramdisk size) from the tail copies (which must stay put).
+
+### Gate result, offline, Nov 19
+
+Inputs: the Nov 17 capture `hu-stock-backup-refresh/boot.bin` (`4121b58f7759…`) and `super.bin`, and the payload
+images `a14diag/boot-min.img` and `super-min.img`.
+
+* **Check 1 - identity: PASS.** Stock content through our tooling reproduces the 33,554,432 B capture
+  byte-for-byte; the artifact hashes exactly `4121b58f7759…`.
+* **Check 2 - payload fidelity: PASS.** The rebuilt payload image is 33,554,432 B sha256
+  `e504655bd32c3c9c6bcb0de3de6a2a9a3f67c33f3638e7bac022151217b11f4f`. Header page differs only in
+  `ramdisk_size` (16..19) and the cmdline field; kernel identical (25,671,688 B); `second` identical
+  (924,672 B), moved from 26,480,640 to 27,308,032 by the payload's ramdisk size; the tail is identical from
+  28,233,728 B to the partition end (5,320,704 B: splash, resource header, both DTB copies). Content differs
+  in 56,362 ranges totalling 2,273,364 B, all inside the ramdisk span (25,675,776..27,307,642) and the
+  padding span (28,232,704..28,233,728) - nothing outside them.
+* **Check 3 - super metadata: PASS with a documented delta.** Device size identical (3,263,168,512 B), first
+  sector identical (2048), metadata slots identical (2); metadata size 592 -> 668; group
+  `rockchip_dynamic_partitions` -> `hct_dynamic_partitions`, both maximum 3,258,974,208; attributes
+  `readonly` -> `none` on all four shared partitions; payload adds `system_ext`; every extent differs. No
+  resize (**D18**).
+
+The Nov 18 output `807340652712…` is **superseded** by `e504655bd32c…`: the same header rule, plus the verbatim
+tail. Neither image is flashed.
+
+### What a payload write necessarily costs, and why it is survivable
+
+A payload whose ramdisk is bigger than stock's necessarily lands its own `second` and padding on top of the
+first 826,624 bytes of the OEM splash region (27,406,336..28,233,728). That is inherent to the layout, not a
+tooling choice, and the live partition proves it is survivable: today it holds payload bytes in exactly that
+slice and still boots Android 10 with a logo, because the logo the boot path needs lives in `second` (carried
+verbatim) and the tail resource header at 32,092,160 survived both Nov 18 writes.

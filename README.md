@@ -93,8 +93,8 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   (`sha1sum`), so it verified nothing while reporting success. Payload sizes and digests now come from the
   card manifest. The patched recovery image on record (`a0cd9de3…`) still holds the buggy script, so
   `scripts/patch_recovery_autorun.sh` must run again before partition 8 is flashed - that splice runs on
-  the build host, whose access wrapper lives outside the repo and is currently not present (`/tmp` was
-  cleared). Nothing was flashed today.
+  the build host, whose access wrapper lives outside the repo (`/tmp/opencode/omv.sh`, `askpass.sh`,
+  `build_host.env`; re-checked Nov 18, they are present). Nothing was flashed today.
 * Two fixed boot images are **built and verified but not flashed** (**D33**/**D34**): `a14-fixed.img`
   (our payload + `/first_stage_ramdisk/fstab.rk30board`) and the generation-coherent
   `boot-a10k-a14rd.img` (OEM A10 kernel + OEM A10 `second` with the A10 DTB + our A14 ramdisk + fstab).
@@ -122,3 +122,30 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
 * No partition is ever resized or rewritten, and uboot/trust/dtb/dtbo/vbmeta/RKLoader/security are never
   written by our tooling; recovery is written only as the D42 patch (**D11**/**D18**/**D19**). Restoring
   the unit's own firmware means the OEM package or the stock backup (**D39**/**D40**).
+
+## Status (Nov 18/19)
+
+* Route 2 ran twice over TCP adb on Nov 18, both times writing only `boot` + `super` (**D62**), and both
+  boots died before init started any service - one came up in a logo loop, one black. The owner restored
+  stock Android 10 with their own OEM package, and `/data` survived. Measurement: `docs/findings.md`,
+  "Nov 18 (late session)".
+* The unit is reachable again (the blocker was the workstation's own `adb` daemon, not the unit), and the
+  whole boot chain now verifies byte-exact against the Nov 17 capture: nine partitions hash as captured, so
+  nothing beyond `boot` + `super` has ever been written (**D30** is measured, not assumed) and the patched
+  recovery is not on the disk. Partition 7 itself is *not* the capture - the restore wrote only the stock
+  image's own length and left payload padding mid-partition, so a rollback write must cover the whole
+  partition (**D66**).
+* The instrument for a failed boot is pstore console, not a serial port and not the panel: `dmesg` shows
+  ramoops attached and `console [pstore-1] enabled`, while `# CONFIG_VT` and `# CONFIG_USER_NS` close the
+  screen-console and namespace routes on this kernel (**D65**). Reading a record needs a **warm** reset, so
+  the warm-`reboot` probe still needs the owner's go.
+* The boot-only ladder (**D62**) still awaits the owner's approval; UART (**D63**) needs consent before the
+  unit is opened. The owner's forwarded "blind plan" is checked line by line in `docs/blind-plan-corrections.md`.
+* `tools/identity_gate.py` (**D67**) now exists and passes offline: stock content round-trips through our own
+  tooling byte-for-byte, and a payload-fed image changes only `ramdisk_size`, the cmdline field, its own
+  ramdisk and padding. Its **first run failed** and found a real defect - the byte-faithful rebuild used to
+  zero-fill the OEM partition's tail. That tail is now decoded (**D68**): splash data, then a Rockchip
+  resource image whose entries (`rk-kernel.dtb`, `logo.bmp`) declare SHA1 hashes that all verify, plus a
+  second DTB copy; `second` is itself such a resource image, and the logo the boot path uses comes from it.
+* No image has been flashed since Nov 18, nothing beyond `boot` + `super` has ever been touched, and `super`
+  is never resized (**D18**/**D42**/**D43**/**D57**/**D62**/**D66**).

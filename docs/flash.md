@@ -90,6 +90,14 @@ uboot.img trust.img dtbo.img RKLoader.bin    stock bytes, present but never writ
 
 ## Pre-flight
 
+**Before any boot image is proposed for a write, `tools/identity_gate.py` (**D67**) must PASS.** It repacks the
+stock capture through our own tooling and demands a byte-for-byte round trip, then checks what a payload-fed
+image is allowed to change (`ramdisk_size`, the cmdline field, the ramdisk and padding spans) and what it must
+not (**D68** - the kernel blob, `second`, and everything from the payload's content end onward: splash bytes, the
+tail resource header and its DTB copies), and finally diffs `lpdump` on both supers. The Nov 19 run passes all
+three checks; the Nov 19 *first* run failed and found the zero-filled tail, which is the defect class the gate
+exists to catch.
+
 1. `scripts/verify_artifacts.sh <tree>` must pass: `VENDOR/` + `vendor.map`, the injected vendor
    libraries, super layout, VINTF parsing, boot header, the kernel/module/manifest coupling gate, the
    recovery installer and the OTA zip. **The Nov 17 run exits 1 with exactly two `!` lines, and both
