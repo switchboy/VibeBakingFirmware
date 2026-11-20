@@ -3687,3 +3687,77 @@ capture), `l2boot.img` (`eaf9b7de30f9…`), `l3.img`, `l4.img`. `super` still ha
 live digest, `misc` still `909bdd979111…`, and nothing outside `boot` was written by the package's own install as
 far as our read route could see. Files: `a14-work/tmp/pstore-after-stock-143217/` (`console-ramoops-0`,
 `pmsg-ramoops-0`, `screencap.png`, `state.txt` `10d2f5805b3fd14fc981a0093f92a1681ce0a248c996655f6e0608a7a474f0e5`).
+
+## Nov 20 (late afternoon) - the diagnostic token set moved onto the new base image, and recovery has no adb route
+
+The rung built from the post-flash capture (`b449aee98c01…`) with `tools/patch_boot_cmdline.py`, adding
+`printk.devkmsg=on`, `loglevel=8`, `panic=12` (**D73**) and nothing else:
+`a14-work/ladder/L5-diag-on-newbase.img` `3de96f683b7409f8f8d3c3b7784a0c17231598597ed69db626f0e73a50a14ad5`
+(33,554,432 B). It differs from the capture in **38 bytes**, all inside the 512-byte cmdline field (398..435) - the
+patch tool verifies that no byte outside the field moves. The cmdline became 372 B: the capture's own 334 B plus the
+three tokens.
+
+Executed 15:20-15:26 CET, one write, whole partition, rollback staged first (`/data/local/tmp/stock2.img` = the
+capture, digest verified on the device): partition 7 `b449aee98c01…` -> `3de96f683b74…`, `misc` untouched. Android
+10 booted unchanged (`sys.boot_completed=1`, OEM fingerprint, `wlan0` up, boot id `66e23c41-9f0b-48f3-a45a-459938914283`),
+with all three tokens in `/proc/cmdline` after u-boot's own additions. A warm reboot then handed over that boot's
+record: `console-of-diag-boot.txt` 183,405 B `7ffec7b1641d9e5cd0abdc2f4b0b0ade48a2f3cae5a171c2308a1e2da749f89b`,
+2,411 lines, ts 0.0 .. 135.359064, no ratelimit notice, 832 `init:` lines, `console [pstore-1] enabled` at
+0.054359, `pstore: Registered ramoops as persistent store backend`, `pstore: Using compression: deflate`, and the
+three tokens in the record's cmdline line. `pmsg-of-diag-boot.txt` 262,132 B `42b99f7e341aa96ddeda387640a20d6a2b1e31389e475a31c6bf4f37e7a5a4e0`.
+Both screencaps render: `pstore-diag-152104/screencap-diag.png` `665bfb3153cc9847c5dcce7d1ac86f25e2cce389f1ad23f8a79dffdf66f0651d`
+(1024x600, 9,033 distinct sampled colours, 488,314 pure black) and
+`pstore-diag-restore-152510/screencap-restored.png` `408f53caf4d9b45995f96466777c563e92b83631f6f26fc3764a34babc72785c`
+(9,035 colours, 488,001 pure black). Partition 7 was then restored to the capture and verified again at 15:25:54 CET:
+`b449aee98c01…`, `boot_completed=1`, `wlan0` up, zero tokens in `/proc/cmdline`, `misc` `909bdd979111…`, `super`
+`535dac26946d…`; the record pulled from that boot is `console-of-diag-restore-boot.txt`
+`d60bc08eb7257aa168ddc878bc66573da99ae5eed9216057e6b2b932cfd9e1d4` (it carries the diag boot's text, as **D77**
+predicts). Boot ids this afternoon: restore-into-Android10 `e227f00b-…`, diag boot `66e23c41-…`, restored again
+`ea6147d4-…`. Only `boot` was written; `misc` was never written; `super` was not resized (**D18**/**D19**).
+
+**Recovery cannot be reached as a shell from this workstation.** The owner reports that none of the unit's USB
+ports drive adb - they are host-mode ports (their phone is on the one most suspected of being the adb port), and
+the head unit cannot be made the device-side controller. So the `adbd` we saw in recovery's pmsg log was bound to
+whatever host was attached, not to us, and recovery stays owner-side (**D74** unchanged). Offline, the recovery
+ramdisk also shows it would not mount pstore by itself: its `init.rc` has no `mount pstore` line (only `cgroup`,
+`tmpfs /tmp`, `configfs`, `functionfs adb/fastboot`), so a shell there would have to mount it manually. What
+recovery *does* open is a serial shell: `init.recovery.rk30board.rc` has `on fs && property:ro.debuggable=1 ->
+start console`, and `service console /system/bin/sh` with the `console` keyword - and this unit is
+`ro.debuggable=1`, `ro.build.type=userdebug`, with `console=ttyFIQ0` in the kernel cmdline. That makes the UART
+route (**D63**, still declined Nov 19 "Not yet") the only channel that can read a failed boot when TCP adb is gone,
+and it is now a root-level shell in recovery rather than only a console log (**D79**).
+
+## Nov 20 (recovery unbanned) - partition 8 becomes writable under one condition, and it is the route that was missing
+
+The owner lifted the ban in writing: *"I hereby officially lift the ban on writing recovery as long as functionality
+including MTC fralshing remains intact. Signed The owner"* (**D80**). Measured at the moment of the lift, all reads,
+nothing written:
+
+* Partition 8 hashes `1fdf5ea77fc6…` over its full 100,663,296 B (`dd bs=1M count=96` through `toybox base64`),
+  byte-identical to `a14-work/hu-stock-backup-refresh/recovery.bin` - so the capture is a faithful rollback image,
+  and the patched candidate built Nov 12 (`a14-work/recovery-patched/recovery-patched.img`, 39,108,608 B content-sized,
+  `a0cd9de318a8…`) is the only patched recovery we have.
+* Nothing on this firmware re-flashes recovery behind our back: `/vendor/recovery-from-boot.p` is absent and
+  `/vendor/etc/init/vendor_flash_recovery.rc` is absent (`ls` both, at 16:1x CET). The stock flow that re-flashes
+  recovery from `boot` is therefore not present in the Android 10 vendor, which is what makes a patched recovery
+  stick until someone writes partition 8 again.
+* The recovery boot we captured Nov 20 ran with `androidboot.selinux=permissive` and
+  `androidboot.veritymode=enforcing` in its cmdline, so a script there is not blocked by policy, only by the kernel.
+* The recovery ramdisk's tool set is complete (`system/bin/` lists `sh`, `mount`, `umount`, `dd`, `mkdir`, `cp`,
+  `cat`, `toybox`, `sha256sum`, `unzip`, `losetup`, `make_f2fs`, `mke2fs`, `recovery`, `adbd`, `fastbootd`,
+  `microcom`, `devmem`), and its `init.rc` creates the `/cache`, `/data`, `/system`, `/metadata` and `/sideload`
+  mount points, starts `ueventd` (so `/dev/block/by-name/*` exists), and its `recovery.fstab` names
+  `user`/`external_sd` (`/mnt/internal_sd`, `/mnt/external_sd`), `system`, `vendor`, `odm`, `cache`, `metadata`,
+  `userdata`, `misc`, `boot`, `recovery` and the Rockchip-only entries (`cust`, `custom`, `radical_update`,
+  `charge`, `resource`, `parameter`, `backup`, `frp`, `trust`, `baseparamer`, `vbmeta`, `dtbo`).
+* The trusted cert in that ramdisk (`system/etc/security/otacerts.zip`, single entry `testkey.x509.pem`) is HCT's
+  own clone: serial `92A528C773D7A141`, notBefore Dec 23 2014, sha256 fingerprint
+  `cf:2a:b3:81:85:95:c4:ed:a0:8c:ec:72:bb:e3:9b:c3:77:a3:0b:76:4a:3e:eb:de:52:53:6e:ae:01:80:85:25`. Our key pair is
+  the AOSP testkey (`CN=Android`, serial `936EACBE07F201DF`, fingerprint `a4:0d:a8:0a:59:d1:70:ca…`), whose modulus
+  does not match that cert - so a package we sign is *not* accepted by this recovery (**D25** unchanged), which is
+  why the route that matters is a patched partition 8, not a package.
+
+Consequence for the ladder: the condition that made a second Android 14 attempt unwritable (**D78**) can now be met
+without UART (**D63** stays declined) and without a card slot we cannot drive - recovery itself becomes the reader
+and the restorer. What is owed next is the patched image built from the current capture, then one recovery boot to
+prove the script runs and that the stock install path is untouched.

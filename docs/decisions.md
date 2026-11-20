@@ -293,12 +293,15 @@ That settles two things:
   `block_image_update`, `package_extract_file`, `wipe_block_device`. No partition is resized
   (**D11** keeps p14 at 3,263,168,512 B); only the logical partitions *inside* super are recreated,
   and Android 14's `system_ext` is added to the group.
-- **Never written**: `recovery`, `uboot`, `trust`, `dtbo`, `RKLoader.bin`, the stock script's
+- **Never written**: `uboot`, `trust`, `dtbo`, `RKLoader.bin`, the stock script's
   `write_raw_loader_image()` step, and the stock script's wipe of `/dev/block/by-name/security`. The
   stock recovery is plausibly the only path to the mainboard MCU firmware, and a custom recovery whose
   boot, UI and touch/button handling are unverified would brick the unit if it fails. Our
   `recovery.img` is built and verified but stays unflashed until Android 14 boots and the board's
-  recovery handling is proven.
+  recovery handling is proven. **Amended Nov 20 by D80**: `recovery` is writable, conditioned on the
+  mainboard/MTC flashing path staying intact, which is met by carrying the stock recovery bytes verbatim and
+  only appending one inert service (**D42**); `uboot`, `trust`, `dtbo`, `RKLoader.bin`,
+  `write_raw_loader_image()` and the `security` wipe remain forbidden.
 
 D17 (fastboot as the first-flash transport) is **superseded** and its scripts were removed: fastboot
 writes `recovery`/`boot` while bypassing the stock recovery's loader step, which may be the sole route
@@ -2079,3 +2082,52 @@ the rescue goes through recovery or another flash, the failed boot's log is lost
 differently - it is the userspace log buffer, and here it survived as 1,004 B holding recovery's own install log,
 which is what proved the restore's numbers (`time_total: 333`, 3,124,451,704 B written). Measurement:
 `docs/findings.md`, "Nov 20 (afternoon)".
+
+**D78 - TCP adb in Android 10 is the only route we can reach, so a write must be something already proven to boot
+on this unit (Nov 20, MEASURED + owner report).** The owner states that none of the unit's USB ports drive adb: they
+are host-mode ports (their phone sits on the one most suspected of being the adb port) and the head unit cannot be
+made the device-side controller. So the recovery-mode `adbd` recorded in `pmsg-ramoops-0` was bound to another host,
+not to our workstation, and recovery remains owner-side (**D74**). With no USB route and no UART route (**D63**,
+declined), the ladder has exactly one read/write channel: `192.168.1.120:5555` while Android 10 runs. That tightens
+**D75**: an image may be written only if a boot running it has already been observed to boot on this unit, or is
+content-identical to something that has. The Nov 20 diagnostic rung obeys this - the three tokens each booted on
+Nov 19 and the base image is the capture the unit boots from now. A second Android 14 attempt is therefore *not*
+writable until either the UART case opens (**D63**/**D79**) or the owner agrees to pull the failed boot's record in
+recovery on their own machine. Measurement: `docs/findings.md`, "Nov 20 (late afternoon)".
+
+**D79 - recovery would give a serial shell, not just a serial log, so the UART probe is worth more than it looked
+(Nov 20, MEASURED offline).** `recovery.bin`'s ramdisk carries `init.recovery.rk30board.rc` with
+`on fs && property:ro.debuggable=1 -> start console` and `service console /system/bin/sh` declared with the
+`console` keyword; this unit reports `ro.debuggable=1` and `ro.build.type=userdebug`, and its kernel cmdline has
+`console=ttyFIQ0`. So in recovery the UART is an interactive shell, which would let a human mount pstore manually -
+recovery's `init.rc` has no `mount pstore` line, only `cgroup`, `tmpfs /tmp`, `configfs` and `functionfs` - and read
+`console-ramoops-0` of the boot that just died (**D77**: that record holds the failed boot's text while recovery
+runs). That is the only channel able to answer "why did Android 14's init fail" without TCP adb. The owner declined
+the listen-only UART probe Nov 19 (**D63**), so nothing is soldered and this stays an offline finding. Measurement:
+`docs/findings.md`, "Nov 20 (late afternoon)".
+
+**D80 - the owner lifts the ban on writing `recovery` (p8), conditioned on MTC/mainboard flashing staying intact
+(Nov 20, OWNER INSTRUCTION, verbatim).** Owner, Nov 20: *"I hereby officially lift the ban on writing recovery as
+long as functionality including MTC fralshing remains intact. Signed The owner"*. So **D18**'s "never written" list
+now covers `uboot`, `trust`, `dtb`, `dtbo`, `vbmeta`, `security`, `RKLoader.bin`, the stock script's
+`write_raw_loader_image()` step, its wipe of `security`, and the GPT; `recovery` is writable, and `misc` stays
+permitted for a Boot Control Block (**D71**).
+
+What "MTC flashing remains intact" means in practice, and how a write is refused: the patched recovery must carry the
+stock recovery's own machinery verbatim - the recovery binary and its UI/touch-and-button handling, `update_engine`
+and the stock `update-binary`, the stock `recovery.fstab`, its USB gadget config, and its trusted cert store
+(HCT's own `cf2ab3…`, so the OEM `update(1).zip` install from the card still passes verification - that install is
+the mainboard/MTC loader path the owner used on Nov 20). Only the ramdisk changes, by appending one inert service
+plus its script (**D42**'s splice machinery), and the builder refuses if any byte outside the ramdisk span differs
+from the capture. The rollback is always the byte-exact capture `1fdf5ea77fc6…` (100,663,296 B).
+
+Why this is the unlock we needed: with partition 8 ours, recovery stops being a menu we cannot drive (**D42**) and
+becomes the evidence and rescue route, which is the thing **D78** said was missing. A recovery we control runs a
+script automatically, under `androidboot.selinux=permissive` (measured in the Nov 20 recovery boot's cmdline), that
+mounts pstore and copies the *previous* boot's console record (**D77**) to `/cache`, and restores partition 7 from a
+rollback staged in `/cache` by adb before the risky write. Measured at the lift: partition 8 hashes
+`1fdf5ea77fc6…`, byte-identical to `a14-work/hu-stock-backup-refresh/recovery.bin`;
+`/vendor/recovery-from-boot.p` and `/vendor/etc/init/vendor_flash_recovery.rc` are absent on this firmware, so
+nothing re-flashes recovery behind our back; and recovery's ramdisk ships a full tool set (`sh`, `mount`, `dd`,
+`mkdir`, `toybox`, `sha256sum`, `unzip`), its `init.rc` creates `/cache` and `/data` mount points and starts
+`ueventd`, so `/dev/block/by-name/*` exists there. Measurement: `docs/findings.md`, "Nov 20 (recovery unbanned)".

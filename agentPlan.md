@@ -76,6 +76,8 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D72-D73 | decided Nov 19 from the ladder rungs | `printk.devkmsg=on` unblocks init's log lines (65 -> 819 console `init:` lines) and must be kept, and its console volume means records must be read immediately (**D72**); the validated logging set is devkmsg=on + loglevel=8 + panic=12, combined for L2 and payload boots, while `androidboot.init_fatal_reboot_target=bootloader` stays out because it removes the adb route (**D73**) |
 | D74-D75 | decided Nov 19 after L2 left the unit silent | u-boot honours a recovery hand-off (`reboot-recovery`, `b.mode=recovery`) but the recovery ramdisk's `adbd` is USB-gadget-only and wireless adb needs `persist.internet_adb_enable` in `/data` recovery does not mount, so recovery is a landing zone for a human, not a rescue route for our transport (**D74**); after L2 an image may be written only if a boot running it can still answer over TCP adb long enough to read `/sys/fs/pstore/*`, and writes stop until the owner restores the unit (**D75**) |
 | D76-D77 | decided Nov 20 from the restore | partition 7 now holds the OEM package image `b449aee98c01…`, so `a14-work/hu-stock-postflash-143452/boot.bin` is the rollback image (**D76**); a pstore console record carries the *previous* boot's text, so a failed boot's log survives only into the boot immediately after it and a rescue through recovery or another flash forfeits it (**D77**) |
+| D78-D79 | decided Nov 20 | TCP adb while Android 10 runs is the only route we can reach, so only images already proven to boot may be written (**D78**); recovery starts `console /system/bin/sh` because ro.debuggable=1, which would make the UART an interactive shell able to read a failed boot's pstore record - the probe is still declined (**D79**) |
+| D80 | decided Nov 20 by the owner | `recovery` (p8) writable while MTC/mainboard flashing stays intact; a patched partition 8 becomes the route that reads a dead boot's pstore record and restores partition 7, lifting D78's constraint (**D80**) |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 13/14)
@@ -365,3 +367,19 @@ This file is the index plus the risk register, and it must not restate numbers -
     wrote a BCB, so the L2 boot hung instead of taking the recovery hand-off. Nothing has been written since; the next
     rung must keep TCP adb (**D75**), so an Android 14-init boot is not writable again until there is a design that
     answers over adb before anything else boots.
+24. **Nov 20 (late afternoon): the diagnostic token set moved onto the new base image and the unit is back on the
+    capture.** `tools/patch_boot_cmdline.py` added `printk.devkmsg=on`, `loglevel=8` and `panic=12` to the post-flash
+    capture, producing `L5-diag-on-newbase.img` (`3de96f683b74…`) which differs from it by 38 bytes, all inside the
+    cmdline field. It was written whole (partition 7 `b449aee98c01…` -> `3de96f683b74…`, rollback staged at
+    `/data/local/tmp/stock2.img` first) and Android 10 booted unchanged with the tokens in `/proc/cmdline`; the warm
+    reboot then gave its record - 183,405 B `7ffec7b1641d…`, 2,411 lines, no ratelimit notice, 832 `init:` lines,
+    `console [pstore-1] enabled` at 0.054 s - and screencaps prove the panel rendered both before and after the
+    restore (`665bfb3153cc…`, `408f53caf4d9…`). Partition 7 was restored to `b449aee98c01…` at 15:25 CET and verified
+    (`boot_completed=1`, `wlan0` up, zero tokens, `misc` `909bdd979111…`, `super` `535dac26946d…`). **D78** now bounds
+    the ladder: the owner reports none of the unit's USB ports drive adb (they are host-mode), so recovery is not
+    reachable as a shell from this workstation and TCP adb in Android 10 is the only route - a write must be content
+    already proven to boot on the unit. **D79** records the offline finding that raises the UART case: recovery's
+    `init.recovery.rk30board.rc` starts `console /system/bin/sh` under `ro.debuggable=1` (this unit is userdebug,
+    `console=ttyFIQ0`), so a UART probe would give an interactive shell that could mount pstore and read the failed
+    boot's text; the probe stays declined (**D63**), so a second Android 14 attempt is not writable until either the
+    UART opens or the owner agrees to pull the record in recovery themselves.

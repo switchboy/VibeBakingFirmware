@@ -3,17 +3,54 @@
 The install path is the one the head unit already has: an `update.zip` at the root of a USB/SD stick,
 installed by the **stock** recovery using the **stock** `update-binary`. We build the payload files
 that binary understands and reuse its own script vocabulary - nothing is invented, no partition is
-resized, and the recovery, bootloader and mainboard firmware are never written (**D18**).
+resized, and the bootloader and mainboard firmware are never written (**D18**). Recovery is writable from
+Nov 20 while its MTC/mainboard flashing stays intact (**D80**), so it becomes the tool rather than a menu
+(**D42**) - see "Recovery is now ours (Nov 20)".
 
-## Why we do not touch recovery or the bootloader
+## Why we do not touch the bootloader (recovery was unbanned Nov 20, **D80**)
 
 The PX6 sits as a card on a mainboard with its own MCU firmware. The community reports that this unit
 has no custom recovery, and the most likely reason is that the stock recovery is the only thing able
 to flash that mainboard firmware: the stock package's own `write_raw_loader_image()` step runs in it,
 with `/tmp/RKLoader.bin` as the loader image. We cannot verify that a *custom* recovery would boot,
 show a prompt, and read touch or button input on this board - and if it does not, the unit is a brick.
-So our recovery image is built and verified but **not flashed**; it is for later, once Android 14
-boots and we know the unit is alive.
+So our recovery image was built and verified but **not flashed** up to Nov 20 (**D42**).
+
+On Nov 20 the owner lifted that ban (**D80**), verbatim: *"I hereby officially lift the ban on writing
+recovery as long as functionality including MTC fralshing remains intact. Signed The owner"*. The condition
+is honoured by construction: we never ship a custom recovery - we ship the **stock** recovery image with one
+inert service appended to its ramdisk (`scripts/patch_recovery_autorun.sh`, **D42**), so the recovery binary,
+its UI and touch/button handling, `update_engine` and the stock `update-binary`, the stock `recovery.fstab`,
+its USB gadget config and its HCT cert store (`cf2ab3…`, so `diatsia fw/update(1).zip` still installs and
+`write_raw_loader_image()` still runs) are carried byte-for-byte. The builder refuses the image if any byte
+outside the ramdisk span differs from the capture, and the rollback is always `recovery.bin`
+`1fdf5ea77fc6…` (100,663,296 B). Bootloader, `trust`, `dtb`, `dtbo`, `vbmeta`, `security`, `RKLoader.bin`
+and the GPT stay forbidden (**D18**/**D19**).
+
+### Recovery is now ours (Nov 20): the reader and the restorer (**D80**/**D77**)
+
+Before Nov 20 nothing we could reach read a boot that dies (**D78**). A recovery we control does, because it
+boots *after* the dead boot and, per **D77**, `console-ramoops-0` still holds that dead boot's text while
+recovery runs. The appended service runs automatically (recovery boots with
+`androidboot.selinux=permissive`, measured Nov 20) and does three things, using only what the recovery
+ramdisk already holds:
+
+1. `mkdir /sys/fs/pstore` and `mount pstore nodev /sys/fs/pstore`, then copy `console-ramoops-0` and
+   `pmsg-ramoops-0` into `/cache/hu-evidence/` together with `/proc/cmdline`, `/proc/sys/kernel/random/boot_id`
+   and a timestamp, so the record survives into the next boot and is readable over TCP adb.
+2. If `/cache/hu-restore.request` exists (staged by adb before a risky write, with the rollback at
+   `/cache/hu-rollback-boot.bin`, 33,554,432 B), `dd` it onto partition 7 and re-read the digest, so a boot
+   that died is put back on the image the unit already boots from (**D76**) without the owner touching a menu.
+3. Reboot. If the marker is absent it changes nothing, so recovery behaves exactly like the stock one.
+
+`/cache` is the destination because recovery's `init.rc` already creates it, its `recovery.fstab` maps
+`/dev/block/by-name/cache`, Android 10 mounts it and adb root can write it, and it is neither a boot-chain
+partition nor the unit's media card. `/data` is never needed, and no SD card is needed for evidence.
+
+The trigger still needs the owner when init hangs rather than exiting: `androidboot.init_fatal_reboot_target=
+recovery` (**D71**'s permitted `misc` write) hands a *fatally exiting* init to recovery on a warm reboot, which
+preserves the RAM records; a hung init or a dead kernel needs the owner's forced-recovery grip, and that is a
+warm-enough path for the record to survive as long as no cold power cycle happens in between.
 
 Consequently the payload's updater-script omits everything the stock script does to the boot chain:
 no `uboot.img`, no `trust.img`, no `dtbo.img`, no `RKLoader.bin`, no `write_raw_loader_image()`, and
@@ -213,6 +250,15 @@ text was overwritten by the recovery and flash boots between it and our next she
 readable only if the boot right after it answers over TCP adb, and any rescue through recovery or another flash
 forfeits it. And the unit did not enter recovery by itself: `misc` never changed, so init's fatal-reboot path never
 ran, which is why the owner had to force the menu (**D74**'s hand-off was not exercised by that boot).
+
+**Nov 20 15:20-15:26 CET - one rung ran on the new base, and the partition is back on the capture.**
+`L5-diag-on-newbase.img` (`3de96f683b74…`, the capture plus `printk.devkmsg=on`, `loglevel=8`, `panic=12`; 38 bytes
+of difference, all in the cmdline field) was written whole and booted Android 10 unchanged with the tokens in
+`/proc/cmdline`; a warm reboot handed over its record (183,405 B, 2,411 lines, no ratelimit notice, 832 `init:`
+lines), and partition 7 was restored to `b449aee98c01…` and re-verified. The rollback route in recovery is **not**
+reachable from this workstation - the unit's USB ports are host-mode and cannot drive adb (**D78**) - so the only
+channel that could read a failed boot's log is the UART, which in recovery becomes an interactive shell because
+`ro.debuggable=1` starts `console /system/bin/sh` (**D79**); the UART probe is still declined (**D63**).
 
 ## Install, route 1: the signed zip through recovery
 

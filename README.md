@@ -119,9 +119,11 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
 * `docs/upstream.md` is the candidate register for upstream contributions - **nothing submitted yet**, and
   the verified Lineage/AOSP review and licensing rules are recorded there.
 * Bluetooth is a deliberate second pass after first boot (`docs/decisions.md`, "Bluetooth route").
-* No partition is ever resized or rewritten, and uboot/trust/dtb/dtbo/vbmeta/RKLoader/security are never
-  written by our tooling; recovery is written only as the D42 patch (**D11**/**D18**/**D19**). Restoring
-  the unit's own firmware means the OEM package or the stock backup (**D39**/**D40**).
+* No partition is ever resized, and uboot/trust/dtb/dtbo/vbmeta/RKLoader/security are never written by our
+  tooling. Recovery is writable from Nov 20 under the owner's condition that MTC/mainboard flashing stays intact
+  (**D80**), so it is written only as the D42-style patch and always rolled back to the byte-exact capture
+  `1fdf5ea77fc6…` (**D11**/**D18**/**D19**). Restoring the unit's own firmware still means the OEM package or the
+  stock backup (**D39**/**D40**).
 
 ## Status (Nov 18/19)
 
@@ -147,19 +149,29 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   dying init to u-boot and removes the adb route (**D73**). UART (**D63**) was declined again on Nov 19 ("Not
   yet"), so the case stays closed and u-boot's own stage remains unreadable. The owner's forwarded "blind plan"
   is checked line by line in `docs/blind-plan-corrections.md`.
- * **L2 ran Nov 19 23:35 CET and left the unit silent; the owner restored it Nov 20 14:32 CET.** **L2** - Android
-   14's static first-stage `init` inside the stock Android 10 ramdisk, built by `scripts/build_l2_ramdisk.sh`
-   (`L2-ramdisk.gz` `6456104e82c0…`) and `tools/build_l2_boot.py` (`L2-init14-in-a10rd.img` `eaf9b7de30f9…`) - was
-   written to `boot` as the whole partition, and after `adb reboot` the unit never answered: no TCP adb over ten
-   minutes of probes, no ping reply. The owner forced the recovery menu and installed the OEM package from the
-   external SD card with no `/data` wipe; recovery logged the install in `pmsg-ramoops-0` (success flag `1`,
-   `time_total: 333` s, 3,124,451,704 B written). The unit boots stock Android 10 again with WiFi up and a
-   rendering panel, and TCP adb came back by itself. Partition 7 now holds the package's image `b449aee98c01…`, so
-   **that** capture is the rollback image from now on (**D76**); `misc` is still `909bdd979111…` and `super` still
-   `535dac26946d…`. L2's failure has **no recorded cause**: the console record carries the *previous* boot's text
-   and the recovery/flash boots overwrote it (**D77**), and `misc` never changed, so init never wrote a Boot
-   Control Block - that boot hung instead of taking the recovery hand-off (**D74**). No further Android 14 image
-   goes on the unit until a boot that keeps TCP adb is designed (**D75**).
+* **L2 ran Nov 19 23:35 CET and left the unit silent; the owner restored it Nov 20 14:32 CET.** **L2** - Android
+  14's static first-stage `init` inside the stock Android 10 ramdisk, built by `scripts/build_l2_ramdisk.sh`
+  (`L2-ramdisk.gz` `6456104e82c0…`) and `tools/build_l2_boot.py` (`L2-init14-in-a10rd.img` `eaf9b7de30f9…`) - was
+  written to `boot` as the whole partition, and after `adb reboot` the unit never answered: no TCP adb over ten
+  minutes of probes, no ping reply. The owner forced the recovery menu and installed the OEM package from the
+  external SD card with no `/data` wipe; recovery logged the install in `pmsg-ramoops-0` (success flag `1`,
+  `time_total: 333` s, 3,124,451,704 B written). The unit boots stock Android 10 again with WiFi up and a
+  rendering panel, and TCP adb came back by itself. Partition 7 now holds the package's image `b449aee98c01…`, so
+  **that** capture is the rollback image from now on (**D76**); `misc` is still `909bdd979111…` and `super` still
+  `535dac26946d…`. L2's failure has **no recorded cause**: the console record carries the *previous* boot's text
+  and the recovery/flash boots overwrote it (**D77**), and `misc` never changed, so init never wrote a Boot
+  Control Block - that boot hung instead of taking the recovery hand-off (**D74**). No further Android 14 image
+  goes on the unit until a boot that keeps TCP adb is designed (**D75**).
+* **Nov 20 late afternoon: one safe rung ran on the new base image.** `L5-diag-on-newbase.img` (`3de96f683b74…`)
+  is the post-flash capture plus the three proven cmdline tokens (`printk.devkmsg=on`, `loglevel=8`, `panic=12`);
+  it differs from the capture by 38 bytes, all in the cmdline field, booted Android 10 unchanged, and its record
+  came back on a warm reboot - 183,405 B, 2,411 lines, no ratelimit notice, 832 `init:` lines. Partition 7 was
+  restored to `b449aee98c01…` and re-verified. **D78** bounds what may be written next: none of the unit's USB
+  ports drive adb, so recovery is not reachable as a shell from this workstation and TCP adb while Android 10
+  runs is our only route - only content already proven to boot goes on the unit. **D79** raises the UART case:
+  recovery starts `console /system/bin/sh` under `ro.debuggable=1`, so a UART probe would give an interactive
+  shell that could read a failed boot's pstore record; the probe is still declined (**D63**), so Android 14 does
+  not go back on the unit until either that channel opens or the owner pulls the record themselves (**D75**).
 * `misc` is now permitted for a Boot Control Block write as a recovery hand-off (**D71**); it still hashes
   `909bdd979111…` exactly as captured, because nothing has been written there, and every other boot-chain
   partition stays forbidden.

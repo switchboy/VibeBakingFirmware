@@ -18,8 +18,13 @@ colours of 1024x600), `/data` intact at 17 % used. Partition 7 now holds the pac
 between the content end and the tail resource header (**D76**); `misc` is still `909bdd979111…` and `super` still
 `535dac26946d…`. The console record of the failed L2 boot is gone - what survived is the flash boot's record, and
 `pmsg-ramoops-0` carries recovery's install log (**D77**, measurement in `docs/findings.md`, "Nov 20 (afternoon)").
-Nothing has been written since the restore, and no Android 14 image goes back on the unit until a boot that keeps TCP
-adb is designed (**D75**).
+At 15:20-15:26 CET one diagnostic rung ran on that base (`L5-diag-on-newbase.img` `3de96f683b74…`, capture plus the
+three proven cmdline tokens, 38 bytes of difference) - Android 10 booted unchanged with the tokens live, its record
+came back on a warm reboot, and partition 7 was put back on the capture and verified (`boot_completed=1`, `wlan0` up,
+zero tokens, boot id `ea6147d4-a6ee-4398-8614-30b99877def8`). Partition 7 is therefore the capture `b449aee98c01…`
+right now, `misc` is untouched, and nothing else was written. No Android 14 image goes back on the unit until there
+is a route that can read a dying boot: TCP adb while Android 10 runs is our only channel (**D78**), the unit's USB
+ports cannot drive adb in recovery, and the UART probe stays declined (**D63**/**D79**).
 
 ## Identity of the firmware actually installed
 
@@ -294,7 +299,8 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
     sent into recovery instead of needing a card.~~ Answered Nov 19: **"Yes, misc allowed"** (**D71**). It still
     hashes `909bdd979111…` exactly as captured, because nothing has been written to it; the permission is held in
     reserve, since the ladder's reboot-target token uses `bootloader` and never writes the BCB. Every other
-    boot-chain partition stays forbidden (**D18**/**D19**).
+    boot-chain partition other than `recovery` stays forbidden (**D18**/**D19**; `recovery` itself was unbanned on
+    Nov 20, **D80**).
 13. ~~Tonight's approvals: may I run **P0** ... and after that, **L0**?~~ Answered Nov 19: **P0 then L0**, both
     executed. P0 proved the console route (**D69**); L0 wrote `L0-stock.img` (33,554,432 B) as the whole
     partition, partition 7 went `0bd1cc806740…` -> `4121b58f7759…`, and Android 10 rebooted from our repack with
@@ -314,6 +320,16 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
     the recovery and flash boots, not by a cold power cycle, so L2's failure line is unrecoverable (**D77**) - and
     the fact that you had to force recovery means init never wrote a Boot Control Block (`misc` still
     `909bdd979111…`), so that boot hung rather than taking the hand-off.
+16. ~~The only thing that unblocks a second Android 14 attempt: a channel that reads a boot while it is dying~~
+    **Answered by your own lift on Nov 20 (D80).** You allowed writing `recovery` while MTC/mainboard flashing stays
+    intact, and that is the channel: recovery boots *after* a dead boot, and while it runs `console-ramoops-0` still
+    holds the dead boot's text (**D77**). A patched partition 8 (stock recovery bytes + one inert appended service,
+    **D42**'s splice) reads that record into `/cache` and puts partition 7 back on the known-good image by itself, so
+    a failed Android 14 boot leaves a log we can read over adb and a unit that comes back on its own. What is still
+    asked of you: **if a boot hangs instead of exiting, force recovery with your grip - and do not cold power-cycle
+    first**, because a cold cycle erases the RAM records (**D69**/**D77**). The UART probe stays declined (**D63**),
+    and the bootSD card route stays your own restore route (**D39**); neither is needed for evidence now.
+
 
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)
