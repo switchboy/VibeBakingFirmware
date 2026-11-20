@@ -75,6 +75,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D69-D71 | D69/D70 executed Nov 19 (owner's go), D71 answered Nov 19 (owner) | P0 proved the pstore console on the unit: the console and pmsg records survive a warm reset and the console record is whole-boot text including PID-1's messages, so a failed boot can be read (**D69**); L0's byte-identical repack was written as the whole partition and stock Android 10 booted from it with WiFi up and a rendering panel, so our packing pipeline is trusted by the unit (**D70**); the owner permitted `misc` for a Boot Control Block write as a recovery hand-off, while every other boot-chain partition stays forbidden (**D71**) |
 | D72-D73 | decided Nov 19 from the ladder rungs | `printk.devkmsg=on` unblocks init's log lines (65 -> 819 console `init:` lines) and must be kept, and its console volume means records must be read immediately (**D72**); the validated logging set is devkmsg=on + loglevel=8 + panic=12, combined for L2 and payload boots, while `androidboot.init_fatal_reboot_target=bootloader` stays out because it removes the adb route (**D73**) |
 | D74-D75 | decided Nov 19 after L2 left the unit silent | u-boot honours a recovery hand-off (`reboot-recovery`, `b.mode=recovery`) but the recovery ramdisk's `adbd` is USB-gadget-only and wireless adb needs `persist.internet_adb_enable` in `/data` recovery does not mount, so recovery is a landing zone for a human, not a rescue route for our transport (**D74**); after L2 an image may be written only if a boot running it can still answer over TCP adb long enough to read `/sys/fs/pstore/*`, and writes stop until the owner restores the unit (**D75**) |
+| D76-D77 | decided Nov 20 from the restore | partition 7 now holds the OEM package image `b449aee98c01…`, so `a14-work/hu-stock-postflash-143452/boot.bin` is the rollback image (**D76**); a pstore console record carries the *previous* boot's text, so a failed boot's log survives only into the boot immediately after it and a rescue through recovery or another flash forfeits it (**D77**) |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
 ## Current state (Nov 13/14)
@@ -342,3 +343,25 @@ This file is the index plus the risk register, and it must not restate numbers -
     Restore is owner-side (bootSD card **D39**, or USB adb inside recovery **D74**) - owner question 15. Re-probed
     Nov 20 00:06 CET: `adb connect` still says "No route to host" and `ping -c 3` loses every packet, so the unit
     has not come back by itself and the agent stops here until the owner restores it (**D75**).
+
+23. **Nov 20 (afternoon): the owner restored the unit; it runs stock Android 10 again and TCP adb came back by
+    itself.** They forced the recovery menu with their own grip and installed the OEM package from
+    `/mnt/external_sd/update.zip`, no `/data` or `cache` wipe. Recovery's own log survived in `pmsg-ramoops-0`
+    (`374e8080cbd6…`) and records the install: success flag `1`, `time_total: 333` s, `retry: 1`, target build
+    `eng.hct2.20250401.152740`, 3,124,451,704 B written over `dm-0..dm-3`, plus `adbd` lines `opening control
+    endpoint /dev/usb-ffs/adb/ep0` and `USB event: FUNCTIONFS_BIND` (**D74**'s USB-gadget adbd, confirmed live).
+    adb was reachable at 14:32:17 CET on the first probe. Measured state: `boot_completed=1`, OEM fingerprint,
+    `wlan0` up, `surfaceflinger` running, `bootanim` stopped, kernel `4.19.111+`, boot id
+    `e227f00b-e8ef-4dd6-8599-a9b4f7c39ea7`, `/data` unwiped at 17 % used, panel rendering (screencap
+    `4edfe7a4ec10…`, 1024x600, 9,033 distinct sampled colours, 488,446 pure black). Partition 7 is now the package's
+    image `b449aee98c01a7da797be1c2aa8238ce4bef3e5ee3ae731afdcf3c53218c4384`, captured to
+    `a14-work/hu-stock-postflash-143452/boot.bin`; against the Nov 17 capture it differs in 605,548 bytes in the span
+    from 27,406,336 (splash pixel data there in the capture, a DTB head in the package image), while kernel, ramdisk,
+    `second`, header fields, cmdline, both tail DTB copies and both resource SHA1s are identical (**D76**). `misc` is
+    still `909bdd979111…` and `super` still `535dac26946d…`. **D77** is the lesson: `console-ramoops-0`
+    (`2f8289fa9abf…`, 54,883 B, 916 lines, `storagemedia=sd`, `First stage mount skipped (recovery mode)`) holds the
+    *flash* boot's text, so L2's own log was overwritten by the recovery/flash boots and its cause stays unknown - a
+    failed boot's record is readable only from the boot immediately after it. `misc` never changing proves init never
+    wrote a BCB, so the L2 boot hung instead of taking the recovery hand-off. Nothing has been written since; the next
+    rung must keep TCP adb (**D75**), so an Android 14-init boot is not writable again until there is a design that
+    answers over adb before anything else boots.

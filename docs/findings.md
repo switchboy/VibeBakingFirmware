@@ -3623,3 +3623,67 @@ Full digests of the L2 files, so any later session can verify what it is holding
 first-stage `init` that went into it `631f960cbb96149069228b04287739129e40ac83c8c0b82ddd6c65f05d4a4c56`
 (3,644,288 B, from `a14-work/tmp/ramdisks/a14/init`). Partition 7 held that image when the unit went silent,
 and `/data/local/tmp/l2boot.img` on the unit carries the same digest.
+
+## Nov 20 (afternoon) - the owner restored the unit through recovery on the SD card, and the L2 log is gone
+
+The owner reached the recovery menu by their own forced-recovery grip ("vulkandeathgrip") and installed the OEM
+package from the external SD card. The unit booted Android 10 again without a `/data` or `cache` wipe, and TCP adb
+came back by itself at `192.168.1.120:5555` - reachable at 14:32:17 CET, first probe. Everything below was read
+after that; nothing was written.
+
+**Partition 7 no longer holds the Nov 17 capture.** The package rewrote `boot`, and the partition now hashes
+`b449aee98c01a7da797be1c2aa8238ce4bef3e5ee3ae731afdcf3c53218c4384` (`b449aee98c01…`), captured to
+`a14-work/hu-stock-postflash-143452/boot.bin` (33,554,432 B). Against the capture `4121b58f7759…` it differs in
+605,548 bytes, all inside one span starting at 27,406,336 - the area between the Android image's own content end and
+the tail resource header. The kernel blob, the ramdisk blob, the `second` blob, the header fields
+(kernel 25,671,688 / ramdisk 803,440 @ 25,675,776 / second 924,672 @ 26,480,640), the cmdline field, both DTB
+copies in the tail (`32,093,696` and `32,636,928`, 157,962 B) and both resource entries (`rk-kernel.dtb`
+`a6da38a41c07`, `logo.bmp` `a52ea8dbca38`) are byte-identical, and the DTB copy inside `second` sits at 26,482,688
+in both. In that middle span the capture carried 587,556 non-zero bytes that look like splash pixel data
+(`e818d20980ffffff…`), while the package's image carries 70,595 there - the beginning of a DTB whose visible
+strings are `opp-table0`, `operating-points-v2`, `cpu_leakage`, `specification_serial_number`, `customer_demand`,
+`soc-thermal` and the `opp-*` nodes. So the difference is OEM data the boot path does not need, and both images
+boot. Consequence: the rollback image for partition 7 is now this post-flash capture, not the Nov 17 one (**D76**).
+
+**The L2 boot's console record is gone, and its cause stays unknown.** The record that survived into this boot is
+the *flash* boot's: `console-ramoops-0` 54,883 B `2f8289fa9abff09a0cefad954c0ed6832cae73e98e7ac8b57cca4da483344aa3`,
+916 lines, ts 0.0 .. 365.763177, ending `reboot: Restarting system with command ''`. Its `Kernel command line`
+line carries `storagemedia=sd`, and one line says `init: First stage mount skipped (recovery mode)` - i.e. it is
+the recovery-from-SD boot, not the L2 boot. It contains no `printk.devkmsg=on`, no `loglevel=8`, no `panic=12`, no
+`androidboot.init_fatal_reboot_target`, so the L2 text was overwritten by the boot that followed it. That fixes the
+limit that **D69** left open: a console record carries the *previous* boot's text, so a failed boot's log is
+readable only from the boot immediately after it, and an intervening recovery or flash boot destroys it.
+
+`pmsg-ramoops-0` survived as 1,004 B `374e8080cbd6028e96d1ab72d10dbb5c0a7e272fa7a1c715f0e96b9af0288914` and holds
+recovery's own log, which is the record of the restore itself: `adbd` messages `opening control endpoint
+/dev/usb-ffs/adb/ep0`, `UsbFfsConnection constructed`, `USB event: FUNCTIONFS_BIND` (**D74**: recovery's adbd does
+bind a USB gadget), then `recovery:last_install./mnt/external_sd/update.zip` with the success flag `1`,
+`time_total: 333` s, `retry: 1`, `target_build: eng.hct2.20250401.152740`, `bytes_written_dm-0: 985632768`,
+`bytes_written_dm-1: 323530752`, `bytes_written_dm-2: 1273569280`, `bytes_written_dm-3: 539951104` (3,124,451,704 B
+written through the update engine), `temperature_start: 24444`, `temperature_end: 34444`, `temperature_max: 34444`.
+The entry appears twice, so the flash ran once and was logged twice, or the record holds two identical entries.
+
+**What the L2 failure looked like, and what the partitions say about it.** The owner observed, after the write I
+made (not after the stock.zip flash): the OEM logo, then a continuously black but illuminated LCD - the logo, not a
+boot animation. So u-boot drew its splash, the kernel took over the framebuffer, and PID 1 never reached the point
+where the framework starts the animation. The two measurements that constrain the cause: `misc` still hashes
+`909bdd979111…` byte-exactly as captured, so init never wrote a Boot Control Block - the fatal-reboot path never
+ran, which is why the unit did not enter recovery on its own and needed the owner's forced grip; and the boot
+partition stayed the L2 image while it was silent, so every retry ran the same failing image. That makes "init
+hung or exited before the fatal-reboot path" the reading consistent with the evidence, and leaves the actual
+failure line unmeasured. Android 14's own init reasons (`First stage mount skipped`, `Could not bind mount
+/first_stage_ramdisk to itself`, `Failed to mount required partitions early ...`) never reached the console, so the
+two candidates from Nov 19 - Android 14 init rejecting Android 10's SELinux policy, or first-stage mount failing on
+Android 10's partition set - remain unresolved.
+
+**State after the restore** (all read at 14:32-14:35 CET): `sys.boot_completed=1`, fingerprint
+`rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.2025`, `wlan0` up, `init.svc.surfaceflinger` running,
+`init.svc.bootanim` stopped, kernel `4.19.111+`, boot id `e227f00b-e8ef-4dd6-8599-a9b4f7c39ea7`, uptime 705 s at the
+screencap. The panel renders: `a14-work/tmp/pstore-after-stock-143217/screencap.png` 218,799 B
+`4edfe7a4ec107cdf5b448ee1df14fb0f4472bb2f93444d01bd88088ebd738a7e`, 1024x600, 9,033 distinct sampled colours,
+488,446 pure black of 614,400 pixels. `/data` is intact and unwiped: `df /data` reports
+`/dev/block/mmcblk2p15 56123392 9183420 46939972 17%`, and `/data/local/tmp` still holds `stock.img` (the Nov 17
+capture), `l2boot.img` (`eaf9b7de30f9…`), `l3.img`, `l4.img`. `super` still hashes `535dac26946d…` = the Nov 18
+live digest, `misc` still `909bdd979111…`, and nothing outside `boot` was written by the package's own install as
+far as our read route could see. Files: `a14-work/tmp/pstore-after-stock-143217/` (`console-ramoops-0`,
+`pmsg-ramoops-0`, `screencap.png`, `state.txt` `10d2f5805b3fd14fc981a0093f92a1681ce0a248c996655f6e0608a7a474f0e5`).

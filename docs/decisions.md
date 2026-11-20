@@ -2053,3 +2053,29 @@ thing at a time *and* keep a route to adbd, e.g. stock init with Android 14 piec
 ramdisk that starts adb before the framework. (2) Writes stop until the owner restores the unit, because the only
 restore paths left are owner-side: the bootSD card (**D39**) or USB adb inside the stock recovery (**D74**).
 Measurement: `docs/findings.md`, "Nov 19 (night, third half)".
+
+**D76 - the rollback image for partition 7 is now the post-flash capture `b449aee98c01…`, not the Nov 17 capture
+(Nov 20, MEASURED).** The owner's restore installed the OEM package from `/mnt/external_sd/update.zip` in recovery,
+which rewrote `boot`. Partition 7 now hashes `b449aee98c01a7da797be1c2aa8238ce4bef3e5ee3ae731afdcf3c53218c4384` and
+differs from the Nov 17 capture `4121b58f7759…` in 605,548 bytes, all in the span from 27,406,336 (the Android
+image's content end) toward the tail resource header at 32,092,160: the capture had ~587,556 non-zero splash-pixel
+bytes there, the package's image has ~70,595 bytes of a DTB (`opp-table0`, `cpu_leakage`,
+`specification_serial_number`, `soc-thermal`). Kernel, ramdisk, `second`, header fields, cmdline field, both tail
+DTB copies and both resource SHA1s are byte-identical, and both images boot Android 10 with WiFi up and a rendering
+panel. So the difference is inert OEM data, but it means **D57**/**D66**'s claim "partition 7 *is* the capture" is
+true again only for the new capture: `a14-work/hu-stock-postflash-143452/boot.bin` is the known-good image the unit
+boots from now, and any future rollback writes that image. The Nov 17 capture stays in the tree as history and as
+the base the L0/L1/L2 images were built from. Measurement: `docs/findings.md`, "Nov 20 (afternoon)".
+
+**D77 - a pstore console record holds the *previous* boot's text, so a failed boot's log is readable only from the
+boot immediately after it (Nov 20, MEASURED).** After the restore, `console-ramoops-0` (54,883 B, 916 lines, ending
+`reboot: Restarting system with command ''`) carried the flash boot's text - its cmdline says `storagemedia=sd` and
+it logs `init: First stage mount skipped (recovery mode)` - and none of L2's tokens (`printk.devkmsg=on`,
+`loglevel=8`, `panic=12`, `androidboot.init_fatal_reboot_target`) appear in it. So the Nov 19 ladder reads worked
+because each rung's record was pulled from the boot right after it; the L2 record was overwritten by the recovery
+and flash boots that came between it and our next shell. Two consequences for the ladder (**D62**/**D75**): a
+write whose boot fails must be followed by a *boot that answers over TCP adb* before anything else boots, and if
+the rescue goes through recovery or another flash, the failed boot's log is lost for good. `pmsg-ramoops-0` behaves
+differently - it is the userspace log buffer, and here it survived as 1,004 B holding recovery's own install log,
+which is what proved the restore's numbers (`time_total: 333`, 3,124,451,704 B written). Measurement:
+`docs/findings.md`, "Nov 20 (afternoon)".

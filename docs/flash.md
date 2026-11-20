@@ -166,8 +166,10 @@ written (**D18**/**D19**/**D30**), and `super` is never resized (**D18**).
    combined, because it hands a fatal init to u-boot and removes the adb route (**D73**).
 4. **Rollback after any rung**: `adb reboot recovery` (or the owner's bootSD card) and `dd` the whole
    `hu-stock-backup-refresh/boot.bin` (33,554,432 B) onto partition 7. Verify on the device against the
-   capture's digest afterwards. Since Nov 19 the partition's content *is* that capture (**D66** amendment), so a
-   rollback restores bytes the unit already boots from. Two traps when verifying: `adb reboot` drops adbd root, so
+   capture's digest afterwards. Since Nov 19 the partition's content *is* that capture (**D66** amendment); after
+   the owner's Nov 20 restore it is the newer capture `b449aee98c01…` in
+   `a14-work/hu-stock-postflash-143452/boot.bin`, which is the rollback image to use from now on (**D76**). Two
+   traps when verifying: `adb reboot` drops adbd root, so
    re-run `adb root` before reading a partition (`Permission denied` otherwise, and an empty `dd` hashes
    `e3b0c44298fc…` which looks like a change), and binary reads must go through `toybox base64` because `dd`'s CR
    injection corrupts raw output. **L2** (Android 14's static first-stage init inside the stock Android 10
@@ -195,6 +197,22 @@ Restore needs the owner, because no route we can reach writes the partition:
 Nothing else may be written in that state, and no further Android 14 image goes on the unit until a boot that keeps
 TCP adb is designed (**D75**). Re-probed Nov 20 00:06 CET: `adb connect` still fails with "No route to host" and
 `ping -c 3` loses every packet. Full measurement: `docs/findings.md`, "Nov 19 (night, third half)".
+
+### The unit came back Nov 20 14:32 CET - restored by the owner through recovery on the SD card
+
+The owner forced the recovery menu with their own grip and installed the OEM package from
+`/mnt/external_sd/update.zip`; recovery logged it as `last_install` with the success flag `1`, `time_total: 333` s,
+`retry: 1` and 3,124,451,704 bytes written across `dm-0..dm-3` (read from `pmsg-ramoops-0`). No `/data` or `cache`
+wipe was needed, and TCP adb came back on its own. Partition 7 now hashes `b449aee98c01…` - the OEM
+package's own `boot` image, captured to `a14-work/hu-stock-postflash-143452/boot.bin` - so from Nov 20 the rollback
+image is that capture, not the Nov 17 one (**D76**). `misc` is still `909bdd979111…` (untouched) and `super` is
+still `535dac26946d…`.
+
+Two rules this restore teaches. **D77**: `console-ramoops-0` carries the *previous* boot's text, and the L2 boot's
+text was overwritten by the recovery and flash boots between it and our next shell - so a failed boot's log is
+readable only if the boot right after it answers over TCP adb, and any rescue through recovery or another flash
+forfeits it. And the unit did not enter recovery by itself: `misc` never changed, so init's fatal-reboot path never
+ran, which is why the owner had to force the menu (**D74**'s hand-off was not exercised by that boot).
 
 ## Install, route 1: the signed zip through recovery
 

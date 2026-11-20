@@ -6,17 +6,20 @@ non-root, report uploaded over LAN. Kernel config recovered from the embedded gz
 `analysis/hu_vendor_manifest.xml`. Later facts come from the root probe `incoming/probe-20261113-2016.md`
 and the RAMoops record `analysis/panic-20261113-2003-ramoops.txt`.
 
-## Current state: unreachable since Nov 19 23:35 CET (re-probed Nov 20 00:06 CET, still silent)
+## Current state: restored Nov 20 14:32 CET, running stock Android 10 on the OEM package's boot image
 
-L2 (**D62**) was written to `boot` at 23:32-23:34 CET and the unit stopped answering after the reboot: TCP adb on
-`192.168.1.120:5555` fails with "No route to host", `ping` loses every packet, and eight further probes over ten
-minutes found nothing. Partition 7 holds `eaf9b7de30f9…` (the L2 image), not the stock capture; `misc` still
-hashes `909bdd979111…` exactly as captured, `super` still `535dac26946d…`, `/data` untouched, and the boot chain
-partitions untouched. The likely physical state is the stock recovery partition, reached by
-`androidboot.init_fatal_reboot_target=recovery` (**D74**) - which runs `adbd` over USB only, so our TCP route is
-gone. The console record of the failed boot is still in RAM until a cold power cycle erases it. Restoring is
-owner-side: the bootSD card (**D39**) or USB adb inside recovery, per `docs/flash.md`, "L2 ran Nov 19 23:35 CET
-and the unit went silent". Nothing more may be written until the unit answers again (**D75**).
+The owner forced the recovery menu with their own grip and installed the OEM package from the external SD card, with
+no `/data` or `cache` wipe. TCP adb came back by itself at `192.168.1.120:5555` (reachable on the first probe,
+14:32:17 CET). Measured after the restore: `sys.boot_completed=1`, fingerprint
+`rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/eng.hct2.2025`, `wlan0` up, `surfaceflinger` running, `bootanim`
+stopped, kernel `4.19.111+`, boot id `e227f00b-e8ef-4dd6-8599-a9b4f7c39ea7`, panel rendering (9,033 distinct sampled
+colours of 1024x600), `/data` intact at 17 % used. Partition 7 now holds the package's own image `b449aee98c01…`
+(`a14-work/hu-stock-postflash-143452/boot.bin`), which differs from the Nov 17 capture only in ~605 KB of OEM data
+between the content end and the tail resource header (**D76**); `misc` is still `909bdd979111…` and `super` still
+`535dac26946d…`. The console record of the failed L2 boot is gone - what survived is the flash boot's record, and
+`pmsg-ramoops-0` carries recovery's install log (**D77**, measurement in `docs/findings.md`, "Nov 20 (afternoon)").
+Nothing has been written since the restore, and no Android 14 image goes back on the unit until a boot that keeps TCP
+adb is designed (**D75**).
 
 ## Identity of the firmware actually installed
 
@@ -301,13 +304,16 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
     **D63** stays parked, the case stays closed, and nothing is soldered. What that still costs us is u-boot's own
     stage - a boot that never reaches the kernel has no evidence at all, since the pstore console only starts at
     `console [pstore-1] enabled`.
-15. **The unit is unreachable (Nov 19 23:35 CET onward). Please restore it, and tell me which route you used.**
-    Partition 7 holds the L2 image `eaf9b7de30f9…`, so it will not boot Android 10 by itself. Either put your
-    bootSD card in before power and install your own Android 10 package (**D39**), or, if it is sitting in
-    recovery, connect a USB host directly and `dd` the stock `boot.bin` (`4121b58f7759…`, 33,554,432 B) onto
-    partition 7 (**D74**). Tell me afterwards which happened, because a **cold power cycle erases the RAM
-    records** - if you power-cycle, the console log of the failed boot is gone and L2's cause stays unknown.
-    Also: after it boots again, is TCP adb still reachable without re-setting the property?
+15. ~~The unit is unreachable (Nov 19 23:35 CET onward): please restore it, and tell me which route you used~~
+    **Answered Nov 20 by what the unit itself reported.** You forced the recovery menu with your grip and installed
+    the OEM package from `/mnt/external_sd/update.zip`, with no `/data` or `cache` wipe - recovery's `last_install`
+    log in `pmsg-ramoops-0` records success flag `1`, `time_total: 333` s, `retry: 1`, target build
+    `eng.hct2.20250401.152740` and 3,124,451,704 bytes written over `dm-0..dm-3`. TCP adb came back without
+    re-setting the property, on the first probe at 14:32:17 CET. Partition 7 now holds the package's image
+    `b449aee98c01…` (**D76**). One answer is still bad news: the console record of the L2 boot was overwritten by
+    the recovery and flash boots, not by a cold power cycle, so L2's failure line is unrecoverable (**D77**) - and
+    the fact that you had to force recovery means init never wrote a Boot Control Block (`misc` still
+    `909bdd979111…`), so that boot hung rather than taking the hand-off.
 
 
 ## Reference firmware set (Daisaita, downloaded by the owner 2026-11-04)
