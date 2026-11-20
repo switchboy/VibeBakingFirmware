@@ -1,0 +1,73 @@
+# recovery-evidence.img - partition 8 with the evidence reader and boot restorer (D80/D81)
+
+Built Nov 20 (late evening) by `scripts/patch_recovery_evidence.sh` from the post-flash capture the unit boots
+today. Nothing was flashed in this pass: it is a candidate, verified offline. It supersedes the earlier build
+(`a4cf5533482e…`, 39,086,080 B), which is what is on partition 8 now and whose script lost its evidence
+directory under the `/cache` mount.
+
+## Inputs and outputs
+
+| item | bytes | sha256 |
+|---|---|---|
+| capture `a14-work/hu-stock-backup-refresh/recovery.bin` (the rollback) | 100,663,296 | `1fdf5ea77fc66f48977d7846c468959a5845d0222dc73c3fe07a1b96b6cb023b` |
+| built `a14-work/recovery-evidence/recovery-evidence.img` | 39,088,128 | `d64ebd22d6142554d0b788373889059e88d66c7b1eddb8453ccadbb3fb76094a` |
+| superseded build currently on partition 8 | 39,086,080 | `a4cf5533482e88e66b6bd6c250e7052887ba15bebeff2d1712ca8eaff6a7413c` |
+| `scripts/hu_recovery_evidence.sh` (== injected `/sbin/hu-evidence.sh`) | 10,769 | `6c69e501d9d452ff10cb09f62f35fc26338c77553d34d284c7d044ad0af5479e` |
+| `scripts/hu_recovery_evidence_append.rc` (== injected `/init.recovery.rk30board.rc`) | 1,094 | `9099870398b95d85052051aaf13f540a06196294eb2cde748fc133d632643727` |
+| `scripts/smoke_recovery_evidence.sh` (offline logic gate) | 14445 | `e67ad192080680113b16bd5d118c429b98aa980bbb4e1bf0012a052af9bb642b` |
+
+## What changes in the image (from `a14-work/recovery-evidence/patch.log`)
+
+* boot header version 2, page 2048. Kernel 25,671,688 B at 2048 - **bytes unchanged**, blob digest `a514a3ffb77e`.
+* ramdisk gzip 12,519,199 B -> 12,483,273 B at 25,675,776; 485 cpio entries, no duplicates.
+* `second` 924,672 B, bytes unchanged, offset 38,195,200 -> 38,160,384; blob digest `fb80617e7c97`.
+* `recovery_dtbo` 803 B, bytes unchanged, offset 39,120,896 -> 39,086,080; digest `28a07d4946e9`.
+* content end 39,120,896 -> 39,086,080; file 39,088,128 B; write span 0..39,088,128 of a 100,663,296 B
+  partition. Beyond the content end 61,577,216 B stays as it is on the disk (457 non-zero bytes today).
+* byte-level refusal check passed: nothing outside the ramdisk span differs from the capture; the only header
+  bytes that move are `ramdisk_size` and the stored dtbo offset (header offset 1636).
+
+## The stock machinery survives (D80's condition: MTC/mainboard flashing stays intact)
+
+* `init.recovery.rk30board.rc`: 663 B of stock content kept verbatim, 431 B appended - one `service hu_evidence`,
+  one `start hu_evidence`, stock `service console` line count still 1, stock `sys.usb.controller` line count
+  still 1.
+* The recovery binary, its UI, `update_engine`, `recovery.fstab`, the USB gadget config and HCT's own trusted
+  cert (`cf2ab3…`) are untouched, so the OEM `update(1).zip` install from the card - the mainboard/MTC loader
+  path the owner used Nov 20 - still verifies.
+
+## What the script may use (measured out of the capture, Nov 20)
+
+`/sbin/busybox` carries `awk cat cut date echo expr grep head md5sum mkdir mount reboot sed sha1sum sleep stat
+sync tail touch umount`; it does **not** carry `dd wc cp rm ls tr sha256sum`. The ramdisk also ships `/system/bin`
+(toybox plus real binaries: `sha256sum dd tr rm wc cp ls blockdev devmem sh`) together with `/system/bin/linker64`
+(1,445,568 B) and `/system/lib64` (`libc.so`, `libdl.so`, `libc++.so`), so those run before recovery mounts the
+system slice. The script resolves every tool to `/system/bin/<name>` when present and to the busybox applet
+otherwise; partition reads use `cat`, sizes use `stat -c %s`, the raw RAM read uses `tail -c +N | head -c`,
+nothing is deleted (the request is retired by a nonce-named done-marker), and only `reboot echo sleep sync date`
+are called on busybox directly.
+
+## Offline logic gate - `scripts/smoke_recovery_evidence.sh`, rc 0, nine scenarios
+
+1. run outside the unit - guard refuses (rc 1), nothing written, no mount attempted, no reboot;
+2. no restore request - `/cache` mounted before the evidence directory is created, records copied, partition 7
+   untouched, rebooted so the record becomes readable over adb;
+3. request staged, partition 7 differs - rollback written through `cat`, digest verified, `restore-ok.txt`,
+   done-marker named after the nonce, request file kept (busybox has no `rm`);
+4. the same nonce cannot re-arm the restore;
+5. partition 7 already on the rollback image - skipped, not written;
+6. request with no rollback staged - partition 7 untouched, the reason recorded;
+7. no digest tool anywhere - restores **anyway** and writes `restore-unverified.txt`, never claiming a match
+   (two empty digests compare equal, which is the defect this scenario guards);
+8. an install package on a card - the restore still runs, recovery is left alone, no reboot (**D80**'s condition);
+9. pstore not a filesystem - the raw RAM read lands at the ramoops offset and the printable view comes from
+   `/system/bin/tr`.
+
+What it does not prove: the shell dialect. busybox ash is not on this workstation, so POSIX syntax is checked here
+with `bash --posix -n` and still has to be checked with `dash -n` and `busybox ash -n` on the build host before
+partition 8 is written again.
+
+## Rollback
+
+Partition 8 rolls back by writing the capture `1fdf5ea77fc6…` (100,663,296 B) back over it. Partition 7's
+rollback is unaffected: it stays `b449aee98c01…` (**D76**), and `misc` stays `909bdd979111…`.

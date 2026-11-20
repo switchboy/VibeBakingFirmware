@@ -3761,3 +3761,129 @@ Consequence for the ladder: the condition that made a second Android 14 attempt 
 without UART (**D63** stays declined) and without a card slot we cannot drive - recovery itself becomes the reader
 and the restorer. What is owed next is the patched image built from the current capture, then one recovery boot to
 prove the script runs and that the stock install path is untouched.
+
+## Nov 20 (evening) - partition 8 got the patched recovery, and the first run stopped at the recovery menu
+
+**A tooling bug rebooted the workstation.** `scripts/hu_recovery_evidence.sh` ended with a bare
+`reboot 2>/dev/null || $BB reboot 2>/dev/null`. The offline dry-run ran the script on the workstation, so the
+first word reached the host's own `/usr/sbin/reboot` and the workstation went down (Nov 20, ~17:0x CET; it came
+back with 14 min of uptime). Nothing on the unit or in the repo was written by that: the script had only touched
+its fake tree under `a14-work/tmp/rec-smoke/`. The script now refuses to run without
+`/dev/block/by-name/misc` and `/sbin/busybox` (the recovery ramdisk's own markers) and its reboot goes through
+busybox only. This is recorded as a failure, not smoothed over: **a script written for the unit must never be
+runnable on the host**, which the dry-run exposed because the dry-run execs the real file.
+
+**Four offline scenarios pass after the fix**, run against the mapped fake tree (device paths, `/sbin/busybox`,
+`/sbin/sh`, `/sys/fs/pstore`, `/dev/mem` all redirected into `a14-work/tmp/rec-smoke/`): package on the card and
+no request -> records copied, UI left alone, no reboot; request present and rollback equals partition 7 ->
+`restore-skipped.txt`, reboot requested; request present and rollback differs -> `restore-ok.txt`, reboot
+requested, partition 7 digest equals the rollback's; guard tripped (no `misc`, no `busybox`) -> exits 1 and does
+nothing. The fake busybox maps applets onto host coreutils, so the size/digest lines in the fake log are shim
+artefacts, not measurements.
+
+**Partition 8 now holds the patched recovery.** Built from the current capture by
+`scripts/patch_recovery_evidence.sh`: `a14-work/recovery-evidence/recovery-evidence.img` 39,086,080 B
+`a4cf5533482e88e66b6bd6c250e7052887ba15bebeff2d1712ca8eaff6a7413c`. Against the capture `1fdf5ea77fc6…`: kernel
+blob `a514a3ffb77e`, `second` blob `fb80617e7c97` and `recovery_dtbo` `28a07d4946e9` byte-identical; header page
+differs only at bytes 16..19 (`ramdisk_size`) and 1636..1643 (the stored dtbo offset); ramdisk 12,519,199 ->
+12,481,780 B (485 cpio entries); the appended block adds exactly one `service hu_evidence` and one
+`start hu_evidence`, and the stock `service console` and `sys.usb.controller` lines are still there once each.
+Written with `dd bs=4096 count=9546` (39,086,080 B) and read back: the partition's first 39,086,080 B hash
+`a4cf5533482e…`, byte-for-byte equal to the image; partition-wide digest moved `1fdf5ea77fc6…` ->
+`a022cfb26ef9…`. Partition 7 stayed `b449aee98c01…` and `misc` stayed `909bdd979111…`. A read-path trap worth
+knowing: `dd bs=4096 count=9546 … | toybox base64` came back 14,336 bytes longer than the requested span (zero
+padding), so a digest taken over that pipe is not the image digest - compare over the exact byte count instead.
+Before the write, `/cache/hu-rollback-boot.bin` (`b449aee98c01…`) and `/cache/hu-restore.request` were staged
+over adb, so the recovery was supposed to restore-and-reboot by itself.
+
+**Then the unit stopped answering and the owner found it sitting in the recovery menu.** `adb reboot recovery`
+reported "device not found" (TCP adb does not exist in recovery, **D74**), and from ~17:17 CET onward there is no
+adb and no ping reply - through 18:47 CET the unit has not answered at all. The owner reports the panel shows the
+recovery menu, which is good news about the patch: the stock recovery UI is alive on the patched image, so the
+mainboard/MTC flashing path is intact (**D80**'s condition). The bad news is that the automatic hand-back did not
+happen with the request staged, so either the service never ran, `/cache` was not mountable in recovery, or
+busybox's `reboot` did nothing. Which of those is true is written in `/cache/hu-evidence.log`, and that file only
+becomes readable once the unit boots Android 10 again.
+
+**What is owed to the owner, and what the answer costs.** A cold power cycle, not a menu choice: this unit enters
+recovery through the kernel's reboot-mode, not through `misc` (`misc` did not change on Nov 20 when recovery ran
+from the card, and it did not change tonight), so a menu reboot can land back in recovery. A cold cycle boots
+u-boot -> partition 7 -> stock Android 10, and `/cache` survives because it is flash. The cost is the recovery
+boot's own console record (**D69**: a cold cycle erases RAM records) - the record we wanted tonight is the
+*Android 10* boot's text, which the script would have copied into `/cache` before the cycle, so if the log says it
+ran, the record is already saved; if the log is missing, we learn the service did not run and fix that before any
+Android 14 image goes back on the unit (**D75**/**D78** still hold until this route is proven).
+
+## Nov 20 (late evening) - the evidence script was rebuilt and logic-tested offline; four defects came out of it
+
+The first patched recovery is on partition 8 (`a4cf5533482e…`, see above) and the unit is parked in the recovery
+menu, so nothing further was written tonight. What ran tonight was offline: the ramdisk's real tool set was
+measured out of the capture, `scripts/hu_recovery_evidence.sh` was rewritten against that measurement, and
+`scripts/smoke_recovery_evidence.sh` runs the real script against a fake world. Four defects were found; three
+of them would have cost the owner a boot.
+
+**The ramdisk's tool set, measured by strings over the extracted `sbin/busybox`.** `awk cat cut date echo expr
+grep head md5sum mkdir mount reboot sed sha1sum sleep stat sync tail touch umount` - and **no `dd`, no `wc`, no
+`cp`, no `rm`, no `ls`, no `tr`, no `sha256sum`**. The same ramdisk ships `/system/bin` (toybox plus real
+binaries: `sha256sum dd tr rm wc cp ls blockdev devmem sh`, most of them symlinks to `toybox`) together with
+`/system/bin/linker64` (1,445,568 B) and `/system/lib64` (`libc.so`, `libdl.so`, `libc++.so`), so those run
+here before recovery mounts the system slice. The script therefore never asks busybox for something it does not
+have: partition reads go through `cat`, sizes through `stat -c %s`, the raw RAM read through `tail -c +N | head -c`,
+nothing is deleted, digests prefer `/system/bin/sha256sum` and fall back to `sha1sum`/`md5sum`, and printable
+extraction uses `/system/bin/tr`. The harness refuses `dd wc cp rm ls tr sha256sum` on its busybox shim, so a
+regression that reaches for them fails loudly instead of passing.
+
+**Defect 1 - the evidence directory vanished under the mount.** The run mounted cache but had created
+`/cache/hu-evidence` *before* the mount, so the directory disappeared under the mount point and every copy
+failed with `No such file or directory` - that is why the first run produced no evidence and no log. `/cache` is
+mounted first, then the directory is created inside the mounted partition. The harness asserts the mount line
+precedes the directory line, and asserts a consumed request cannot re-arm a restore.
+
+**Defect 2 - a digest that could not be read looked like a match.** The restore compared `before` and `want`;
+when the digest tool produced nothing, both sides were empty strings and compared **equal**, so the script wrote
+`restore-skipped.txt`, left the risky image in partition 7 and reported success. `dig()` now checks the *output*
+being non-empty rather than the pipeline's exit status (the exit status belongs to the last command in the
+pipeline), and an unreadable digest means "write the rollback anyway" with the result recorded as
+`restore-unverified.txt`. Writing the known-good image is the safe direction; skipping on an unreadable digest is
+not. Scenario 7 of the harness covers exactly that.
+
+**Defect 3 - a request could re-arm the restore, and busybox cannot delete it.** With no `rm` applet, the
+request file survived, so every later recovery boot would restore again. The request now carries a nonce, and the
+done-marker is named after it (`/cache/hu-evidence/restore-done-<nonce>.txt`); a fresh request with a new nonce
+arms a fresh restore, the same nonce never does. `restore-nonce.txt` records which nonce was consumed.
+
+**Defect 4 - rebooting from recovery can land back in recovery.** This unit enters recovery through the kernel's
+reboot-mode, not through `misc` (findings, "Nov 20 (evening)"): `misc` did not change when recovery ran from the
+card, and did not change tonight. So the tail of the script only attempts `$BB reboot` when this boot actually
+did something - evidence copied, a restore performed, or a restore skipped - and the log line names the fallback:
+*"if this lands back in the recovery menu (reboot-mode), a cold power cycle boots partition 7"*. Whether a plain
+warm reboot clears the mode is not measured yet; tonight's parked menu is the evidence that it may not.
+
+**The offline gate, `scripts/smoke_recovery_evidence.sh`, rc 0 (9 scenarios).** Fake `/proc/mounts` in
+mounts-style lines, fake by-name files, fake `/sys/fs/pstore`, fake `/dev/mem` covering `0x110000..0x210000`, and
+two fake bin trees (`binfull` mirrors what the ramdisk ships, `binbare` carries the file tools but no digest tool).
+Scenario results: guard outside the unit - rc 1, nothing written, no mount attempted; no request - cache mounted
+before the directory, records copied, partition 7 untouched, reboot requested so the record becomes readable over
+adb; request staged and partition 7 differs - rollback written through `cat`, digest verified, done-marker named
+after the nonce, request file kept; same nonce cannot re-arm; partition 7 already on the rollback - skipped, not
+written; request with no rollback - partition 7 untouched, reason recorded; no digest tool - restores anyway and
+writes `restore-unverified.txt`, never a false skip; a package on the card - the restore still runs but recovery
+is left alone, no reboot (**D80**'s condition); pstore absent - the raw RAM read lands at the right offset and the
+printable view comes from `/system/bin/tr`. Partition-7 assertions compare digests, not sizes, because `truncate`
+does not clear bytes that are already there.
+
+**What the harness does not prove:** the shell dialect. busybox ash is not on this host, so POSIX syntax is
+checked here with `bash --posix -n` (passes) and still has to be checked with `dash -n` and `busybox ash -n` on
+the build host before partition 8 is written again.
+
+**Rebuilt candidate.** `scripts/patch_recovery_evidence.sh` ran on the current capture:
+`a14-work/recovery-evidence/recovery-evidence.img` is 39,088,128 B, sha256
+`d64ebd22d6142554d0b788373889059e88d66c7b1eddb8453ccadbb3fb76094a`, replacing the `a4cf5533482e…` build that is
+on the disk now. Kernel blob `a514a3ffb77e`, `second` blob `fb80617e7c97` and `recovery_dtbo` `28a07d4946e9` are
+byte-identical to the capture; ramdisk gzip 12,519,199 -> 12,483,273 B at 25,675,776 (485 cpio entries, no
+duplicates); header changes only `ramdisk_size` and the stored dtbo offset (offset 1636); the appended rc block
+keeps the stock 663 B verbatim and adds 431 B (one `service hu_evidence`, one `start hu_evidence`, stock
+`service console` and `sys.usb.controller` lines still one each). The injected `/sbin/hu-evidence.sh` hashes
+`6c69e501d9d452ff10cb09f62f35fc26338c77553d34d284c7d044ad0af5479e`, identical to `scripts/hu_recovery_evidence.sh`.
+Nothing was flashed in this pass; the unit stays parked until the owner cold-cycles it. Evidence file:
+`analysis/recovery-evidence.txt`.

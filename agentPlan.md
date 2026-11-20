@@ -78,9 +78,10 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D76-D77 | decided Nov 20 from the restore | partition 7 now holds the OEM package image `b449aee98c01…`, so `a14-work/hu-stock-postflash-143452/boot.bin` is the rollback image (**D76**); a pstore console record carries the *previous* boot's text, so a failed boot's log survives only into the boot immediately after it and a rescue through recovery or another flash forfeits it (**D77**) |
 | D78-D79 | decided Nov 20 | TCP adb while Android 10 runs is the only route we can reach, so only images already proven to boot may be written (**D78**); recovery starts `console /system/bin/sh` because ro.debuggable=1, which would make the UART an interactive shell able to read a failed boot's pstore record - the probe is still declined (**D79**) |
 | D80 | decided Nov 20 by the owner | `recovery` (p8) writable while MTC/mainboard flashing stays intact; a patched partition 8 becomes the route that reads a dead boot's pstore record and restores partition 7, lifting D78's constraint (**D80**) |
+| D81 | decided Nov 20 evening | the recovery evidence script may only use what the ramdisk holds (busybox has no `dd`/`wc`/`cp`/`rm`/`ls`/`tr`/`sha256sum`; `/system/bin` does, with `linker64`), mounts `/cache` before creating its directory, retires a restore request by a nonce-named done-marker, treats an unreadable digest as "write the rollback anyway", and reboots only when it did something because reboot-mode can land back in the menu |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
-## Current state (Nov 13/14)
+## Current state (items 1-24 through Nov 20 late afternoon; item 25 is Nov 20 evening)
 
 1. **The unit runs stock Android 10 again and is backed up byte-for-byte (D39/D40).** The bootSD card
    reaches a real recovery environment, `diatsia fw/update(1).zip` restores the unit's own firmware, and
@@ -383,3 +384,23 @@ This file is the index plus the risk register, and it must not restate numbers -
     `console=ttyFIQ0`), so a UART probe would give an interactive shell that could mount pstore and read the failed
     boot's text; the probe stays declined (**D63**), so a second Android 14 attempt is not writable until either the
     UART opens or the owner agrees to pull the record in recovery themselves.
+25. **Nov 20 (evening, offline): partition 8 holds the patched recovery, and the script that runs there was
+    rebuilt and logic-tested.** The first patched image (`a4cf5533482e…`, 39,086,080 B) was written over the capture
+    `1fdf5ea77fc6…` and read back byte-exact; partition 7 stayed `b449aee98c01…` and `misc` stayed
+    `909bdd979111…`. The stock recovery UI is alive on it, so **D80**'s condition - MTC/mainboard flashing intact -
+    is measured, not assumed. The automatic hand-back never happened and no evidence was copied: the script created
+    `/cache/hu-evidence` before mounting `/cache`, so the directory vanished under the mount point and the run wrote
+    nothing and logged nothing. `scripts/hu_recovery_evidence.sh` was rewritten against a measurement of the
+    ramdisk's own tools (strings over `sbin/busybox`: no `dd wc cp rm ls tr sha256sum`; `/system/bin` carries them
+    plus `linker64` and `lib64`), and `scripts/smoke_recovery_evidence.sh` now asserts nine scenarios against fake
+    partitions, a fake `/proc/mounts`, a fake pstore and two fake bin trees - all pass (rc 0). Four defects came
+    out of it: the vanished evidence directory; a digest that could not be read comparing equal to another empty
+    digest, which would skip the restore and leave the risky image in partition 7 (now: write the rollback anyway,
+    record `restore-unverified.txt`); a request that could re-arm the restore on every later recovery boot, retired
+    by a nonce-named done-marker since busybox has no `rm`; and a reboot from recovery that can land back in the
+    menu, because this unit enters recovery through the kernel's reboot-mode, not `misc` - so the reboot is only
+    attempted when this boot did something, and the log names the cold-cycle fallback. The rebuilt candidate is
+    `a14-work/recovery-evidence/recovery-evidence.img` (39,088,128 B, `d64ebd22d614…`), with kernel/`second`/dtbo
+    blobs byte-identical to the capture and the stock rc kept verbatim (`analysis/recovery-evidence.txt`). Nothing
+    was flashed in this pass. Next: the owner cold-cycles, then `/cache/hu-evidence.log` says whether the service
+    ran; the rebuilt image goes on partition 8 only after `dash -n` and `busybox ash -n` pass on the build host.

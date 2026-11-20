@@ -27,7 +27,7 @@ outside the ramdisk span differs from the capture, and the rollback is always `r
 `1fdf5ea77fc6…` (100,663,296 B). Bootloader, `trust`, `dtb`, `dtbo`, `vbmeta`, `security`, `RKLoader.bin`
 and the GPT stay forbidden (**D18**/**D19**).
 
-### Recovery is now ours (Nov 20): the reader and the restorer (**D80**/**D77**)
+### Recovery is now ours (Nov 20): the reader and the restorer (**D80**/**D77**/**D81**)
 
 Before Nov 20 nothing we could reach read a boot that dies (**D78**). A recovery we control does, because it
 boots *after* the dead boot and, per **D77**, `console-ramoops-0` still holds that dead boot's text while
@@ -35,13 +35,38 @@ recovery runs. The appended service runs automatically (recovery boots with
 `androidboot.selinux=permissive`, measured Nov 20) and does three things, using only what the recovery
 ramdisk already holds:
 
-1. `mkdir /sys/fs/pstore` and `mount pstore nodev /sys/fs/pstore`, then copy `console-ramoops-0` and
-   `pmsg-ramoops-0` into `/cache/hu-evidence/` together with `/proc/cmdline`, `/proc/sys/kernel/random/boot_id`
-   and a timestamp, so the record survives into the next boot and is readable over TCP adb.
+1. Mount `/dev/block/by-name/cache` onto `/cache` **first**, then create `/cache/hu-evidence/` inside the
+   mounted partition, then copy `console-ramoops-0`, `pmsg-ramoops-0` and `dmesg-ramoops-0` into it together with
+   `/proc/cmdline`, `/proc/sys/kernel/random/boot_id` and a timestamp. Mounting after the mkdir loses the
+   directory under the mount point - that is exactly what the first run did, and it is why that run left no
+   evidence and no log. If pstore is not a filesystem here the script reads the ramoops RAM directly with
+   `tail -c +1114113 | head -c 1048576` (busybox has no `dd`).
 2. If `/cache/hu-restore.request` exists (staged by adb before a risky write, with the rollback at
-   `/cache/hu-rollback-boot.bin`, 33,554,432 B), `dd` it onto partition 7 and re-read the digest, so a boot
-   that died is put back on the image the unit already boots from (**D76**) without the owner touching a menu.
-3. Reboot. If the marker is absent it changes nothing, so recovery behaves exactly like the stock one.
+   `/cache/hu-rollback-boot.bin`, 33,554,432 B, and a nonce in the request), write the rollback onto partition 7
+   with `cat` and re-read the digest. A digest that cannot be read never counts as a match: the script writes the
+   rollback anyway and records `restore-unverified.txt`. The request is retired by a nonce-named done-marker
+   (`/cache/hu-evidence/restore-done-<nonce>.txt`), because this busybox has no `rm`.
+3. Hand the unit back. It leaves the recovery UI alone whenever an install package is on a card (so the owner's
+   own MTC/mainboard install stays usable, **D80**'s condition), and it reboots only when this boot actually did
+   something. The unit enters recovery through the kernel's reboot-mode, so a reboot from recovery can land back
+   in the menu - the first patched run ended parked there - and the log states the fallback: a cold power cycle
+   boots partition 7.
+
+Staging a restore from Android 10 over adb root, before a risky write:
+
+```
+adb root
+adb shell 'mkdir -p /cache'
+adb push a14-work/hu-stock-backup-refresh/boot.bin /cache/hu-rollback-boot.bin   # or the post-flash capture
+adb shell 'printf "%s\n" nonce-<n> > /cache/hu-restore.request'
+```
+
+The current candidate image is `a14-work/recovery-evidence/recovery-evidence.img` - 39,088,128 B, sha256
+`d64ebd22d6142554d0b788373889059e88d66c7b1eddb8453ccadbb3fb76094a` (evidence: `analysis/recovery-evidence.txt`).
+The build on the disk now (`a4cf5533482e…`, 39,086,080 B) carries the script whose evidence directory vanished; it
+is superseded, and partition 8 always rolls back to the capture `1fdf5ea77fc6…` (100,663,296 B). Before partition 8
+is written again the script has to pass `dash -n` and `busybox ash -n` on the build host - this workstation has no
+busybox ash - alongside `scripts/smoke_recovery_evidence.sh`.
 
 `/cache` is the destination because recovery's `init.rc` already creates it, its `recovery.fstab` maps
 `/dev/block/by-name/cache`, Android 10 mounts it and adb root can write it, and it is neither a boot-chain

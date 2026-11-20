@@ -184,3 +184,38 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
 * The only writes since Nov 18 are L0's byte-identical repack of `boot`, the four L1 token images and **L2**'s
   image; each was the whole partition, nothing beyond `boot` + `super` has
   ever been touched, and `super` is never resized (**D18**/**D42**/**D43**/**D57**/**D62**/**D66**/**D70**/**D75**).
+
+## Status (Nov 20 evening)
+
+* **Partition 8 is patched and the unit is parked in the recovery menu.** The first patched recovery
+  (`a4cf5533482e…`, 39,086,080 B) was written over the capture `1fdf5ea77fc6…` and read back byte-exact; partition 7
+  stayed `b449aee98c01…` and `misc` stayed `909bdd979111…`. The stock recovery UI is alive on the patched image,
+  which is the proof **D80**'s condition holds: the mainboard/MTC flashing path is intact. The automatic
+  hand-back did not happen and no evidence was copied, because the script created `/cache/hu-evidence` *before*
+  mounting `/cache`, so the directory vanished under the mount point - the first run wrote nothing and logged
+  nothing (**D81**).
+* **The rebuilt candidate is ready and verified offline**: `a14-work/recovery-evidence/recovery-evidence.img`
+  39,088,128 B, sha256 `d64ebd22d6142554d0b788373889059e88d66c7b1eddb8453ccadbb3fb76094a`. Kernel, `second` and
+  `recovery_dtbo` blobs are byte-identical to the capture, the header changes only `ramdisk_size` and the stored
+  dtbo offset, the stock `init.recovery.rk30board.rc` content stays verbatim with one appended service, and the
+  injected script hashes equal the repo file. Evidence: `analysis/recovery-evidence.txt`. Nothing was flashed in
+  this pass.
+* **The script is logic-tested offline before it goes on the unit again** (`scripts/smoke_recovery_evidence.sh`,
+  9 scenarios, rc 0). Four defects came out of it: the evidence directory vanishing under the mount (above); a
+  digest that could not be read comparing *equal* to another empty digest, so a restore was skipped and the risky
+  image stayed in partition 7 - now an unreadable digest means "write the rollback anyway" with
+  `restore-unverified.txt`; a restore request that could re-arm on every later recovery boot, retired now by a
+  nonce-named done-marker because this busybox has no `rm`; and a reboot from recovery that can land back in the
+  menu, since this unit enters recovery through the kernel's reboot-mode rather than `misc`.
+* **The tool set is measured, not assumed.** The recovery ramdisk's busybox carries `awk cat cut date echo expr
+  grep head md5sum mkdir mount reboot sed sha1sum sleep stat sync tail touch umount` and has **no** `dd`, `wc`,
+  `cp`, `rm`, `ls`, `tr` or `sha256sum`. The same ramdisk ships `/system/bin` (toybox, plus `linker64` and `lib64`),
+  so `sha256sum dd tr rm wc cp ls` are available there; the script resolves each tool to whichever exists and never
+  asks busybox for something it lacks. Earlier versions asked for `dd`/`wc`/`tr`/`rm`/`sha256sum` and, worse, one
+  ended with a bare `reboot` that reached the workstation's own `/usr/sbin/reboot` during an offline dry-run and
+  rebooted the workstation (**D81**, findings "Nov 20 (evening)").
+* **What is owed next, in order.** The owner cold-cycles the unit (that erases the RAM records - the record we
+  want is the Android 10 boot's text, which would already be copied if the script ran); read
+  `/cache/hu-evidence.log` and `/cache/hu-evidence/` over adb; decide from that log whether the service ran at all.
+  Then the rebuilt image goes on partition 8 only after `dash -n` and `busybox ash -n` pass on the build host,
+  since this workstation has no busybox ash. Partition 8 always rolls back to the capture `1fdf5ea77fc6…`.

@@ -2131,3 +2131,39 @@ rollback staged in `/cache` by adb before the risky write. Measured at the lift:
 nothing re-flashes recovery behind our back; and recovery's ramdisk ships a full tool set (`sh`, `mount`, `dd`,
 `mkdir`, `toybox`, `sha256sum`, `unzip`), its `init.rc` creates `/cache` and `/data` mount points and starts
 `ueventd`, so `/dev/block/by-name/*` exists there. Measurement: `docs/findings.md`, "Nov 20 (recovery unbanned)".
+
+**D81 - what the recovery evidence script may use, how a restore request is retired, and when it reboots
+(Nov 20, DECIDED; measurement in findings, "Nov 20 (late evening)").** Partition 8 is ours (**D80**), so a
+script inside its ramdisk is the only reader able to reach a dead boot's console record (**D77**) and the only
+restorer that can put partition 7 back without the owner touching a menu (**D76**). Four rules come out of the
+first run and the offline gate:
+
+* **Only what the ramdisk holds.** Measured by strings over the extracted `sbin/busybox`: it carries
+  `awk cat cut date echo expr grep head md5sum mkdir mount reboot sed sha1sum sleep stat sync tail touch umount`
+  and **not** `dd wc cp rm ls tr sha256sum`. The same ramdisk ships `/system/bin` with toybox plus `linker64` and
+  `lib64`, so `sha256sum dd tr rm wc cp ls blockdev devmem sh` are available there before recovery mounts the
+  system slice. The script resolves each tool to `/system/bin/<name>` when it exists and to the busybox applet
+  otherwise; partition reads use `cat`, sizes use `stat -c %s`, the raw RAM read uses `tail -c +N | head -c`,
+  printable extraction uses `/system/bin/tr`, and nothing is deleted. Only `reboot echo sleep sync date` are ever
+  called on busybox directly.
+* **`/cache` is mounted before the evidence directory is created.** The first run created `/cache/hu-evidence`
+  before mounting cache, so the directory vanished under the mount point and nothing was written or logged. The
+  request and rollback files live at the cache partition's root, which is only visible once `/cache` is mounted,
+  so mounting first is not a stylistic choice.
+* **A restore request is retired by a nonce, not by deletion.** The request carries a nonce; the done-marker is
+  `/cache/hu-evidence/restore-done-<nonce>.txt`, so the same nonce cannot re-arm the restore on a later recovery
+  boot and a fresh request with a new nonce does. An unreadable digest never counts as a match: the safe direction
+  is to write the rollback and record `restore-unverified.txt`, never to skip and leave the risky image in place.
+* **The reboot is conditional and the fallback is stated.** This unit enters recovery through the kernel's
+  reboot-mode, not through `misc`, so a reboot from inside recovery can land back in the recovery menu (the first
+  patched run ended parked there). The script reboots only when this boot did something - evidence copied, a
+  restore performed, or a restore skipped - and its log says plainly that a cold power cycle boots partition 7.
+  Whether a plain warm reboot clears the mode is still unmeasured.
+
+The owner's condition still holds: the stock recovery binary, its UI and touch handling, `update_engine`, the
+stock `update-binary`, `recovery.fstab`, the USB gadget config and HCT's own trusted cert (`cf2ab3…`) ship
+verbatim, so the OEM `update(1).zip` install from the card - the mainboard/MTC loader path - is untouched. Only
+the ramdisk changes, by two files, and the builder refuses if any byte outside the ramdisk span differs from the
+capture. Rollback is always the byte-exact capture `1fdf5ea77fc6…` (100,663,296 B). The offline gate is
+`scripts/smoke_recovery_evidence.sh` (9 scenarios, rc 0); `dash -n` and `busybox ash -n` still have to run on the
+build host before partition 8 is written again.
