@@ -98,3 +98,26 @@ assertions compare digests, not sizes, because `truncate` does not clear bytes a
 `a14-work/recovery-evidence/rd-src/sbin/sh` to `/data/local/tmp/hush` and running `hush -n` on the candidate script
 returned **rc 0** on Nov 21, and the device's own `sh -n` (also mksh) returned rc 0. `dash -n` and `busybox ash -n`
 are not applicable: recovery's shell is not ash, and this busybox has no ash applet.
+
+## Nov 21 (late morning): live writes, and why rebuilds hash differently
+
+`scripts/patch_recovery_evidence.sh` ran twice more after the script edits (`record_tools` wired in, evidence
+file names moved off `/sbin`-style substrings, bounded `hash()`/`dig()`). Rebuilds of identical content hash
+differently because the splice re-gzips the ramdisk and gzip stores timestamps:
+`dfe61ba7b3d6e0344dc5831c49e219fb157baaac73ad4812655cbdac761fb199` (39,088,128 B),
+`f8a4a779b2fb98786ae0613536c65ff2635bfede3938206c825ddcc2c9660fc7` (39,086,080 B),
+`8201bde5021eccbb83adb1f66a3ffc6fee9054c9edba9410f7b89c649e295509` (39,086,080 B). In every build the kernel
+blob is `a514a3ffb77e…`, `second` is `fb80617e7c97…`, `recovery_dtbo` is `28a07d4946e9…` (byte-identical to the
+capture), header bytes change only 16..19 (`ramdisk_size`) and 1636..1643 (stored dtbo offset), and the injected
+`/sbin/hu-evidence.sh` equals `scripts/hu_recovery_evidence.sh` (`646c0a709742a53116bdaa7de1bbf3ef7c5a96e063adcb20548371c398ed3747`).
+
+What was written live: `/cache/hu-patched-recovery.bin` (staged copy), then
+`toybox dd if=/cache/hu-patched-recovery.bin of=/dev/block/by-name/recovery bs=512 count=76720` - the exact
+39,086,080 B span, read back matching the staged copy's sha256. Partition 7, `super` and `misc` were not written.
+After each plain reboot partition 8 returned to stock before adbd answered: first 39,086,080 B hash
+`3308f7136600ff01d118a5cdb71d931144777fabce67c988e8922829d58a516c`, first 67,108,864 B hash
+`311bfc0f69103db253c7c356dbee641c4350983794a1679e7af9b5a817ade456` (measurement in `docs/findings.md`,
+"Nov 21 (late morning)"; mechanism `/init.rc:854` `flash_recovery` -> `install-recovery.sh` -> `applypatch`
+`/system/recovery-from-boot.p`, service at boot time 3.76 s). The final staged state: partition 8 holds
+`8201bde5021e…`, `/cache` holds the unconsumed restore request (nonce `nov20-rung2-1795208096-27817`) and the
+rollback `b449aee98c01…`; Android must not boot before the owner enters recovery.
