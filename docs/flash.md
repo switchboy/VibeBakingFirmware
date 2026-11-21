@@ -309,6 +309,12 @@ channel that could read a failed boot's log is the UART, which in recovery becom
 
 ## Install, route 1: the signed zip through recovery
 
+Measured offline Nov 21 (`docs/findings.md`, "Nov 21 (afternoon)"): verification consults the **ramdisk's**
+`otacerts.zip`, not `/system`'s, because `setup_install_mounts()` never mounts `/system`. Adding our cert to that
+zip inside a patched partition 8 therefore makes our own signed package verify - while HCT's cert entry stays, so
+OEM packages keep installing. This reopens route 1 within **D83**: the recovery flash and the payload install are
+separate operations, and installing from recovery does not write partition 8.
+
 1. Stick in before boot (or the power-button sequence - see "Getting into the recovery"), enter recovery,
    read the version line it prints, then install `update.zip`.
 2. Watch the verification line: `E:footer is wrong` / `E:Signature verification failed` / `E:error: 21`

@@ -72,7 +72,11 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   vendor base to ship is now **D44** and is the owner's call, because it trades proven hardware against the
   cleaner Android 14 HAL interface D9 chose.
 * Route 1 (signed zip through recovery) was **rejected** on Nov 9: recovery trusts only HCT's own cert
-  (`cf2ab3…`), which we do not hold (**D25**). Route 2 ran the same day and the write itself succeeded
+  (`cf2ab3…`), which we do not hold (**D25**). Reopened offline Nov 21: `verify_package()` reads the
+  **ramdisk's** `otacerts.zip` (the recovery boot never mounts `/system`), so adding our cert to that zip
+  inside the patched partition 8 makes a package of ours verify while HCT's cert stays for OEM installs
+  (**D83** pairing respected: installing a payload from the recovery boot writes no partition 8). Route 2 ran
+  the same day and the write itself succeeded
   over TCP adb (`adbon` in the factory-settings dialog -> port 5555 -> `adb root`, **D28**), but the unit
   came up black-screen with no WiFi and no adb. The cause is measured (**D34**): the payload had **no
   first-stage fstab anywhere**, so Android 14 init never mounted `/system`. Nothing in the boot chain was

@@ -83,7 +83,7 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D83 | decided Nov 20 evening by the owner, recorded Nov 21 | all recovery restrictions released (**D80**'s condition superseded); recovery and `boot`/`super` are never altered in the same flash; "dig in to recovery, make it our own" is an open goal - reverse-engineering the stock recovery binary read-only, and until that lands "ours" stays the verified ramdisk splice |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
-## Current state (items 1-24 through Nov 20 late afternoon; item 25 is Nov 20 evening; items 26-27 are Nov 21)
+## Current state (items 1-24 through Nov 20 late afternoon; items 26-28 are Nov 21; item 25 is Nov 20 evening)
 
 1. **The unit runs stock Android 10 again and is backed up byte-for-byte (D39/D40).** The bootSD card
    reaches a real recovery environment, `diatsia fw/update(1).zip` restores the unit's own firmware, and
@@ -446,3 +446,19 @@ This file is the index plus the risk register, and it must not restate numbers -
     reverse-engineering pass of the stock recovery binary running now). Partition 8 currently holds the staged
     patched build `8201bde5021e…`; the restore request (nonce `nov20-rung2-1795208096-27817`, unconsumed) and the
     rollback (`b449aee98c01…`) are staged in `/cache`. **Android must not boot before the owner enters recovery.**
+28. **Nov 21 (afternoon, read-only reverse-engineering): the recovery binary is mapped, the made-ours boundary
+    is measured, and route 1 is reopened.** The report is `a14-work/tmp/rec-re/RECOVERY-RE.md` (details in
+    `docs/findings.md`, "Nov 21 (afternoon)"). Key outcomes: the partition tail beyond the dtbo is zeros and
+    splash/resource live inside the `RSCE` second (per-entry SHA1 - any edit must rehash); the recovery kernel is
+    build #190 (Jul 5 2024), not #2416, and it carries the flashing nodes and reboot-mode driver; recovery and
+    fastboot share reboot-mode marker `0x5242c303` and the misc BCB stage discriminates them (**D71** reconciled);
+    `verify_package()` reads the **ramdisk's** `otacerts.zip` (no `/system` mount in recovery), so adding our cert
+    to that zip inside the patched ramdisk reopens route 1 (**D25** superseded offline) while HCT's cert keeps OEM
+    installs working; the RKA flashing engine writes through `/dev/vendor_storage` below the Android partitions
+    (IDB, `parameter`, `backup`, scratch `/tmp/flash.bin`), MCU images go over `/dev/mtc-car` IAP (`install_mcu`
+    order `dmcu.ext` -> `dmcu.cfg` -> five `*.img`), UI is stock `ScreenRecoveryUI` titled
+    `Android Recovery by HCT V10.3.1`. Made-ours boundary: replaceable = ramdisk only (init rc, `prop.default`,
+    `recovery.fstab`, `res/`, scripts on either toolchain, `otacerts.zip`); byte-for-byte = kernel, second, dtbo,
+    header page, `system/bin/recovery` (all RKA/MTC logic lives only there). Next offline step for "make it our
+    own": build our cert, splice `otacerts.zip` with both certs into a candidate partition-8 image keeping
+    `hu_evidence`, gate it (smoke + mksh `-n` on the unit), and write it only as a recovery-only flash (**D83**).

@@ -4032,3 +4032,79 @@ regenerated from the repo source by sed each run, so the harness cannot drift be
 (nonce `nov20-rung2-1795208096-27817`, still unconsumed - partition 7 equals the rollback, so the recovery run
 will log a skip) and `/cache/hu-rollback-boot.bin` (`b449aee98c01…`, 33,554,432 B). Android must not boot
 before the owner enters recovery.
+
+## Nov 21 (afternoon) - the recovery binary read offline: what a recovery of ours may replace
+
+A read-only reverse-engineering pass (nothing executed, nothing flashed) produced
+`a14-work/tmp/rec-re/RECOVERY-RE.md` and its working artifacts (`recovery.asm.txt`, `recovery.symbols.dem.txt`,
+`refs_all.txt`, `flow_main.txt`, `flow_rku.txt`). What it measured, and what it means for "make it our own"
+(**D83**):
+
+**The image layout, corrected.** Page size 2048; kernel 25,671,688 B loaded at `0x10008000` placed at file
+offset 2048; ramdisk 12,519,199 B loaded at `0x11000000` placed at 25,675,776; second 924,672 B loaded at
+`0x10f00000`; tags at `0x10000100`; the `header_size` and `header_version` slots hold junk, and there are no
+v3/v4 dtbo/splash header fields - the dtbo's position (803 B at file offset 38,732,288) is a placement
+convention, not a declared field. The cmdline block carries no `androidboot.mode`. The partition tail beyond the
+last non-zero byte (offset 38,732,321) is 61,541,596 B of pure zeros: the partition tail beyond the dtbo is
+zeros and splash and resource live inside second. That second is the `RSCE` container whose entries carry SHA1
+digests (`rk-kernel.dtb`, `logo.bmp`, `logo_kernel.bmp` all verified MATCH) - so any future edit of it must
+rehash per entry and keep its 512-byte block layout.
+
+**The recovery kernel banner is #190, not #2416.** The kernel inside recovery.bin reports build #190 dated
+Jul 5 2024 CST (banner at file offset within the kernel blob) - an earlier note naming #2416 was wrong. The
+kernel is what carries the flashing nodes and reboot-mode driver: `vendor_storage`, `rknand`, the MTC driver
+`/dev/mtc-car`, fiq console. Replacing the kernel kills both flashing paths, so it stays byte-for-byte.
+
+**The entry mechanism, corrected.** Recovery is entered because the bootloader picks the recovery partition
+image after the kernel's reboot-mode driver matches a dtbo `reboot_mode` marker: normal `0x5242c300`, loader
+`0x5242c301`, fastboot and recovery share `0x5242c303`, bootloader `0x5242c309`, charge `0x5242c30b`. Because
+recovery and fastboot share reboot-mode marker 0x5242c303 and the misc BCB stage distinguishes them, the misc
+Boot Control Block (`boot-recovery` vs `boot-fastboot`, plus `recovery/...` args and `/cache/recovery/command`)
+is the discriminator - which reconciles the Nov 19 finding that recovery was reached without `misc` ever being
+written by init (the owner's grip forced a key/usb-mode entry) with **D71**'s misc permission. The dtbo also
+disables the DT fstab and AVB vbmeta in recovery, so mounts come from `recovery.fstab` and verified boot is off
+there.
+
+**The ramdisk is the verifier.** setup_install_mounts does not mount /system, so the ramdisk's otacerts is what
+verifies packages. `setup_install_mounts()` mounts only `/ /tmp /cache /mnt/external_sd /mnt/usb_storage`;
+`verify_package()` reads the ramdisk's `/system/etc/security/otacerts.zip`, whose single entry is the HCT clone
+cert (DER 1023 B, sha256 `cf2ab3818595c4eda08cec72bbe39bc377a30b764a3eebde52536eae01808525`, serial
+`92A528C773D7A141`) - the same DER appears verbatim eight times in the stock `system.img`. Consequence: adding
+our own cert to that zip inside the patched ramdisk is the only way a package of ours verifies in recovery, and
+keeping the HCT entry keeps the OEM `update(1).zip` installable. That reopens the route-1 idea rejected on Nov 9
+(**D25**): a signed package would pass verification with a ramdisk cert of ours - still subject to **D83**'s
+pairing rule (writing the payload from the recovery boot does not touch partition 8 in the same flash).
+
+**The flashing paths, mapped.** Package discovery: `check_media_package()` scans
+`/mnt/usb_storage`, `/mnt/external_sd`, `/storage/external_sd`, `/storage/usb_storage` and `/mnt/media_rw` for
+`update.zip`/`update.img`; `check_media_mcu()` scans the same directories for `gmcu/hmcu/imcu/dmcu/nmcu.img`,
+`dmcu.ext` and `dmcu.cfg`; plus `/backup/update.zip` and `/sideload/package.zip`. SD-boot reads
+`storagemedia=sd` on the cmdline then `/mnt/external_sd/sd_boot_config.config` (keys `pcba_test`, `fw_update`,
+`demo_copy`, `volume_label`). Install: `install_package()` -> `verify_package()`; AB branch forks
+`update_engine_sideload`; the OEM branch `install_rkloader_package()` extracts the zip entry `RKLoader.bin` to
+`/tmp/RKLoader.bin` and runs `do_rk_firmware_upgrade()`; PCBA forks `/sbin/pcba_core`; a factory exit writes the
+BCB `recovery\n--wipe_all\n`. The Rockchip flashing engine (`CRKUsbComm`) opens /dev/vendor_storage (the node
+name comes from `emmc_point_name`) and writes below the Android partitions: IDB/loader plus the special items
+`parameter` and `backup`, scratch `/tmp/flash.bin`, ioctls `0x7203` TestBadBlock, `0x7204` ReadSector,
+`0x7205` WriteSector, `0x721a` ReadFlashInfo, `0x7252` EndWriteSector, `0x7253` GetLockFlag, `0x7254`
+GetPublicKey. The MCU path is separate: the RKA flashing engine writes through /dev/vendor_storage below the
+Android partitions while install_mcu pushes dmcu.ext then dmcu.cfg then the five MCU images over /dev/mtc-car -
+ioctl code `0x10000 | strlen(command)`, `updateMcuCfg` codes `0x83/0xc3/0x11d/0x20d/0x22d`, with
+`IAP_A_REQ timed out %d counts` and `IAP_WRITE timed out %d counts`. The five `*.img` MCU files are firmware
+pushed over IAP, not eMMC writes. UI is stock `ScreenRecoveryUI` with menu strings `Reboot system now`,
+`Reboot to bootloader`, `Select file to view`, `Choose a package to install:`, `Try again`, `Factory data reset`,
+`just_exit`, plus OEM prompts `Please choose system updata file device!!` and `Please choose mau updata file
+device!!`, under the title `Android Recovery by HCT V10.3.1`.
+
+**The made-ours boundary.** Inside the ramdisk (the proven splice): replaceable are `init.rc`,
+`init.recovery.rk30board.rc`, `prop.default`, `ueventd.rc`, `ld.config.txt`, `cgroups.json`, our own scripts and
+binaries (`/system/bin` arm64 via `linker64`, or `sbin`/`vendor/bin` 32-bit ARM via its linker),
+`recovery.fstab` (23 entries), `res/images`, `res/*.sh`, the SELinux contexts (enforcement is off in recovery,
+`androidboot.selinux=permissive`, but keep `/dev/vendor_storage` labelled `storage_device` in case it returns),
+and `otacerts.zip` (add our cert, keep HCT's). Byte-for-byte: the kernel, `second` (rehash SHA1 entries if ever
+touched), the dtbo, the header page (addresses, page size, cmdline - payload placement is an implicit
+convention), and `system/bin/recovery` itself - all RKA and MTC/IAP logic exists only in that binary (424,472 B,
+dynamic aarch64, 22 NEEDED libs, `librecovery_ui_ext.so` dlopen'd at runtime). Toybox 0.8.0-android ships 171
+applet symlinks in `system/bin`; the 32-bit static busybox 1.11.1 (1,807,056 B) serves `res/*.sh` via
+`#!/sbin/sh`. So a recovery of ours = stock binary + our ramdisk services + our cert, not a rewritten UI - and
+the OEM card-install route keeps working because HCT's cert stays in the zip.

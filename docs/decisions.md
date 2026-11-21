@@ -2227,6 +2227,13 @@ engeneer it if you have to. Make it our own."* Three rules come out of this:
   mainboard flashing path survives. Until that analysis lands, "ours" means the verified ramdisk splice
   (**D42** style): stock bytes plus our appended service, never a replacement of the recovery binary.
 
+The read-only reverse-engineering pass completed Nov 21 (report `a14-work/tmp/rec-re/RECOVERY-RE.md`, findings
+`docs/findings.md` "Nov 21 (afternoon)"): the boundary is now measured - replaceable is the ramdisk alone (init
+rc, `prop.default`, `recovery.fstab`, `res/`, our scripts, and `otacerts.zip`: adding our cert there reopens the
+signed-package route because verification reads the **ramdisk's** cert, not `/system`'s), and byte-for-byte must
+stay the kernel, the `RSCE` second (rehash its per-entry SHA1 if ever touched), the dtbo, the header page and
+`system/bin/recovery` itself, which is the only carrier of the RKA and MTC/IAP flashing logic.
+
 Practical consequence measured Nov 21 (late morning): partition 8 is reverted by Android's own `flash_recovery`
 before adbd comes up, so a recovery entry must be entered immediately after writing partition 8, never after an
 intervening Android boot; while an Android 14 payload sits on partition 7, the patch source digest mismatches and
