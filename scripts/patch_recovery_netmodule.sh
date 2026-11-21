@@ -70,25 +70,27 @@ cp "$REPO/scripts/hu_udhcpc_script.sh"  "$RD/sbin/hu-udhcpc.script" && chmod 755
 rm -f "$RD/sbin/hu-evidence.sh"   # the 18 KB evidence script is retired; its dig() path is not reused
 cp "$REPO/scripts/hu_net_module_append.rc" "$RD/init.recovery.rk30board.rc" && chmod 755 "$RD/init.recovery.rk30board.rc"
 
-# prop.default patch: marker on the two build strings, and an unauthenticated TCP adbd (the
+# prop.default patch: marker on the three build strings, and an unauthenticated TCP adbd (the
 # recovery ramdisk ships no adb keys, so ro.adb.secure default 1 would refuse our connection).
+# Nov 21 evening measurement: the OEM recovery UI prints ro.build.fingerprint /
+# ro.bootimage.build.fingerprint - prop.default carries NO ro.build.fingerprint line, so the
+# visible header string comes from ro.bootimage.build.fingerprint. All three markers are appended.
 python3 - "$RD/prop.default" >> "$LOG" 2>&1 <<'PY'
 import sys
 p = sys.argv[1]
+MARKED = ("ro.system.build.fingerprint=", "ro.build.display.id=", "ro.bootimage.build.fingerprint=")
 lines = open(p, "r").read().split("\n")
 out, changed = [], 0
 for ln in lines:
-    if ln.startswith("ro.system.build.fingerprint=") and not ln.endswith("-HUPATCH"):
-        ln = ln + "-HUPATCH"; changed += 1
-    elif ln.startswith("ro.build.display.id=") and not ln.endswith("-HUPATCH"):
+    if any(ln.startswith(k) for k in MARKED) and not ln.endswith("-HUPATCH"):
         ln = ln + "-HUPATCH"; changed += 1
     out.append(ln)
 if not any(l.startswith("ro.adb.secure=") for l in out):
     out.append("ro.adb.secure=0"); changed += 1
 open(p, "w").write("\n".join(out))
 print(f"prop.default changed lines: {changed}")
-if changed != 3:
-    print("REFUSE: prop.default changed more or fewer than the 3 intended lines"); sys.exit(1)
+if changed != 4:
+    print("REFUSE: prop.default changed more or fewer than the 4 intended lines"); sys.exit(1)
 PY
 grep -q "REFUSE: prop.default" "$LOG" && fail "prop patch refused"
 
@@ -187,6 +189,8 @@ props = open(os.path.join(rd, "prop.default")).read()
 print("marker on fingerprint:", "ro.system.build.fingerprint=" in props and
       props.split("ro.system.build.fingerprint=")[1].splitlines()[0].endswith("-HUPATCH"))
 print("marker on display id:", props.split("ro.build.display.id=")[1].splitlines()[0].endswith("-HUPATCH"))
+print("marker on bootimage fingerprint:", "ro.bootimage.build.fingerprint=" in props and
+      props.split("ro.bootimage.build.fingerprint=")[1].splitlines()[0].endswith("-HUPATCH"))
 print("ro.adb.secure=0 present:", "ro.adb.secure=0" in props)
 print("default.prop is symlink:", os.path.islink(os.path.join(rd, "default.prop")))
 PY
@@ -194,6 +198,7 @@ grep -q "present: True" "$LOG" || fail "module files missing from the spliced ra
 grep -q "retired evidence script gone: True" "$LOG" || fail "retired evidence script still present"
 grep -q "marker on fingerprint: True" "$LOG" || fail "fingerprint marker missing"
 grep -q "marker on display id: True" "$LOG" || fail "display id marker missing"
+grep -q "marker on bootimage fingerprint: True" "$LOG" || fail "bootimage fingerprint marker missing"
 grep -q "ro.adb.secure=0 present: True" "$LOG" || fail "ro.adb.secure=0 missing"
 grep -q "default.prop is symlink: True" "$LOG" || fail "default.prop symlink lost"
 sha256sum "$OUTDIR/rd-patched/sbin/"* >> "$LOG"

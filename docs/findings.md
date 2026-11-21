@@ -4282,3 +4282,17 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   The fresh nonce `nov21-netmod-1795288264-71` was staged after the flash, and no `hu-net.stop` or `net-done-*`
   marker exists yet. Recovery must be entered from **eMMC** (`storagemedia=emmc`), not from an SD-boot card,
   because an SD-boot card runs the card's own partitions and would not boot the patched partition 8.
+
+* **The marker property the UI actually prints, and the second build (Nov 21 evening).** The card's own
+  recovery proved the header comes from the boot image: its ramdisk `prop.default` carries
+  `ro.bootimage.build.fingerprint=…/hct210121336:userdebug/test-keys` and display id
+  `eng.hct2.20201012.134120 test-keys`, which is exactly the yellow header the owner read - and `prop.default`
+  has no `ro.build.fingerprint` line at all. So the marker must sit on `ro.bootimage.build.fingerprint`; the
+  first build only marked `ro.system.build.fingerprint` and `ro.build.display.id`. The builder now appends
+  `-HUPATCH` to all three and still adds `ro.adb.secure=0` (4 changed lines, gated). Rebuilt image
+  `a14-work/recovery-netmodule/recovery-netmodule.img`, 39,090,176 B, sha256
+  `412cd032bed3353adff064890bc585f43f5407096e2ceea59f2eb13244200990`; kernel blob `a514a3ffb77e…`, second
+  `fb80617e7c97…` and dtbo `28a07d4946e9…` byte-identical, stock rc verbatim with seven services. Note on
+  determinism: the splice is byte-stable in CONTENT, but `cp` gives the injected files fresh mtimes, so the
+  cpio (and thus the image sha256) depends on the build moment - verify by `cmp` against the file actually
+  staged, and by the blob digests, not by re-running the builder.
