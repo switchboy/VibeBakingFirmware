@@ -4206,3 +4206,59 @@ partition writes succeed (the probe's answer). (4) Whether recovery's cmdline al
 `androidboot.selinux=permissive`. None of these was written in this pass: partition 7 stays `b449aee98c01…`,
 `misc` stays `909bdd979111…`, and partition 8 still holds the previously staged build until the owner enters
 recovery or a new build is written under **D83**'s pairing rule.
+
+
+**Nov 21 (late evening): the tool split inside recovery, the mksh dialect gate, and the net-module build.**
+Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothing was flashed.
+
+* **Step 2 evidence.** `/cache/state-android.txt` (4,307 B, pulled to `a14-work/tmp/state-android.txt`) shows
+  `eth0` live on the dongle: address `00:0a:cd:27:a5:b2`, driver `ax88179_178a`, `carrier=1`, `operstate=up`,
+  `speed=1000`, `duplex=full`, `mtu=1500`, address `192.168.1.127/24`, and the route table carries only `eth0`.
+  No `dhcp.eth0.*` properties exist, so the lease is netd-assigned rather than busybox-leased, and `net.dns1`
+  is `192.168.1.1`. The regulator/clk/debugfs pass the owner cut from Step 2 was not run.
+* **Step 4 dropped.** The dongle enumerates inside a recovery boot on its own: hub `1-1` (0424:2514) at 0.97 s,
+  dongle `0b95:1790` at 1.36 s, `ax88179_178a … eth0: register` at 1.698 s of the 16:28 recovery console. The
+  missing piece is userspace bring-up, so no USB enabler, no `usb_dongle`, no `usb_modeswitch`.
+* **The tool split, measured by running the ramdisk's own busybox.** A strings pass over `sbin/busybox` was
+  misleading (applet names do not each sit on their own line), so the recovery binary was pushed to the unit
+  exec-only and `busybox --help` printed its applet table: BusyBox v1.11.1 carries `ifconfig route netstat
+  dmesg udhcpc telnetd mount umount head tail grep stat sync kill sleep date cat ls awk sed cut tr cp rm mkdir
+  touch basename dd md5sum sort wc`, and the gaps that matter to this module are sha256sum and timeout. The
+  ramdisk's `/system/bin` is toybox, 196 applets, which carries `cat ls tail grep cut head sed stat cp mkdir rm
+  touch basename tr umount setprop getprop dmesg dd sha256sum timeout` and does NOT carry awk. The real trap is
+  the call shape: busybox is multi-call, so `$BB ifconfig eth0 up` is correct, while `$SB cat` execs the
+  *directory* `/system/bin` with `cat` as an argument - toybox needs `$SB/cat`. That distinction is now a rule
+  in `scripts/hu_h_common.sh` (its ramdisk name is `/sbin/hu-h-common.sh`), and the offline gate audits both
+  the gaps and the call shape.
+* **The dialect gate ran the recovery shell, not Android's.** `/sbin/sh` in the recovery ramdisk is
+  `@(#)MIRBSD KSH R40 2011/10/07`; Android's `/system/bin/sh` is `@(#)MIRBSD KSH R57 2019-03-01 Android`, so
+  parsing under Android's shell proves nothing. The recovery binary was pushed to `/data/local/tmp/hu-dialect/`
+  (exec-only, no partition touched) and `rec-sh -n` returned rc 0 on all seven module files, and a construct
+  probe under R40 confirmed `${f##*/}` basename stripping, `$((i + 1))`, a dotted-quad `case` glob, nested
+  command substitution inside double quotes, `. file` sourcing, a function that echoes a timestamped line, and
+  `set --`/`shift`.
+* **Offline gate.** `scripts/smoke_recovery_netmodule.sh` runs the six module scripts against a fake `/sys`,
+  `/proc`, `/cache` and `/dev` plus a busybox shim faithful to the applet table above - the two applets this
+  busybox does not have (sha256sum and timeout) are REFUSED, so a script reaching for them fails loudly, and
+  toybox calls written as `$SB <applet>` are caught by the source audit. Net applets are recorded, never
+  executed. 14 scenarios pass, rc 0:
+  (no reboot, no marker), consumed nonce, inert without a request, nonce refresh extending the window, the
+  card channel both ways, and the source audit (no digest, no `dd`, no reboot, no reference to the retired
+  `hu_evidence` service).
+* **The build, not yet written.** `scripts/patch_recovery_netmodule.sh` spliced
+  `a14-work/hu-stock-backup-refresh/recovery.bin` (`1fdf5ea77fc6…`) into
+  `a14-work/recovery-netmodule/recovery-netmodule.img`: 39,090,176 B, sha256
+  `0ab64a039cdd8ea8f99f45a2c530076c6b8d4d99856448565fbe39e3c5b0adac`. Ramdisk-only: the ramdisk went
+  12,519,199 B -> 12,484,781 B, and the kernel blob (`a514a3ffb77e…`), the RSCE second
+  (`fb80617e7c97…`) and the recovery dtbo (`28a07d4946e9…`) are byte-identical; the builder refused no byte
+  outside the ramdisk span (header changes limited to `ramdisk_size` and the dtbo offset). Inside the ramdisk:
+  seven module files, `prop.default` changed on exactly three lines (`ro.system.build.fingerprint` and
+  `ro.build.display.id` gain `-HUPATCH`, and `ro.adb.secure=0` is added because the recovery ramdisk ships no
+  adb keys), and `init.recovery.rk30board.rc` keeps its stock 663 B verbatim with 1,224 B appended defining
+  seven oneshot services, each started exactly once, with the retired `hu_evidence` absent. The write span for a
+  future flash is `0..39,090,176` of partition 8's 100,663,296 B; everything past it is left untouched.
+* **Nothing was written in this pass.** Partition 7 stays `b449aee98c01…`, `misc` stays byte-identical to the
+  Nov 21 readback (md5 unchanged, no `boot-recovery`), and partition 8 is still the stock
+  `1fdf5ea77fc6…` - the only staged artefact is the new image on the workstation. The net module exists as a
+  build plus offline and dialect gates; its recovery-boot behaviour is unmeasured until the owner approves the
+  p8 write.

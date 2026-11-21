@@ -490,3 +490,28 @@ This file is the index plus the risk register, and it must not restate numbers -
     recovery (or the new build is written as a recovery-only flash under **D84**), then the four measurements -
     dongle enumeration in recovery, reboot-out parking from `misc-bcb.bin` across boots, whether a recovery-side
     partition write is allowed, and recovery's own cmdline selinux value.
+
+
+**Nov 21 (late evening) - the Step-3 net module is built and gated; the p8 write awaits the owner's go.**
+Step 2 ran in reduced scope (`/cache/state-android.txt`, 4,307 B: `eth0` up at 1000 Mbps full duplex on
+`ax88179_178a`, MAC `00:0a:cd:27:a5:b2`, address `192.168.1.127/24`, route table only `eth0`), and Step 4
+(the USB enabler) is **dropped**: the dongle enumerates inside a recovery boot by itself (`ax88179_178a …
+eth0: register` at 1.698 s of the 16:28 recovery console), so only userspace bring-up is missing. The module
+is **D85**: six linear scripts plus seven independent oneshot services, `scripts/hu_h_common.sh` and
+`scripts/hu_net_module_append.rc` (stock 663 B verbatim + 1,224 B appended). Gates: offline sandbox
+`scripts/smoke_recovery_netmodule.sh` 14 scenarios rc 0 (busybox shim refuses the applets v1.11.1 lacks -
+`sha256sum` and `timeout` - and records the net applets instead of running them; the audit also catches the
+`$SB <applet>` call-shape trap, since toybox needs `$SB/applet`); the dialect gate ran the recovery ramdisk's
+own `/sbin/sh` (`@(#)MIRBSD KSH R40 2011-10-07`, pushed exec-only to `/data/local/tmp/hu-dialect/`) with
+`-n` rc 0 on all seven files, plus a construct probe under R40 - Android's `/system/bin/sh` is
+`@(#)MIRBSD KSH R57 2019-03-01 Android`, so parsing under it proves nothing. Build:
+`a14-work/recovery-netmodule/recovery-netmodule.img` 39,090,176 B, sha256
+`0ab64a039cdd8ea8f99f45a2c530076c6b8d4d99856448565fbe39e3c5b0adac`, ramdisk 12,519,199 B -> 12,484,781 B,
+kernel `a514a3ffb77e…`/second `fb80617e7c97…`/dtbo `28a07d4946e9…` byte-identical, `prop.default` changed on
+exactly three lines, seven services defined once and started once, retired `hu_evidence` absent. Still
+unwritten: partition 7 stays `b449aee98c01…`, partition 8 stays stock `1fdf5ea77fc6…`, `misc` unchanged.
+Next on the owner's go: stage the image to `/cache`, dd partition 8 (write span 0..39,090,176 of
+100,663,296 B, host-side readback), stage a fresh `/cache/hu-net.request` nonce, cold power cycle with the
+dongle plugged in **before** power-up, read `-HUPATCH` in the menu header and the activity LED, then
+`adb connect` to the logged address and host-side verify partition 7 still hashes to `b449aee98c01…`. Step 5
+(exit mechanics) and Step 6 (re-entry) follow only after adb-in-recovery is proven.

@@ -2283,3 +2283,33 @@ Practical consequence measured Nov 21 (late morning): partition 8 is reverted by
 before adbd comes up, so a recovery entry must be entered immediately after writing partition 8, never after an
 intervening Android boot; while an Android 14 payload sits on partition 7, the patch source digest mismatches and
 the patched recovery persists, which is exactly when the evidence route is needed.
+
+
+**D85 - the Step-3 recovery module is six small linear scripts plus seven independent oneshot services,
+ramdisk-only, nonce-gated, Ethernet-first, and never flashed without the owner's go (Nov 21 late evening,
+DECIDED; measurement in findings, "Nov 21 (late evening)").** The owner's brief merged the probe and the
+network build into one recovery boot, p8 only, p7/p14 untouched, one variable per flash.
+
+* **The 18 KB `hu-evidence.sh` is retired.** Its `dig()` path stalled the session, so the module is six
+  scripts of roughly 25-60 lines each (`hu-h-common.sh`, `hu-early.sh`, `hu-hb.sh`, `hu-state.sh`,
+  `hu-net.sh`, `hu-card.sh`) plus the `hu-udhcpc.script` lease script, and seven independent oneshot
+  services appended to `init.recovery.rk30board.rc`. A service cannot stall another: each one logs its own
+  marker line before acting, and every risky applet runs inside `guarded()`, a backgrounded subshell with a
+  sleep+kill watchdog, because busybox 1.11.1 has no `timeout` applet.
+* **Feedback channels.** Heartbeat `alive up=<uptime>` every 5 s for 20 min proves slow-vs-stuck. State
+  snapshots at 5/30/120 s. `pstore` is copied as the *first* action, before this boot's console text can
+  recycle the ramoops buffer; `misc` is read read-only for its first 2048 B. `/cache` stays the primary
+  channel because ramoops mixes boots and deflate-compresses. The FAT32 card (<=32 GB, no exFAT on this
+  kernel) is the no-network channel and copies additively into a card the recovery UI already mounted.
+* **Networking is gated, never ambient.** `hu-net.sh` arms only when `/cache/hu-net.request` carries a fresh
+  nonce, consumes it with a nonce-named done marker, and refreshes its 20-minute window when the nonce
+  changes. It polls for `eth0` up to 60 s, applies the DHCP lease through `-s /sbin/hu-udhcpc.script` (the
+  ramdisk ships no `default.script`), falls back to `192.168.1.77.2`-style static addressing on failure, sets
+  `service.adb.tcp.port 5555` and `ctl.start adbd`, verifies the listener in `/proc/net/tcp` (0x15B3), and
+  adds `busybox telnetd -l /sbin/sh` on 2323 as a redundant shell. It never reboots: the recovery window has
+  to stay open. TCP adb is only usable unauthenticated because the patched `prop.default` adds
+  `ro.adb.secure=0` - the recovery ramdisk ships no adb keys.
+* **Delivery stays a partition write, not an update.zip.** The builder splices the ramdisk alone and refuses
+  the image if any byte outside the ramdisk span moves; kernel, `second` and dtbo stay byte-identical, and
+  `super` is never resized. Nothing in this pass was written, and nothing will be written without the
+  owner's explicit go.
