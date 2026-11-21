@@ -4450,3 +4450,55 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   that never appears); dialect gate `mksh-R40 -n` rc 0 on all seven scripts. The hex arithmetic in
   `iface_up_state` was checked against the unit's mksh: `0x113` -> 275 with bit0=1, `0x102` -> 258
   with bit0=0, and the ramdisk ships `/system/bin/sleep -> toybox`, so the fractional probe execs.
+
+* **Build v5's recovery boot (Nov 22, 00:14 - adb-in-recovery PROVEN).** The patched partition 8 ran
+  and the workstation reached it inside recovery: first probe at epoch 1795302894 (~45 s after the
+  reboot command) showed `arp 192.168.1.127 dev enp4s0 lladdr 00:0a:cd:27:a5:b2 REACHABLE`, port 5555
+  **open**, port 2323 open, and `adb connect 192.168.1.127:5555` attaching a transport reported as
+  `recovery`. Read-only, nothing written: `adb exec-out dd if=/dev/block/by-name/boot bs=1M count=32`
+  pulled 33,554,432 B and hashed on the workstation to
+  `b449aee98c01a7da797be1c2aa8238ce4bef3e5ee3ae731afdcf3c53218c4384` (`b449aee98c01…`), equal to the
+  recorded p7 value. `adb root` then read `/proc/net/tcp6`: `0: …:15B3 … 0A` (LISTEN) plus an
+  ESTABLISHED socket from the workstation (192.168.1.161) to 192.168.1.127, and `0913` (2323) LISTEN
+  for telnetd; `/proc/net/tcp` holds no `15B3` entry, which is why the module's own verification
+  printed `net: adbd listen line=none` and `NO TCP LISTENER` - **adbd binds the TCP port on IPv6, so
+  a tcp-only listener check cannot see it**; the link itself was up long before that line
+  (`addr=192.168.1.127 carrier=1 flags=1`), so that verdict is a false negative of the check, not a
+  failure of the module. Ordering proof from this boot's console (pulled live with `toybox dmesg`,
+  74,365 B, sha256 `5098560499c00c70e14f5cb08dd2f213c4fb192cdb3edb9fe2f97f63c51b7462`; pstore still
+  held the previous Android boot while recovery ran - its own copy is 70,521 B, sha256
+  `d28157abd1c677ccd0b46ad78dfcfaadca406e192283be58778727f04bd32bae`, ending
+  `reboot: Restarting system with command 'recovery'`): `[    0.980798] --mtc ann 1-1 0424`,
+  `[    1.374710] --mtc ann 1-1.2 0b95`, `[    1.668081] hu: net begin nonce=nov22-netmod5-…`,
+  `[    1.711054] ax88179_178a 1-1.2:1.0 eth0: register … 00:0a:cd:27:a5:b2`,
+  `[    2.215148] hu: nap: poll interval 0.5s via toybox fractional=1`,
+  `[    2.296757] hu: net: iface eth0 node present at up=2.27 (t=0s)` (begin ran at 1.668 s, before
+  the node at 1.711 s - the node wait caught it), `[    2.664172] IPv6: ADDRCONF(NETDEV_UP): eth0:
+  link is not ready` (build v4 had no ADDRCONF at all), `[    4.397558] hu: net: ifconfig eth0 up
+  issued, flags=1 (UP) at up=4.37`, `[    5.644167] ax88179 - Link status is: 1`,
+  `[    5.653859] IPv6: ADDRCONF(NETDEV_CHANGE): eth0: link becomes ready`,
+  `[   10.660828] hu: net: address=192.168.1.127 alias_addr=192.168.77.2 carrier=1 flags=1`,
+  `[   10.929907] ctl.stop`, `[   13.091216] ctl.start`, `[   19.417127] svc=running tcpport=5555
+  secure=0`. Link negotiated at 1000 Mbps full duplex (`/sys/class/net/eth0/speed=1000`,
+  `duplex=full`), counters climbed with zero errors (t=90 s snapshot: rx_packets=403 tx_packets=184
+  rx_errors=0 tx_errors=0 rx_dropped=0). DHCP stayed diagnostic: `dhcp offer observed … ip=none …
+  (eth0 untouched)` and the address after it stayed 192.168.1.127. Timing from the marker log: node
+  2.27 s, open confirmed 4.37 s, carrier 5.64 s (kernel) / first carrier-watch tick 26.77 s uptime,
+  address 10.66 s, adbd restarted 13.09 s, listener verdict 19.44 s, workstation connected ~45 s after
+  the reboot command.
+* **Evidence channels this boot (all read-only).** `/tmp/recovery.log` does not exist in this
+  recovery ramdisk (`/tmp` is empty and there is no `/cache/recovery`), so the module log plus the
+  live console are the record. `/cache/hu-mark.log` 4,750 B sha256
+  `6381600d5051c7441c4d11ec15e0aaab8c49be3551eaa67654813530c2555a31` (mid-boot copy); the FAT32 card
+  was mounted by `hu-card` at `/mnt/hucard` and re-copied every tick, then that mount went away while
+  the boot continued, so the copies were re-read through a fresh **read-only** vfat mount:
+  `hu-mark.log` 6,551 B sha256 `4775b711d6374324e420c21832d68894d97e331bb0ed75d3af2362612050837b`
+  (full timeline), `state-recovery-5.txt` 6,470 B sha256
+  `05ec5e24c548ef01ce3f2241120911fabe3b809f4d8f1dc74c3fb19414b190ba`, `state-recovery-30.txt` 6,588 B
+  sha256 `ee8f1663a4c6b03917ab96c82becc7298e5c0f4364fec9ca28f55ea948ef6a86`, `state-recovery-120.txt`
+  6,210 B sha256 `9ea881fa4c8fce97cb505d45f4727f6c1364a27d2c9850e8087b88e94a9fe699`, `misc-head.bin`
+  2,048 B sha256 `e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad` (all zeros). The
+  `/cache` copies of the state files hash identically to the card copies. Nonce
+  `nov22-netmod5-1795302845-40` consumed once (`/cache/net-done-nov22-netmod5-…txt`, 0 B). p7
+  unchanged, `misc` head all zeros (recovery clears the BCB), p8 still patched until Android's
+  `install-recovery.sh` reverts it.
