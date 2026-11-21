@@ -4502,3 +4502,14 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   `nov22-netmod5-1795302845-40` consumed once (`/cache/net-done-nov22-netmod5-…txt`, 0 B). p7
   unchanged, `misc` head all zeros (recovery clears the BCB), p8 still patched until Android's
   `install-recovery.sh` reverts it.
+
+* **Remote exit from recovery works (Nov 22, 00:33).** After the read-only evidence above was saved,
+  `adb shell setprop sys.powerctl reboot` left recovery with **no menu interaction**: 47 s later
+  `arp 192.168.1.127 … REACHABLE`, port 5555 open and `adb devices` reported `device` (Android), not
+  `recovery`. Partition state after that boot: p7 still
+  `b449aee98c01a7da797be1c2aa8238ce4bef3e5ee3ae731afdcf3c53218c4384`, partition 8 auto-reverted to
+  stock `1fdf5ea77fc66f48…` by `init.rc`'s `flash_recovery`/`install-recovery.sh` (expected - patched
+  recovery only survives until the next Android boot), `misc` byte-identical to the recorded baseline,
+  nonce `nov22-netmod5-1795302845-40` back in `/cache/hu-net.request` with no `net-done-*` marker
+  (the marker written inside recovery does not survive the reboot - D86 - which is why the card copy
+  and the pulled copies, not `/cache`, are the evidence of record).
