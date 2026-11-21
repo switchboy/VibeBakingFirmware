@@ -10,7 +10,7 @@
 #   /sbin/hu-hb.sh            heartbeat "alive up=<uptime>" every 5 s for 20 min
 #   /sbin/hu-state.sh         guarded state snapshot at a given delay
 #   /sbin/hu-net.sh           Ethernet bring-up, gated on /cache/hu-net.request nonce: carrier poll,
-#                             static 192.168.1.250/24 + eth0:1 alias 192.168.77.2, adbd RESTART
+#                             static 192.168.1.127/24 (router MAC-bound) + eth0:1 alias 192.168.77.2, adbd RESTART
 #                             (stop -> port -> start, verified in /proc/net/tcp), telnetd in the same
 #                             block, then a background DIAGNOSTIC-only udhcpc (~60 s)
 #   /sbin/hu-card.sh          FAT32 card copy as the no-network channel; stays mounted until the

@@ -14,9 +14,11 @@
 # kill watchdog); no on-device digest of a block device; no $(...) over a pipeline that reads one.
 #
 # Nov 21 evening measurement changed two things here:
-#  - The static fallback is on the LAN subnet (192.168.1.250/24, gw 192.168.1.1) so the workstation
-#    reaches it with no privileged workstation-side change; 192.168.77.2 stays as an ALIAS on eth0:1,
-#    which costs nothing and gives a second address if the LAN one collides.
+#  - The static fallback is the address the router binds to this dongle's MAC (measured: Android gets
+#    192.168.1.127 for 00:0a:cd:27:a5:b2, and the owner MAC-bound it in the DHCP server so it is always
+#    the same). Static 192.168.1.127/24 with gw 192.168.1.1 is therefore reachable from the workstation
+#    with no privileged workstation-side change; 192.168.77.2 stays as an ALIAS on eth0:1 as a second
+#    address in case the LAN one is taken by another client.
 #  - /cache writes made inside recovery do not survive the reboot (the partitions are detached lazily
 #    at reboot), so every write is followed by sync, and the evidence of record is kmsg read back
 #    through pstore after the reboot plus the copies on the FAT32 card.
@@ -26,7 +28,7 @@ CACHE=/cache
 LOG=/cache/hu-mark.log
 NETREQ=/cache/hu-net.request
 IFACE=eth0
-STATICIP=192.168.1.250
+STATICIP=192.168.1.127
 NETMASK=255.255.255.0
 NETGW=192.168.1.1
 ALIASIF=eth0:1

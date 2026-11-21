@@ -2350,3 +2350,17 @@ MEASURED)**
   toybox received literal quote characters and reported an empty size; and the carrier read at up=1.70 s
   came back empty because the driver reports carrier only after `ax88179 - Link status is: 1` at 5.13 s, so
   the poll waits for carrier rather than for the interface node.
+
+**D88 - the recovery static address is the router's MAC-bound lease `192.168.1.127` (Nov 21 night,
+DECIDED by the owner, supersedes D87's `192.168.1.250`)**
+* **Why the address changed.** `192.168.1.250` was chosen so the workstation could reach the unit with no
+  privileged workstation-side change, but it needed a router pool exclusion the owner could not confirm on
+  the spot. The owner answered instead that the DHCP server MAC-binds the dongle
+  (`00:0a:cd:27:a5:b2`) to `192.168.1.127` - the address Android already holds - and chose that address,
+  so recovery and Android use the same address and the workstation never has to look it up again.
+* **What changed in the module.** Only `STATICIP` in `hu-h-common.sh` plus comments; the carrier-first
+  order, the adbd restart, the diagnostic-only DHCP, the `eth0:1` alias on `192.168.77.2`, gateway
+  `192.168.1.1` and the sync-after-write durability stay as D87 set them. Build v4 carries the change.
+* **DHCP cannot move the address.** The lease script records the offer and never calls `ifconfig`/`route`,
+  so the diagnostic attempt cannot replace the static address mid-session; a router re-offer of the same
+  address is therefore harmless either way.

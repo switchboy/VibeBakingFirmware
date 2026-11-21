@@ -7,9 +7,10 @@
 # Measured Nov 21 evening, and the order follows those measurements:
 #  - the interface NODE exists at 1.70 s but carrier only arrives when the driver logs
 #    "ax88179 - Link status is: 1" at 5.13 s, so this polls carrier, not the node;
-#  - addressing is applied immediately after carrier: static 192.168.1.250/24 on the LAN subnet plus
-#    an eth0:1 alias on 192.168.77.2, gateway 192.168.1.1 - the LAN address is reachable from the
-#    workstation without any privileged workstation-side change;
+#  - addressing is applied immediately after carrier: static 192.168.1.127/24 (the address the router
+#    binds to this dongle's MAC, so it is always the same) plus an eth0:1 alias on 192.168.77.2,
+#    gateway 192.168.1.1 - the LAN address is reachable from the workstation without any
+#    privileged workstation-side change;
 #  - adbd is RESTARTED, not started: stock recovery init.rc has no trigger on service.adb.tcp.port,
 #    so a property set plus ctl.start on a running adbd binds nothing (measured: svc=running,
 #    tcpport=5555, listen line=none). ctl.stop, sleep 2, set the port, ctl.start, then verify the

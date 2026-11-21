@@ -4352,9 +4352,23 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   fixed (unquoted argument). Built image `a14-work/recovery-netmodule/recovery-netmodule.img`,
   39,090,176 B, sha256 `b96fe5f262bb29e6786aaaf03459635a18a7ca9c37853cd6fe1b7291ed999a5f`; kernel blob
   `a514a3ffb77e…`, second `fb80617e7c97…`, dtbo `28a07d4946e9…` byte-identical; stock rc 663 B verbatim
-  + 1224 B; injected file digests `hu-h-common.sh 9e2292857a059e24`, `hu-early.sh 9812ad519f080e06`,
-  `hu-hb.sh e47639d0a974b858`, `hu-state.sh 344587e346d53fe9`, `hu-net.sh 0b4d8ba3ba24baf8`,
-  `hu-card.sh d61685b771f25082`, `hu-udhcpc.script b877ed13e30e0c6a`, rc `b57d152d9634efd1` (unchanged),
-  `prop.default 92dbf6d62fb0b5b5`. Offline gate passes 15 scenarios including the new adbd-order
+  + 1224 B; the injected-file digest list for that build was taken through a `hu-*.sh` glob, so the
+  names in that list were not aligned with the values - the explicit, name-checked list for build v4
+  below is authoritative, and every built copy is `cmp`-checked against its repo source. Offline gate
+  passes 15 scenarios including the new adbd-order
   assertion and a scenario that emulates the Nov 21 failure (`no-listener` -> the module says
   `NO TCP LISTENER` and does not claim success); dialect gate `mksh-R40 -n` rc 0 on all seven scripts.
+* **Build v4 - the static address is the router's MAC-bound lease (Nov 21 night, built - not written).**
+  Asked to confirm that `192.168.1.250` was excluded from the router's DHCP pool, the owner answered that
+  the DHCP server now MAC-binds this dongle (`00:0a:cd:27:a5:b2`) to `192.168.1.127` and chose that
+  address instead, so the recovery address equals the Android address and is always the same
+  (`docs/decisions.md` D88). Only `STATICIP` in `hu-h-common.sh` and the comments changed;
+  `hu-early.sh`, `hu-hb.sh`, `hu-state.sh`, `hu-card.sh` and `hu-udhcpc.script` are byte-unchanged from
+  build v3. Built image `a14-work/recovery-netmodule/recovery-netmodule.img`, 39,092,224 B, sha256
+  `d5ac116dda3315c2c377b2f8233242945aa5a6686557a4a19820996365779a8f`; kernel (25,671,688 B), second
+  (924,672 B) and dtbo (803 B) blobs again `cmp`-identical to the capture. Name-explicit digests:
+  `hu-h-common.sh 86df3639ce95def4`, `hu-early.sh 9812ad519f080e06`, `hu-hb.sh e47639d0a974b858`,
+  `hu-state.sh d61685b771f25082`, `hu-net.sh 8e7d90da9a0ab672`, `hu-card.sh 9e2292857a059e24`,
+  `hu-udhcpc.script b877ed13e30e0c6a`, `init.recovery.rk30board.rc b57d152d9634efd1`,
+  `prop.default 92dbf6d62fb0b5b5`. Offline gate 15 scenarios rc 0 (expectations re-pointed at
+  `192.168.1.127`), dialect gate `mksh-R40 -n` rc 0 on all seven scripts.
