@@ -35,21 +35,45 @@ case "\$app" in
   reboot) echo "REBOOT REQUESTED" >> "$S/state.reboot"; exit 0 ;;
   ifconfig)
     printf 'ifconfig %s\n' "\$*" >> "$S/state.net"
-    # an applied address (iface then a dotted quad) is remembered as the interface's address
+    # an applied address (iface then a dotted quad) is remembered: eth0 keeps the primary address and
+    # an eth0:N alias is recorded separately, so a diagnostic script must never move eth0.
     if [ "\$#" -ge 2 ]; then
       case "\$2" in
-        [0-9]*.[0-9]*.[0-9]*.[0-9]*) printf '%s\n' "\$2" > "$S/lease" ;;
+        [0-9]*.[0-9]*.[0-9]*.[0-9]*)
+          case "\$1" in
+            *:* ) printf '%s\n' "\$2" > "$S/alias" ;;
+            * )   printf '%s\n' "\$2" > "$S/lease" ;;
+          esac ;;
       esac
     fi
-    # query form: report the applied address if there is one, otherwise only the link line
+    # query form: report the applied address (and alias) if there is one, otherwise only the link line
     if [ "\$1" = "-a" ] || [ "\$#" = 1 ]; then
+      case "\$1" in
+        *:* )
+          printf 'eth0:1    Link encap:Ethernet  HWaddr 00:0a:cd:27:a5:b2\n'
+          if [ -f "$S/alias" ]; then
+            printf '          inet addr:%s  Mask:255.255.255.0 \n' "\$(cat "$S/alias")"
+          fi
+          exit 0 ;;
+      esac
       printf 'eth0      Link encap:Ethernet  HWaddr 00:0a:cd:27:a5:b2  Driver ax88179_178a\n'
       if [ -f "$S/lease" ]; then
-        printf '          inet addr:%s  Bcast:192.168.77.255  Mask:255.255.255.0 \n' "\$(cat "$S/lease")"
+        printf '          inet addr:%s  Bcast:192.168.1.255  Mask:255.255.255.0 \n' "\$(cat "$S/lease")"
         printf '          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1\n'
+      fi
+      if [ -f "$S/alias" ]; then
+        printf 'eth0:1    Link encap:Ethernet  HWaddr 00:0a:cd:27:a5:b2\n'
+        printf '          inet addr:%s  Mask:255.255.255.0 \n' "\$(cat "$S/alias")"
       fi
       exit 0
     fi
+    printf 'eth0      Link encap:Ethernet  HWaddr 00:0a:cd:27:a5:b2  Driver ax88179_178a\n'
+    if [ -f "$S/lease" ]; then
+      printf '          inet addr:%s  Mask:255.255.255.0 \n' "\$(cat "$S/lease")"
+      printf '          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1\n'
+    fi
+    printf '          RX packets:12 errors:0 dropped:0 overruns:0 frame:0\n'
+    printf '          TX packets:9 errors:0 dropped:0 overruns:0 carrier:0\n'
     exit 0 ;;
   route) printf 'route %s\n' "\$*" >> "$S/state.net"; exit 0 ;;
   telnetd)
@@ -111,17 +135,25 @@ chmod 755 "$S/sysbin/dmesg"
 cat > "$S/sysbin/setprop" <<EOF
 #!/usr/bin/env bash
 printf '%s=%s\n' "\$1" "\$2" >> "$S/fake-props"
-# emulates adbd coming up and listening when init starts it / a tcp port is set
-if [ "\$1" = "ctl.start" ] && [ "\$2" = "adbd" ]; then
-  printf '  0: 00000000:15B3 00000000:0000 0A 0000000000000000 0000000000000000 00000001 0 0 1 3 0\n' >> "$S/fake-tcp"
-  printf 'adbd=running\n' >> "$S/fake-props"
+# Emulates init's service handling AND adbd's own startup behaviour, measured Nov 21: stock recovery
+# init.rc has no trigger on service.adb.tcp.port, so setting the port on a RUNNING adbd binds nothing.
+# A TCP listener (0x15B3 = 5555, state 0A) only appears when adbd starts with the port already set.
+if [ "\$1" = "ctl.stop" ] && [ "\$2" = "adbd" ]; then
+  : > "$S/fake-tcp"
+  printf 'init.svc.adbd=stopped\n' >> "$S/fake-props"
 fi
-if [ "\$1" = "service.adb.tcp.port" ]; then printf '  0: 00000000:15B3 00000000:0000 0A 0 0 0 1 0 0 1 3 0\n' >> "$S/fake-tcp"; fi
+if [ "\$1" = "ctl.start" ] && [ "\$2" = "adbd" ]; then
+  printf 'init.svc.adbd=running\n' >> "$S/fake-props"
+  if grep -q '^service.adb.tcp.port=' "$S/fake-props" 2>/dev/null && [ ! -f "$S/no-listener" ]; then
+    printf '  0: 00000000:15B3 00000000:0000 0A 0000000000000000 0000000000000000 00000001 0 0 1 3 0\n' >> "$S/fake-tcp"
+  fi
+fi
 exit 0
 EOF
 cat > "$S/sysbin/getprop" <<EOF
 #!/usr/bin/env bash
-if [ -f "$S/fake-props" ]; then grep -m1 "^\$1=" "$S/fake-props" 2>/dev/null | cut -d= -f2; fi
+# last write wins, like Android's property service: ctl.stop then ctl.start must read 'running'
+if [ -f "$S/fake-props" ]; then grep "^\$1=" "$S/fake-props" 2>/dev/null | tail -1 | cut -d= -f2; fi
 exit 0
 EOF
 chmod 755 "$S/sysbin/setprop" "$S/sysbin/getprop"
@@ -131,6 +163,7 @@ printf '%s\n' "fake /dev/block/by-name/cache fake rw 0 0" > "$S/fake-mounts"
 printf '1.23 4.56\n' > "$S/fake-uptime"
 : > "$S/fake-kmsg"
 printf 'Iface\tDestination\tGateway\neth0\t0001A8C0\t00000000\n' > "$S/fake-route"
+printf 'IP address       HW type     Flags       HW address            Mask     Device\n192.168.1.1    0x1         0x2         aa:bb:cc:dd:ee:ff     *        eth0\n' > "$S/fake-arp"
 : > "$S/fake-tcp"
 dd if=/dev/zero of="$S/by-name/misc" bs=1 count=4096 conv=fsync >/dev/null 2>&1
 printf 'boot-recovery\x00' > "$S/by-name/misc.head"
@@ -167,6 +200,7 @@ gen() {
       -e "s|/proc/mounts|$S/fake-mounts|g" \
       -e "s|/proc/uptime|$S/fake-uptime|g" \
       -e "s|/proc/net/tcp|$S/fake-tcp|g" \
+      -e "s|/proc/net/arp|$S/fake-arp|g" \
       -e "s|/proc/net/route|$S/fake-route|g" \
       -e "s|/dev/kmsg|$S/fake-kmsg|g" \
       -e "s|/dev/block/by-name|$S/by-name|g" \
@@ -183,21 +217,32 @@ run() {
   set -- $1
   cmd="$1"; shift
   HB_TICKS=${HB:-3} HOLD_ITERS=${HOLD:-2} POLL_LIMIT=${POLL:-60} \
+  DHCP_LIMIT=${DHCP:-8} CARD_ITERS=${CARD:-3} \
     /usr/bin/bash "$S/fakesbin/$cmd" "$@" >/dev/null 2>&1
   echo $? > "$S/rc"
 }
 reset_state() {
-  rm -f "$S/state.net" "$S/state.reboot" "$S/telnetd" "$S/lease" "$S/dhcp-ok" "$S/no-pport" \
-        "$S/fake-props" "$S/fake-tcp" "$S/cache/hu-mark.log" "$S/cache/net-done-"*.txt \
+  rm -f "$S/state.net" "$S/state.reboot" "$S/telnetd" "$S/lease" "$S/alias" "$S/dhcp-ok" "$S/no-pport" \
+        "$S/no-listener" "$S/fake-props" "$S/fake-tcp" "$S/cache/hu-mark.log" "$S/cache/net-done-"*.txt \
         "$S/cache/hu-net.stop" "$S/cache/hu-net.request" "$S/cache/misc-head.bin" \
         "$S/cache/state-recovery-"*.txt "$S/cache/pstore-"*/ 2>/dev/null
   rm -rf "$S/cache"; mkdir -p "$S/cache"
-  rm -rf "$S/fakenet"; mkdir -p "$S/fakenet"
+  rm -rf "$S/fakenet" "$S/hucard"; mkdir -p "$S/fakenet" "$S/hucard"
   printf 'fake /dev/block/by-name/cache fake rw 0 0\n' > "$S/fake-mounts"
+  printf 'IP address       HW type     Flags       HW address            Mask     Device\n192.168.1.1    0x1         0x2         aa:bb:cc:dd:ee:ff     *        eth0\n' > "$S/fake-arp"
   : > "$S/fake-tcp"
 }
 stage_net() { printf "${1:-nonce-1}\n" > "$S/cache/hu-net.request"; }
-iface_up() { mkdir -p "$S/fakenet/eth0"; printf '1\n' > "$S/fakenet/eth0/carrier"; }
+# carrier present, plus the five L2 counters the module samples around the DHCP attempt
+iface_up() {
+  mkdir -p "$S/fakenet/eth0/statistics"
+  printf '1\n' > "$S/fakenet/eth0/carrier"
+  v=12
+  for f in rx_packets tx_packets rx_errors tx_errors rx_dropped; do
+    printf '%s\n' "$v" > "$S/fakenet/eth0/statistics/$f"
+    v=$((v + 1))
+  done
+}
 
 printf '=== 1. early service: pstore saved first, misc head read-only ===\n'
 reset_state
@@ -224,7 +269,7 @@ run hu-hb.sh
 expect "stop flag seen"
 [ "$(grep -c 'alive up=' "$S/cache/hu-mark.log" 2>/dev/null)" = 1 ] && ok "stopped after first tick" || no "did not stop early"
 
-printf '=== 4. state snapshot: every section present, guarded ===\n'
+printf '=== 4. state snapshot: every section present, guarded, copied to the card ===\n'
 reset_state; iface_up
 run "hu-state.sh 1 $S/cache/state-recovery-5.txt"
 [ "$(cat "$S/rc")" = 0 ] && ok "rc=0" || no "rc=$(cat "$S/rc")"
@@ -232,54 +277,93 @@ f="$S/cache/state-recovery-5.txt"
 [ -s "$f" ] && ok "state file written ($(stat -c %s "$f") B)" || no "state file empty"
 grep -q 'ax88179_178a' "$f" && ok "ifconfig section present" || no "ifconfig missing"
 grep -q 'eth0' "$f" && ok "route section present" || no "route missing"
+grep -q '192.168.1.1' "$f" && ok "arp section present" || no "arp missing"
+grep -q 'rx_packets=12' "$f" && ok "l2 counters present" || no "counters missing"
 grep -q 'eth0: register' "$f" && ok "dmesg tail present" || no "dmesg missing"
 expect "state begin delay=1"
-expect "state end"
+expect "state end out=$f size=$(stat -c %s "$f")"
+[ -f "$S/hucard/state-recovery-5.txt" ] && ok "snapshot copied to the card mount" || no "snapshot not copied to card"
+expect "state copied to card rc=0"
 
-printf '=== 5. net armed + iface present + DHCP success: lease, adbd, telnetd, marker ===\n'
+printf '=== 5. net armed: carrier poll, static LAN address, alias, then the adbd RESTART order ===\n'
 reset_state; stage_net nonce-5; iface_up; printf '192.168.77.30\n' > "$S/dhcp-ip"; : > "$S/dhcp-ok"
-HOLD=1
+HOLD=1; DHCP=4
 run hu-net.sh
 [ "$(cat "$S/rc")" = 0 ] && ok "rc=0" || { no "rc=$(cat "$S/rc")"; cat "$S/cache/hu-mark.log"; }
 expect "net begin nonce=nonce-5"
-expect "iface eth0 present"
-expect "dhcp lease applied iface=eth0 ip=192.168.77.30"
-expect "route rc=0 gw=192.168.1.1"
-expect "net: address=192.168.77.30"
-expect "adbd svc="
-expect "net: adbd listen line="
-expect "telnetd on"
-expect "workstation reaches 192.168.77.30"
-grep -q 'udhcpc -i eth0 -n -q -t 5 -s' "$S/state.net" && ok "udhcpc called with the shipped script" || no "udhcpc line wrong"
+expect "carrier up on eth0"
+expect "net: static rc=0"
+expect "net: alias rc=0"
+expect "net: route rc=0"
+expect "net: address=192.168.1.250 alias_addr=192.168.77.2"
+grep -q 'ifconfig eth0 192.168.1.250 netmask 255.255.255.0 up' "$S/state.net" && ok "static LAN ifconfig issued" || no "static ifconfig missing"
+grep -q 'ifconfig eth0:1 192.168.77.2 netmask 255.255.255.0 up' "$S/state.net" && ok "alias ifconfig issued" || no "alias ifconfig missing"
 grep -q 'route add default gw 192.168.1.1' "$S/state.net" && ok "default route issued" || no "no route line"
+expect "ctl.stop adbd issued"
+expect "service.adb.tcp.port=5555"
+expect "ctl.start adbd issued"
+# the order is the whole point of D87: stop, then the port, then start
+st=$(grep -n '^ctl.stop=adbd' "$S/fake-props" | cut -d: -f1)
+pt=$(grep -n '^service.adb.tcp.port=5555' "$S/fake-props" | cut -d: -f1)
+sa=$(grep -n '^ctl.start=adbd' "$S/fake-props" | cut -d: -f1)
+[ -n "$st" ] && [ -n "$pt" ] && [ -n "$sa" ] && [ "$st" -lt "$pt" ] && [ "$pt" -lt "$sa" ] \
+  && ok "adbd order is stop -> port -> start (lines $st/$pt/$sa)" || no "adbd order wrong: $st/$pt/$sa"
+expect "adbd svc=running"
+expect "net: adbd listen line=  0: 00000000:15B3"
+expect "elapsed from carrier"
+expect "workstation reaches 192.168.1.250"
+expect "telnetd on 2323"
+expect "dhcp script present"
+expect "l2 before dhcp: rx_packets=12"
+expect "dhcp offer observed iface=eth0 ip=192.168.77.30"
+expect "l2 after dhcp"
+expect "address after dhcp=192.168.1.250"
+# the dhcp script must never move eth0: the offered address must not appear in any ifconfig call
+grep -q '192.168.77.30' "$S/state.net" && no "dhcp script configured eth0" || ok "dhcp diagnostic left eth0 alone"
+[ "$(grep -c 'udhcpc' "$S/state.net" 2>/dev/null)" = 1 ] && ok "dhcp attempted once, in the background" || no "dhcp attempted $(grep -c 'udhcpc' "$S/state.net" 2>/dev/null) times"
+grep -q 'udhcpc -i eth0 -t 5 -r 6 -s' "$S/state.net" && ok "udhcpc called with the diagnostic script" || no "udhcpc line wrong"
 [ -f "$S/cache/net-done-nonce-5.txt" ] && ok "done marker named after the nonce" || no "done marker missing"
 [ -f "$S/state.reboot" ] && no "rebooted while armed" || ok "stayed in recovery"
 
-printf '=== 6. DHCP fails: static fallback, still listening ===\n'
+printf '=== 6. DHCP offers nothing: the static LAN address is already up and still listening ===\n'
 reset_state; stage_net nonce-6; iface_up
-HOLD=1
+HOLD=1; DHCP=4
 run hu-net.sh
-expect "no DHCP address - falling back to static 192.168.77.2"
-expect "net: address=192.168.77.2"
-grep -q 'ifconfig eth0 192.168.77.2 netmask 255.255.255.0 up' "$S/state.net" && ok "static ifconfig issued" || no "static ifconfig missing"
-expect "workstation reaches 192.168.77.2"
-[ -f "$S/cache/net-done-nonce-6.txt" ] && ok "marker only on success path" || no "marker missing"
+expect "net: address=192.168.1.250 alias_addr=192.168.77.2"
+expect "net: adbd listen line=  0: 00000000:15B3"
+expect "l2 after dhcp"
+expect "workstation reaches 192.168.1.250"
+grep -q 'dhcp offer observed' "$S/cache/hu-mark.log" && no "a lease was claimed with no offer" || ok "no lease claimed"
+[ -f "$S/cache/net-done-nonce-6.txt" ] && ok "marker written on the listener path" || no "marker missing"
+
+printf '=== 6b. listener never appears (adbd ignores the port property): says NO TCP LISTENER ===\n'
+reset_state; stage_net nonce-6b; iface_up; : > "$S/no-listener"
+HOLD=1; DHCP=1
+run hu-net.sh
+expect "net: adbd listen line=none"
+expect "NO TCP LISTENER"
+grep -q 'workstation reaches' "$S/cache/hu-mark.log" && no "claimed success without a listener" || ok "success not claimed"
+expect "l2 before dhcp"
+[ -f "$S/cache/net-done-nonce-6b.txt" ] && ok "nonce consumed once, diagnostics continue" || no "marker missing"
+[ -f "$S/state.reboot" ] && no "rebooted after a failed listener" || ok "no reboot, no retry"
 
 printf '=== 7. telnetd without -p support: falls back to the default port ===\n'
 reset_state; stage_net nonce-7; iface_up; : > "$S/no-pport"; printf '192.168.77.40\n' > "$S/dhcp-ip"; : > "$S/dhcp-ok"
-HOLD=1
+HOLD=1; DHCP=4
 run hu-net.sh
 expect "telnetd on default 23"
 expect "p rejected by this busybox"
+expect "net: adbd listen line=  0: 00000000:15B3"
 [ -f "$S/telnetd" ] && ok "telnetd marker" || no "no telnetd"
 
-printf '=== 8. no interface after the poll limit: stops, no reboot, no marker ===\n'
-reset_state; stage_net nonce-8; HOLD=1; POLL=10
+printf '=== 8. no carrier after the poll limit: stops, no reboot, no marker, no telnetd ===\n'
+reset_state; stage_net nonce-8; HOLD=1; POLL=10; DHCP=1
 run hu-net.sh
-expect "never appeared after"
+expect "no carrier on eth0 after"
 expect "no reboot"
 [ -f "$S/cache/net-done-nonce-8.txt" ] && no "marker written although nothing came up" || ok "marker only on success"
-[ -f "$S/telnetd" ] && no "telnetd started without an interface" || ok "no telnetd"
+[ -f "$S/telnetd" ] && no "telnetd started without carrier" || ok "no telnetd"
+grep -q 'ctl.start=adbd' "$S/fake-props" 2>/dev/null && no "adbd touched without carrier" || ok "adbd untouched"
 [ -f "$S/state.reboot" ] && no "rebooted" || ok "old reboot-out path not reintroduced"
 
 printf '=== 9. consumed nonce: not armed again ===\n'
@@ -302,17 +386,21 @@ run hu-net.sh
 expect "nonce refreshed (nonce-a -> nonce-b)"
 [ -f "$S/cache/net-done-nonce-b.txt" ] && ok "new nonce marked consumed" || no "new nonce marker missing"
 
-printf '=== 12. card channel: UI-mounted card gets copies, own mount is not attempted ===\n'
+printf '=== 12. card channel: UI-mounted card gets repeated copies, own mount not attempted ===\n'
 reset_state
 printf 'fake %s fake rw 0 0\n' "$S/mntext" >> "$S/fake-mounts"   # the grep pattern is sed-mapped too
-HB=1; run hu-early.sh; run hu-hb.sh; run "hu-state.sh 1 $S/cache/state-recovery-5.txt"
+HB=1; CARD=2; stage_net nonce-card; run hu-early.sh; run hu-hb.sh; run "hu-state.sh 1 $S/cache/state-recovery-5.txt"
 run hu-card.sh
 expect "card copied to"
 expect "UI-mounted channel"
 expect "state end"
+[ "$(grep -c 'card copied to' "$S/cache/hu-mark.log" 2>/dev/null)" -ge 2 ] \
+  && ok "copied more than once (the card is kept mounted)" || no "copied only once"
 [ -f "$S/mntext/hu-mark.log" ] && ok "log copied to card" || no "log not copied"
 [ -f "$S/mntext/state-recovery-5.txt" ] && ok "state file copied to card" || no "state file not copied"
 [ -f "$S/mntext/misc-head.bin" ] && ok "misc head copied to card" || no "misc head not copied"
+[ -f "$S/mntext/hu-net.request" ] && ok "nonce request copied to card" || no "nonce request not copied"
+[ -f "$S/mntext/update.zip" ] && no "an install package was created on the card" || ok "no install package written"
 
 printf '=== 13. card channel: no card present -> channel unused ===\n'
 reset_state
@@ -338,6 +426,17 @@ grep -q 'sha256sum\|md5sum' "$S/audit.body" && no "on-device digest present" || 
 grep -q 'dd if=/dev/block' "$S/audit.body" && no "dd of a block device present" || ok "no dd of a block device"
 grep -q '\$BB reboot\|/sbin/reboot\|ctl.start reboot' "$S/audit.body" && no "reboot command in the module" || ok "no reboot path in the module"
 grep -q 'hu_evidence' "$REPO/scripts/hu_net_module_append.rc" && no "retired evidence service referenced" || ok "retired evidence script not referenced"
+# D87 invariants in the sources: the adbd restart order, and a DHCP script that never configures.
+sed '/^[[:space:]]*#/d' "$REPO/scripts/hu_net.sh" > "$S/net.body" 2>/dev/null
+n_stop=$(grep -n 'setprop ctl.stop adbd' "$S/net.body" | head -1 | cut -d: -f1)
+n_port=$(grep -n 'setprop service.adb.tcp.port' "$S/net.body" | head -1 | cut -d: -f1)
+n_start=$(grep -n 'setprop ctl.start adbd' "$S/net.body" | head -1 | cut -d: -f1)
+[ -n "$n_stop" ] && [ -n "$n_port" ] && [ -n "$n_start" ] && [ "$n_stop" -lt "$n_port" ] && [ "$n_port" -lt "$n_start" ] \
+  && ok "source restart order is stop -> port -> start ($n_stop/$n_port/$n_start)" || no "source restart order wrong: $n_stop/$n_port/$n_start"
+sed '/^[[:space:]]*#/d' "$REPO/scripts/hu_udhcpc_script.sh" > "$S/dhcp.body" 2>/dev/null
+grep -q 'ifconfig\|route add' "$S/dhcp.body" && no "the dhcp script configures an interface" || ok "dhcp script is diagnostic only"
+sed '/^[[:space:]]*#/d' "$REPO/scripts/hu_state.sh" > "$S/state.body" 2>/dev/null
+grep -q '\$SB/awk\|\$BB timeout' "$S/state.body" "$S/net.body" && no "state/net ask for an applet that does not exist" || ok "state/net use only applets that exist"
 
 printf '=== result ===\n'
 if [ "$fails" = 0 ]; then echo "all scenarios pass"; exit 0; fi

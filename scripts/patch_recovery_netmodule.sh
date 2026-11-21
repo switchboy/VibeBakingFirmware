@@ -9,9 +9,14 @@
 #   /sbin/hu-early.sh         pstore copy + misc head 2048 B, first action
 #   /sbin/hu-hb.sh            heartbeat "alive up=<uptime>" every 5 s for 20 min
 #   /sbin/hu-state.sh         guarded state snapshot at a given delay
-#   /sbin/hu-net.sh           Ethernet bring-up, gated on /cache/hu-net.request nonce
-#   /sbin/hu-card.sh          FAT32 card copy as the no-network channel
-#   /sbin/hu-udhcpc.script    busybox udhcpc lease script (ramdisk ships no default.script)
+#   /sbin/hu-net.sh           Ethernet bring-up, gated on /cache/hu-net.request nonce: carrier poll,
+#                             static 192.168.1.250/24 + eth0:1 alias 192.168.77.2, adbd RESTART
+#                             (stop -> port -> start, verified in /proc/net/tcp), telnetd in the same
+#                             block, then a background DIAGNOSTIC-only udhcpc (~60 s)
+#   /sbin/hu-card.sh          FAT32 card copy as the no-network channel; stays mounted until the
+#                             120 s snapshot has landed and re-copies every tick
+#   /sbin/hu-udhcpc.script    busybox udhcpc lease script (ramdisk ships no default.script); records
+#                             the offer and never configures an interface
 #   /init.recovery.rk30board.rc   stock bytes verbatim + appended independent service block
 #   /prop.default             -HUPATCH suffix on fingerprint/display id, + ro.adb.secure=0
 #                             (default.prop is a symlink to it, so one patch covers both)

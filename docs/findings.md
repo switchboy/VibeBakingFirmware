@@ -4335,3 +4335,26 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   inside recovery can never show it. Also measured: the `stat` call in `hu-state.sh` printed an empty size
   because `\"$out\"` inside a double-quoted string passes the quote characters to toybox `stat` as part of
   the argument; the unquoted call in `hu-early.sh` printed 2048 correctly.
+
+* **Build v3 of the net module (Nov 21 night, built - not written).** The owner's revised order is
+  implemented in `scripts/hu_net.sh`: poll `carrier` (the driver only reports it after
+  `ax88179 - Link status is: 1`), then address the interface immediately - static `192.168.1.250/24`
+  with gateway `192.168.1.1` plus an `eth0:1` alias on `192.168.77.2` - then restart adbd in the
+  measured order (`ctl.stop adbd`, sleep 2, `service.adb.tcp.port=5555`, `ctl.start adbd`) and read
+  `/proc/net/tcp` for `15B3` state `0A` before logging success, with `telnetd -l /sbin/sh -p 2323` in
+  the same block; everything runs within ~15 s of carrier. DHCP became diagnostic only:
+  `hu-udhcpc.script` records the offer (`ip`, `mask`, `gw`, `dns`) and never calls `ifconfig`/`route`,
+  and `hu-net.sh` runs it in a background subshell for ~60 s with stderr into the log, sampling
+  `/sys/class/net/eth0/statistics/{rx_packets,tx_packets,rx_errors,tx_errors,rx_dropped}` before and
+  after, plus `ifconfig eth0` and `/proc/net/arp`. Durability: `say()` and `guarded()` now `sync` after
+  every write, `hu-state.sh` copies its snapshot to whichever card mount is live, and `hu-card.sh`
+  keeps its own mount alive until the 120 s snapshot has landed. The `stat` argument quoting bug is
+  fixed (unquoted argument). Built image `a14-work/recovery-netmodule/recovery-netmodule.img`,
+  39,090,176 B, sha256 `b96fe5f262bb29e6786aaaf03459635a18a7ca9c37853cd6fe1b7291ed999a5f`; kernel blob
+  `a514a3ffb77e…`, second `fb80617e7c97…`, dtbo `28a07d4946e9…` byte-identical; stock rc 663 B verbatim
+  + 1224 B; injected file digests `hu-h-common.sh 9e2292857a059e24`, `hu-early.sh 9812ad519f080e06`,
+  `hu-hb.sh e47639d0a974b858`, `hu-state.sh 344587e346d53fe9`, `hu-net.sh 0b4d8ba3ba24baf8`,
+  `hu-card.sh d61685b771f25082`, `hu-udhcpc.script b877ed13e30e0c6a`, rc `b57d152d9634efd1` (unchanged),
+  `prop.default 92dbf6d62fb0b5b5`. Offline gate passes 15 scenarios including the new adbd-order
+  assertion and a scenario that emulates the Nov 21 failure (`no-listener` -> the module says
+  `NO TCP LISTENER` and does not claim success); dialect gate `mksh-R40 -n` rc 0 on all seven scripts.
