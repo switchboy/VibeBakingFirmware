@@ -4262,3 +4262,23 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   `1fdf5ea77fc6…` - the only staged artefact is the new image on the workstation. The net module exists as a
   build plus offline and dialect gates; its recovery-boot behaviour is unmeasured until the owner approves the
   p8 write.
+
+* **The p8 write, on the owner's GO (Nov 21, 20:11 CET).** PRE-FLASH checks first: the image contains **0
+  occurrences** of `hu-restore`, `hu-rollback` or `rollback-boot` (byte scan of the whole image plus the spliced
+  ramdisk), and no `hu-evidence.sh` is in the ramdisk - the module reads only `hu-net.request`, `hu-net.stop`,
+  `hu-mark.log`, `misc-head.bin`, `pstore-*` and `state-recovery-*`. `hu-restore.request` and the stale
+  `hu-net.request` were moved to `/cache/old-requests/`. The stock rollback image `1fdf5ea77fc6…` was staged at
+  `/cache/hu-stock-recovery.bin` (100,663,296 B) and verified by host-side readback, byte-identical to the
+  workstation capture. `/sbin/hu-udhcpc.script` (1,062 B, `316c4e48767c…`) is in the ramdisk and `hu-net.sh`
+  passes it with `-s`; neither the script nor the module references `/system/etc`, and neither the stock nor the
+  patched ramdisk has a `usr/share/udhcpc` directory, so `-s` is mandatory. The write was
+  `dd if=/cache/hu-patched-recovery.bin of=/dev/block/by-name/recovery bs=512 count=76348 conv=notrunc` - rc 0,
+  76,348 records, 39,090,176 B at 10 MB/s. Host-side readback of exactly that span hashes to
+  `0ab64a039cdd8ea8…` and `cmp` is byte-identical to the build; the 61,573,120 B beyond the write span are
+  byte-identical to stock. Partition 7 still hashes `b449aee98c01a7da…` and `misc` still hashes
+  `909bdd979111bcd5…` with no `boot-recovery`, both read back from the workstation after the write; `super`
+  (3,263,168,512 B) was not touched. The rollback is one line:
+  `dd if=/cache/hu-stock-recovery.bin of=/dev/block/by-name/recovery bs=512 count=196608 conv=notrunc`.
+  The fresh nonce `nov21-netmod-1795288264-71` was staged after the flash, and no `hu-net.stop` or `net-done-*`
+  marker exists yet. Recovery must be entered from **eMMC** (`storagemedia=emmc`), not from an SD-boot card,
+  because an SD-boot card runs the card's own partitions and would not boot the patched partition 8.
