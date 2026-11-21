@@ -79,9 +79,11 @@ This file is the index plus the risk register, and it must not restate numbers -
 | D78-D79 | decided Nov 20 | TCP adb while Android 10 runs is the only route we can reach, so only images already proven to boot may be written (**D78**); recovery starts `console /system/bin/sh` because ro.debuggable=1, which would make the UART an interactive shell able to read a failed boot's pstore record - the probe is still declined (**D79**) |
 | D80 | decided Nov 20 by the owner | `recovery` (p8) writable while MTC/mainboard flashing stays intact; a patched partition 8 becomes the route that reads a dead boot's pstore record and restores partition 7, lifting D78's constraint (**D80**) |
 | D81 | decided Nov 20 evening | the recovery evidence script may only use what the ramdisk holds (busybox has no `dd`/`wc`/`cp`/`rm`/`ls`/`tr`/`sha256sum`; `/system/bin` does, with `linker64`), mounts `/cache` before creating its directory, retires a restore request by a nonce-named done-marker, treats an unreadable digest as "write the rollback anyway", and reboots only when it did something because reboot-mode can land back in the menu |
+| D82 | decided Nov 21 | partition 8 self-heals: `/system/bin/install-recovery.sh` (init `flash_recovery`) rewrites it from `/system/recovery-from-boot.p` on every Android 10 boot while partition 7 hashes `ecb5315f…`, so a patched recovery is transient on stock firmware and persists only with a payload whose digest differs; the script's dialect gate is the ramdisk's own mksh R40 (`hush -n` on the unit), not dash/busybox ash; digest reads are capped at 64 MiB because hashing the whole 96 MiB partition never returns |
+| D83 | decided Nov 20 evening by the owner, recorded Nov 21 | all recovery restrictions released (**D80**'s condition superseded); recovery and `boot`/`super` are never altered in the same flash; "dig in to recovery, make it our own" is an open goal - reverse-engineering the stock recovery binary read-only, and until that lands "ours" stays the verified ramdisk splice |
 | Bluetooth | pending | second pass after first boot: Lineage's `packages/services/Bluetooth` + HAL transport |
 
-## Current state (items 1-24 through Nov 20 late afternoon; item 25 is Nov 20 evening)
+## Current state (items 1-24 through Nov 20 late afternoon; item 25 is Nov 20 evening; items 26-27 are Nov 21)
 
 1. **The unit runs stock Android 10 again and is backed up byte-for-byte (D39/D40).** The bootSD card
    reaches a real recovery environment, `diatsia fw/update(1).zip` restores the unit's own firmware, and
@@ -111,11 +113,13 @@ This file is the index plus the risk register, and it must not restate numbers -
    (audio/composer/sensors/gps/power/vibrator/mtc/bluetooth/wifi/rild/hostapd and the vendor manifest).
    Re-staging from the A10 firmware revises **D9**/**D15**, so it is the owner's decision (**D44**), not a
    change to make silently.
-5. **Two things need the build host, and the build host is currently unreachable.** The patched recovery has
-   to be rebuilt, and the vendor slice may have to be re-staged - both run on the NAS (`
-   `scripts/patch_recovery_autorun.sh`, `scripts/prebuilt_vendor.sh`, a packaging pass, the `dash -n` /
-   `busybox ash -n` checks). The access wrapper lives outside the repo (`/tmp/opencode/omv.sh` reading
-   `/tmp/opencode/build_host.env`) and was restored Nov 15, so the NAS is reachable again; `SSData` is nearly
+5. **What still needs the build host, and the build host is currently unreachable.** The vendor slice may have to
+   be re-staged (**D44**), which runs on the NAS (`
+   `scripts/prebuilt_vendor.sh`, a packaging pass). The patched recovery no longer needs it: the rebuild runs on
+   the workstation and its dialect gate is the recovery ramdisk's own mksh, syntax-checked on the unit (**D82**),
+   so `dash -n`/`busybox ash -n` are not applicable. The access wrapper lives outside the repo (`/tmp/opencode/omv.sh` reading
+   `/tmp/opencode/build_host.env`) and is missing again - `/tmp` was cleared, so the NAS cannot be reached until
+   the owner re-supplies the credential; `SSData` is nearly
    full (9.5 GB free after moving the Nov 8 pass to cold storage), which is why the shape-A build skips
    `m dist` and logs go to the NAS's `/tmp`. Nothing was flashed.
 6. **The route once those are done:** flash the rebuilt patched recovery over TCP adb (**D28**), stage the
@@ -404,3 +408,41 @@ This file is the index plus the risk register, and it must not restate numbers -
     blobs byte-identical to the capture and the stock rc kept verbatim (`analysis/recovery-evidence.txt`). Nothing
     was flashed in this pass. Next: the owner cold-cycles, then `/cache/hu-evidence.log` says whether the service
     ran; the rebuilt image goes on partition 8 only after `dash -n` and `busybox ash -n` pass on the build host.
+26. **Nov 21 (offline, no unit writes): partition 8 is stock again on its own, the record we wanted is saved, and
+    the script's gate moved onto the unit.** Partition 8 reads back as the capture `1fdf5ea77fc6…` (full 100,663,296 B,
+    zero differing bytes over the first 39,104,512 B) because `/system/bin/install-recovery.sh` - init service
+    `flash_recovery`, measured running at t=19.9 s in the boot's own console record - `applypatch`es recovery from
+    `/system/recovery-from-boot.p` with source `boot:27,406,336:ecb5315f…` and target
+    `recovery:39,122,944:f75bcfb4…`, and both digests verify against the images we hold. So a patched partition 8 is
+    transient while partition 7 is an OEM Android 10 image, and persists only with a payload whose digest differs
+    (**D82**); the Nov 20 note that "nothing re-flashes recovery" was wrong because it checked `/vendor`, and the
+    patch lives in `/system`. The record the 22:06 run copied is the Android 10 boot's text (67,548 B, 1,093 lines,
+    ending in `reboot: Restarting system with command 'recovery'` after `init: Received sys.powerctl=... from
+    /system/bin/adbd`), so the parked-menu boot's text is preserved in `/cache`. That run never reached the restore
+    step because hashing the whole 96 MiB partition never returned - `dig()` now caps reads at 64 MiB through
+    `head -c`, and the gate asserts the line is reached and equals the capped read's sha256. The recovery ramdisk's
+    `/sbin/sh` is MIRBSD KSH R40 and its busybox has no `ash` applet and no `--version`/`--list`, which is why
+    `busybox-applets.txt` came back 0 bytes; pushing `/sbin/sh` to `/data/local/tmp/hush` and running `hush -n` on
+    the candidate script returns rc 0 on the unit, so the dialect gate no longer needs the NAS. Rebuilt candidate
+    `dfe61ba7b3d6…` (39,088,128 B) injecting script `646c0a709742…`, blobs byte-identical to the capture, gate
+    `b83e36cdc8a6…` passing nine scenarios. Nothing was written; partition 7 stays `b449aee98c01…`, `misc` stays
+    `909bdd979111…`.
+27. **Nov 21 (late morning, live): the revert is isolated, partition 8 is staged patched again, and the owner's
+    release is recorded as D83.** Partition 8 was written twice from `/cache/hu-patched-recovery.bin` (exact
+    39,086,080 B span, `dd bs=512 count=76720`, span verified against the image digest both times) and reverted
+    on a plain `adb reboot` before adbd answered - ~40 s after reboot, `init.svc.flash_recovery: stopped`,
+    `ro.boottime.flash_recovery: 3759993000`: the revert fires at boot time 3.76 s, and its log lines roll out of
+    logcat and kmsg before the first adb read, which is why earlier probes saw nothing. The service definition is
+    `/init.rc:854` (`service flash_recovery /system/bin/install-recovery.sh`, class main, oneshot) - the root init
+    rc, which the rc-dir greps never covered. Boot-stage copy ruled out: `backup` partition all zeros, partitions
+    contiguous (8.4 MiB tail is the backup GPT), uboot flash code only runs in loader mode, boot.bin tail is
+    pointer-table data, boot ramdisk and modules reference nothing recovery. Recovery boots do not run Android
+    init, so a patched partition 8 survives the recovery boot itself: the rule is write partition 8, then enter
+    recovery immediately, never boot Android in between. Rebuilds are not byte-reproducible (gzip timestamps):
+    `dfe61ba7b3d6…` -> `f8a4a779b2fb…` -> `8201bde5021e…` (39,086,080 B) for identical content; the staged copy's
+    digest is what gets registered. Offline gates re-run before staging: smoke 9/9 rc 0, sandbox harness A-F pass.
+    The owner's Nov 20 evening release is recorded as **D83** (all recovery restrictions lifted; recovery and
+    `boot`/`super` never altered in the same flash; "make recovery our own" is an open goal with a read-only
+    reverse-engineering pass of the stock recovery binary running now). Partition 8 currently holds the staged
+    patched build `8201bde5021e…`; the restore request (nonce `nov20-rung2-1795208096-27817`, unconsumed) and the
+    rollback (`b449aee98c01…`) are staged in `/cache`. **Android must not boot before the owner enters recovery.**

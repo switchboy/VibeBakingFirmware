@@ -72,11 +72,14 @@ dig() {
 # What this environment really offers. busybox's own applet list came back 0 bytes on the unit (measured
 # Nov 20 22:06), so the listing is made from the directories themselves with toybox ls.
 record_tools() {
-  $(tool ls) -l /sbin > "$OUT/sbin-list.txt" 2>>"$LOG"
-  $(tool ls) /system/bin > "$OUT/systembin-list.txt" 2>>"$LOG"
-  $(tool ls) -l /dev/block/by-name > "$OUT/by-name-list.txt" 2>>"$LOG"
+  # File names deliberately avoid a `/sbin`, `/system/bin` or `/dev/block/by-name` substring after $OUT: the
+  # offline dry-run maps those absolute paths onto sandbox directories with sed, and an output name like
+  # sbin-list.txt gets rewritten into a broken one by that same mapping.
+  $(tool ls) -l /sbin > "$OUT/list-sbin.txt" 2>>"$LOG"
+  $(tool ls) /system/bin > "$OUT/list-systembin.txt" 2>>"$LOG"
+  $(tool ls) -l /dev/block/by-name > "$OUT/list-by-name.txt" 2>>"$LOG"
   $BB cat /proc/mounts > "$OUT/mounts.txt" 2>>"$LOG"
-  say "tool listing: sbin=$(sz "$OUT/sbin-list.txt") systembin=$(sz "$OUT/systembin-list.txt") by-name=$(sz "$OUT/by-name-list.txt")"
+  say "tool listing: sbin=$(sz "$OUT/list-sbin.txt") systembin=$(sz "$OUT/list-systembin.txt") by-name=$(sz "$OUT/list-by-name.txt")"
 }
 
 # 1. Mount /cache first, then create the evidence directory INSIDE the mounted partition. The Nov 20 evening
@@ -97,13 +100,13 @@ fi
 $BB mkdir -p "$OUT" 2>/dev/null
 say "cache mounted (attempt $i), evidence dir $OUT $(sz "$OUT")"
 
-# 1b. Record what this busybox can actually do, so the next rung is written against measurement rather than
-# strings over the binary - a strings scan cannot see two-letter applets (dd, wc, cp, ls, tr), and guessing
-# cost us the Nov 20 run. The list lands in /cache and is readable over adb afterwards.
+# 1b. Record what this environment can actually do, so the next rung is written against measurement rather
+# than strings over the binary. busybox's own --list-applets came back empty on the unit (Nov 20 22:06), so
+# the lists are taken from the directories. Everything lands in /cache and is readable over adb afterwards.
 $BB --list-applets > "$OUT/busybox-applets.txt" 2>/dev/null
 if [ -z "$(sz "$OUT/busybox-applets.txt")" ]; then $BB --list > "$OUT/busybox-applets.txt" 2>/dev/null; fi
 $BB echo "busybox version: $($BB --version 2>/dev/null | $BB head -1)" > "$OUT/busybox-version.txt" 2>>"$LOG"
-say "busybox applets recorded: $(sz "$OUT/busybox-applets.txt") bytes"
+record_tools
 
 # 2. Read the dead boot's console record.
 $BB mkdir -p "$PSTORE" 2>/dev/null

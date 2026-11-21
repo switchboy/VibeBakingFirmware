@@ -2128,7 +2128,10 @@ mounts pstore and copies the *previous* boot's console record (**D77**) to `/cac
 rollback staged in `/cache` by adb before the risky write. Measured at the lift: partition 8 hashes
 `1fdf5ea77fc6…`, byte-identical to `a14-work/hu-stock-backup-refresh/recovery.bin`;
 `/vendor/recovery-from-boot.p` and `/vendor/etc/init/vendor_flash_recovery.rc` are absent on this firmware, so
-nothing re-flashes recovery behind our back; and recovery's ramdisk ships a full tool set (`sh`, `mount`, `dd`,
+nothing re-flashes recovery behind our back - **corrected Nov 21 by D82: this firmware does re-flash recovery,
+from `/system/recovery-from-boot.p` via `/system/bin/install-recovery.sh` (init service `flash_recovery`), on
+every Android 10 boot while partition 7 hashes the OEM source digest `ecb5315f…`.** Recovery's ramdisk ships
+a full tool set (`sh`, `mount`, `dd`,
 `mkdir`, `toybox`, `sha256sum`, `unzip`), its `init.rc` creates `/cache` and `/data` mount points and starts
 `ueventd`, so `/dev/block/by-name/*` exists there. Measurement: `docs/findings.md`, "Nov 20 (recovery unbanned)".
 
@@ -2167,3 +2170,64 @@ the ramdisk changes, by two files, and the builder refuses if any byte outside t
 capture. Rollback is always the byte-exact capture `1fdf5ea77fc6…` (100,663,296 B). The offline gate is
 `scripts/smoke_recovery_evidence.sh` (9 scenarios, rc 0); `dash -n` and `busybox ash -n` still have to run on the
 build host before partition 8 is written again.
+
+**D82 - partition 8 self-heals while the OEM Android 10 boot runs, and the script's dialect gate is the
+ramdisk's own mksh (Nov 21, DECIDED; measurement in findings, "Nov 21 (early)").** Two things came out of
+reading the record the patched recovery finally copied, and both change how a partition-8 write is planned:
+
+* **`flash_recovery` rewrites partition 8 on every Android 10 boot.** `/system/bin/install-recovery.sh` runs
+  `applypatch --check EMMC:/dev/block/by-name/recovery:39122944:f75bcfb46815c97c6464a939fcbcc9fdff6991c5`, and when
+  that fails it patches from `/system/recovery-from-boot.p` with `--source EMMC:/dev/block/by-name/boot:27406336:
+  ecb5315f120b5008094ff8bf6b62063257fc363d`. Both digests were verified against the images we hold: partition 8
+  over its first 39,122,944 B hashes exactly `f75bcfb4…`, and partition 7 over its first 27,406,336 B hashes exactly
+  `ecb5315f…` - the same digest for the Nov 11 stock backup boot, the OEM package's `b449aee9` image and L0's
+  byte-identical repack. So a patched partition 8 exists only between the write and the next Android 10 boot, which
+  is why partition 8 read back as `1fdf5ea77fc6…` today. Two consequences: (1) partition 8 needs no manual rollback
+  once the unit boots stock Android 10 - the firmware restores it itself, which satisfies **D80**'s condition by
+  construction; (2) during an Android 14 payload pass the source digest does not match, `applypatch` refuses, and
+  the patched recovery *persists*, so the evidence route works exactly when a payload boot is what killed the boot.
+* **The dialect gate is `mksh -n` with the ramdisk's own shell, run on the unit.** The recovery ramdisk's
+  `/sbin/sh` is MIRBSD KSH R40 (static 32-bit ARM), and its busybox has no `ash` applet and no
+  `--version`/`--list` handling - that is why `busybox-applets.txt` came back 0 bytes on the unit. Pushing
+  `/sbin/sh` to `/data/local/tmp` and running `hush -n` on the candidate script is the authoritative syntax gate
+  for what partition 8 will execute, and it does not need the build host. `-n` parses without executing; the
+  script also refuses to run outside the recovery ramdisk (its guard needs `/dev/block/by-name/misc`,
+  `/sbin/busybox` and `/sbin/sh`).
+* **Digest reads are capped.** The 22:06 run stalled forever hashing the whole 96 MiB recovery partition and never
+  reached the restore step. `dig()` now reads through `head -c` with a 64 MiB cap: partition 7's digest stays exact
+  (its partition is 32 MiB), partition 8's is a first-64-MiB digest, and the offline gate asserts both that the
+  line is reached and that its value equals the capped read's sha256.
+
+Nothing was written in this pass. The current candidate is `a14-work/recovery-evidence/recovery-evidence.img`,
+39,088,128 B, sha256 `dfe61ba7b3d6e0344dc5831c49e219fb157baaac73ad4812655cbdac761fb199`, whose sha1 over the
+applypatch target span is `c72cae70cb96…` - deliberately not the stock target, so the firmware rewrites it back
+after an Android 10 boot.
+
+**D83 - the owner releases all recovery restrictions and sets the pairing rule
+(Nov 20 evening, OWNER INSTRUCTION, verbatim; recorded Nov 21).** Owner, Nov 20: *"Seems like a mayor roadblock
+as long as we have a booting system we can revert the recovery so I hearby release all recovery restrictions I
+set. BUT we can never alter recovery of system at the same time. Dig in to recovery. Let an agent reverse
+engeneer it if you have to. Make it our own."* Three rules come out of this:
+
+* **All recovery restrictions are released.** **D80**'s functional condition ("MTC/mainboard flashing remains
+  intact") is superseded; partition 8 is ours without a condition, and the owner explicitly accepts re-writing
+  it whenever the booting system can put it back - which **D82** proved is automatic while the OEM Android 10
+  boot runs. The patched-image discipline (stock binary, UI/touch, `update_engine`, `update-binary`,
+  `recovery.fstab`, USB gadget config and HCT's cert `cf2ab3…` verbatim; builder refuses any byte movement
+  outside the ramdisk span) stays as engineering hygiene, because the owner's own OEM install route must keep
+  working, not because it is a restriction.
+* **Recovery and `boot`/`super` are never altered in the same flash.** One variable per flash (**D62**) now
+  carries this explicit pairing: a flash that touches partition 8 touches nothing on partition 7 or the payload
+  partitions, and vice versa. `uboot`, `trust`, `dtb`, `dtbo`, `vbmeta`, `security`, the loader and the GPT
+  remain forbidden (**D18**/**D19**), and `super` is never resized.
+* **"Dig in to recovery / make it our own" is an open goal, not a licence to brick.** The stock recovery
+  binary is being reverse-engineered read-only (Nov 21): the menu, `update_engine`, the RK loader/MTC MCU path
+  (`install_rkloader_package`, `/tmp/flash.bin`, `/mnt/external_sd/gmcu.img`/`nmcu.img`/`dmcu.img`, `RKU_*`
+  ioctls) and the splash/resource tail, so that a recovery of ours can carry our own services while the
+  mainboard flashing path survives. Until that analysis lands, "ours" means the verified ramdisk splice
+  (**D42** style): stock bytes plus our appended service, never a replacement of the recovery binary.
+
+Practical consequence measured Nov 21 (late morning): partition 8 is reverted by Android's own `flash_recovery`
+before adbd comes up, so a recovery entry must be entered immediately after writing partition 8, never after an
+intervening Android boot; while an Android 14 payload sits on partition 7, the patch source digest mismatches and
+the patched recovery persists, which is exactly when the evidence route is needed.

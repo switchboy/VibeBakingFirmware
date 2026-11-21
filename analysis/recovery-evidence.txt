@@ -1,29 +1,29 @@
-# recovery-evidence.img - partition 8 with the evidence reader and boot restorer (D80/D81)
+# recovery-evidence.img - partition 8 with the evidence reader and boot restorer (D80/D81/D82)
 
-Built Nov 20 (late evening) by `scripts/patch_recovery_evidence.sh` from the post-flash capture the unit boots
-today. Nothing was flashed in this pass: it is a candidate, verified offline. It supersedes the earlier build
-(`a4cf5533482e…`, 39,086,080 B), which is what is on partition 8 now and whose script lost its evidence
-directory under the `/cache` mount.
+Built Nov 21 by `scripts/patch_recovery_evidence.sh` from the capture the unit boots today. Nothing was flashed
+in this pass: it is a candidate, verified offline and syntax-checked with the recovery ramdisk's own shell on the
+unit. It supersedes two builds: `a4cf5533482e…` (39,086,080 B, script whose evidence directory vanished under the
+`/cache` mount) and the Nov 20 21:34 build (whose script stalled hashing the whole recovery partition and never
+reached the restore step).
 
 ## Inputs and outputs
 
 | item | bytes | sha256 |
 |---|---|---|
 | capture `a14-work/hu-stock-backup-refresh/recovery.bin` (the rollback) | 100,663,296 | `1fdf5ea77fc66f48977d7846c468959a5845d0222dc73c3fe07a1b96b6cb023b` |
-| built `a14-work/recovery-evidence/recovery-evidence.img` | 39,088,128 | `d64ebd22d6142554d0b788373889059e88d66c7b1eddb8453ccadbb3fb76094a` |
-| superseded build currently on partition 8 | 39,086,080 | `a4cf5533482e88e66b6bd6c250e7052887ba15bebeff2d1712ca8eaff6a7413c` |
-| `scripts/hu_recovery_evidence.sh` (== injected `/sbin/hu-evidence.sh`) | 10,769 | `6c69e501d9d452ff10cb09f62f35fc26338c77553d34d284c7d044ad0af5479e` |
+| built `a14-work/recovery-evidence/recovery-evidence.img` | 39,088,128 | `dfe61ba7b3d6e0344dc5831c49e219fb157baaac73ad4812655cbdac761fb199` |
+| `scripts/hu_recovery_evidence.sh` (== injected `/sbin/hu-evidence.sh`) | 12,012 | `646c0a709742a53116bdaa7de1bbf3ef7c5a96e063adcb20548371c398ed3747` |
 | `scripts/hu_recovery_evidence_append.rc` (== injected `/init.recovery.rk30board.rc`) | 1,094 | `9099870398b95d85052051aaf13f540a06196294eb2cde748fc133d632643727` |
-| `scripts/smoke_recovery_evidence.sh` (offline logic gate) | 14445 | `e67ad192080680113b16bd5d118c429b98aa980bbb4e1bf0012a052af9bb642b` |
+| `scripts/smoke_recovery_evidence.sh` (offline logic gate) | 15,867 | `b83e36cdc8a60055f855883d5401af05b62de10afefecb83d853c2dfc7b257c6` |
 
 ## What changes in the image (from `a14-work/recovery-evidence/patch.log`)
 
 * boot header version 2, page 2048. Kernel 25,671,688 B at 2048 - **bytes unchanged**, blob digest `a514a3ffb77e`.
-* ramdisk gzip 12,519,199 B -> 12,483,273 B at 25,675,776; 485 cpio entries, no duplicates.
+* ramdisk gzip 12,519,199 B -> 12,482,657 B at 25,675,776; 485 cpio entries, no duplicates.
 * `second` 924,672 B, bytes unchanged, offset 38,195,200 -> 38,160,384; blob digest `fb80617e7c97`.
 * `recovery_dtbo` 803 B, bytes unchanged, offset 39,120,896 -> 39,086,080; digest `28a07d4946e9`.
-* content end 39,120,896 -> 39,086,080; file 39,088,128 B; write span 0..39,088,128 of a 100,663,296 B
-  partition. Beyond the content end 61,577,216 B stays as it is on the disk (457 non-zero bytes today).
+* content end 39,120,896 -> 39,086,080; file 39,088,128 B; write span 0..39,088,128 of a 100,663,296 B partition.
+  Beyond the content end 61,577,216 B stays as it is on the disk (457 non-zero bytes today).
 * byte-level refusal check passed: nothing outside the ramdisk span differs from the capture; the only header
   bytes that move are `ramdisk_size` and the stored dtbo offset (header offset 1636).
 
@@ -36,38 +36,65 @@ directory under the `/cache` mount.
   cert (`cf2ab3…`) are untouched, so the OEM `update(1).zip` install from the card - the mainboard/MTC loader
   path the owner used Nov 20 - still verifies.
 
-## What the script may use (measured out of the capture, Nov 20)
+## Partition 8 does not stay ours: `flash_recovery` restores it (**D82**)
+
+The candidate's sha1 over the span `applypatch` checks (`first 39,122,944 B`) is `c72cae70cb96d8e4791f7cf9b6be15a028fad576`,
+which is **not** the stock target `f75bcfb46815c97c6464a939fcbcc9fdff6991c5`. So `/system/bin/install-recovery.sh`
+(init service `flash_recovery`, measured running at t=19.9 s in the boot's own console record) fails its
+`--check` and rewrites partition 8 from `/system/recovery-from-boot.p` using source
+`boot:27,406,336:ecb5315f120b5008094ff8bf6b62063257fc363d`. Partition 7 hashes exactly that source today - the
+Nov 11 stock backup boot, the OEM package image `b449aee9…` and L0's byte-identical repack all hash to
+`ecb5315f…` over that span. Consequences:
+
+* While partition 7 is an OEM Android 10 boot image, a patched partition 8 survives only until the next Android
+  10 boot, after which partition 8 reads back as `1fdf5ea77fc6…` again. That is what happened between the Nov 20
+  22:06 recovery run and Nov 21: partition 8 measured byte-identical to the capture, zero differing bytes over
+  the first 39,104,512 B.
+* During an Android 14 payload pass the source digest does not match, `applypatch` refuses, and the patched
+  recovery persists - which is precisely when its console-record reader is needed.
+
+Manual rollback remains available: write the capture `1fdf5ea77fc6…` (100,663,296 B) over partition 8. Partition 7's
+rollback is unaffected (`b449aee98c01…`, **D76**), and `misc` stays `909bdd979111…`.
+
+## What the script may use (measured out of the capture and on the unit)
 
 `/sbin/busybox` carries `awk cat cut date echo expr grep head md5sum mkdir mount reboot sed sha1sum sleep stat
-sync tail touch umount`; it does **not** carry `dd wc cp rm ls tr sha256sum`. The ramdisk also ships `/system/bin`
-(toybox plus real binaries: `sha256sum dd tr rm wc cp ls blockdev devmem sh`) together with `/system/bin/linker64`
+sync tail touch umount`; it does **not** carry `dd wc cp rm ls tr sha256sum`, and it has no `ash` applet and no
+`--version`/`--list` handling - run as `busybox --version` on the unit it answers `applet not found`, which is why
+`busybox-applets.txt` came back 0 bytes in the Nov 20 22:06 run. The ramdisk's `/sbin/sh` is **MIRBSD KSH R40**
+(`KSH_VERSION=@(#)MIRBSD KSH R40 2011-10-07`, static 32-bit ARM, 206,684 B), and the same ramdisk ships
+`/system/bin` (toybox plus real binaries: `sha256sum dd tr rm wc cp ls blockdev devmem sh`) with `/system/bin/linker64`
 (1,445,568 B) and `/system/lib64` (`libc.so`, `libdl.so`, `libc++.so`), so those run before recovery mounts the
 system slice. The script resolves every tool to `/system/bin/<name>` when present and to the busybox applet
-otherwise; partition reads use `cat`, sizes use `stat -c %s`, the raw RAM read uses `tail -c +N | head -c`,
-nothing is deleted (the request is retired by a nonce-named done-marker), and only `reboot echo sleep sync date`
-are called on busybox directly.
+otherwise; partition reads use `cat`, sizes use `stat -c %s`, the raw RAM read uses `tail -c +N | head -c`, digests
+are bounded reads (`head -c 67108864` piped into a hash - the Nov 20 run stalled hashing a whole 96 MiB partition
+and never reached the restore step), nothing is deleted, and only `reboot echo sleep sync date` are called on
+busybox directly.
 
 ## Offline logic gate - `scripts/smoke_recovery_evidence.sh`, rc 0, nine scenarios
 
 1. run outside the unit - guard refuses (rc 1), nothing written, no mount attempted, no reboot;
-2. no restore request - `/cache` mounted before the evidence directory is created, records copied, partition 7
-   untouched, rebooted so the record becomes readable over adb;
+2. no restore request - `/cache` mounted before the evidence directory is created, records copied, the tool
+   listings (`list-sbin.txt`, `list-systembin.txt`, `list-by-name.txt`, `mounts.txt`, `busybox-version.txt`) all
+   written, the `p8 digest` line **reached** and equal to the sha256 of the first 64 MiB of the partition,
+   partition 7 untouched, rebooted so the record becomes readable over adb;
 3. request staged, partition 7 differs - rollback written through `cat`, digest verified, `restore-ok.txt`,
    done-marker named after the nonce, request file kept (busybox has no `rm`);
 4. the same nonce cannot re-arm the restore;
 5. partition 7 already on the rollback image - skipped, not written;
 6. request with no rollback staged - partition 7 untouched, the reason recorded;
-7. no digest tool anywhere - restores **anyway** and writes `restore-unverified.txt`, never claiming a match
-   (two empty digests compare equal, which is the defect this scenario guards);
+7. no digest tool anywhere - restores **anyway** and writes `restore-unverified.txt`, never claiming a match;
 8. an install package on a card - the restore still runs, recovery is left alone, no reboot (**D80**'s condition);
 9. pstore not a filesystem - the raw RAM read lands at the ramoops offset and the printable view comes from
    `/system/bin/tr`.
 
-What it does not prove: the shell dialect. busybox ash is not on this workstation, so POSIX syntax is checked here
-with `bash --posix -n` and still has to be checked with `dash -n` and `busybox ash -n` on the build host before
-partition 8 is written again.
+The harness maps `/sbin`, `/system/bin` and `/dev/block/by-name` onto fake directories so `record_tools` lists the
+fake world rather than the workstation's, and its busybox shim refuses `dd wc cp rm ls tr sha256sum`. Partition
+assertions compare digests, not sizes, because `truncate` does not clear bytes already present.
 
-## Rollback
+## Dialect gate (no build host needed)
 
-Partition 8 rolls back by writing the capture `1fdf5ea77fc6…` (100,663,296 B) back over it. Partition 7's
-rollback is unaffected: it stays `b449aee98c01…` (**D76**), and `misc` stays `909bdd979111…`.
+`/sbin/sh` is mksh, so the gate is that binary parsing the script on the unit: pushing
+`a14-work/recovery-evidence/rd-src/sbin/sh` to `/data/local/tmp/hush` and running `hush -n` on the candidate script
+returned **rc 0** on Nov 21, and the device's own `sh -n` (also mksh) returned rc 0. `dash -n` and `busybox ash -n`
+are not applicable: recovery's shell is not ash, and this busybox has no ash applet.

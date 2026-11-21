@@ -3740,7 +3740,12 @@ nothing written:
 * Nothing on this firmware re-flashes recovery behind our back: `/vendor/recovery-from-boot.p` is absent and
   `/vendor/etc/init/vendor_flash_recovery.rc` is absent (`ls` both, at 16:1x CET). The stock flow that re-flashes
   recovery from `boot` is therefore not present in the Android 10 vendor, which is what makes a patched recovery
-  stick until someone writes partition 8 again.
+  stick until someone writes partition 8 again. **Corrected Nov 21 (D82): the flow is present, it just lives in
+  `/system` instead of `/vendor`. `/system/bin/install-recovery.sh` - init service `flash_recovery`, measured
+  running at t=19.9 s in the boot's own console record - runs `applypatch` with target
+  `recovery:39122944:f75bcfb46815…` and source `boot:27406336:ecb5315f120b…`, so partition 8 is rewritten back to
+  stock on every Android 10 boot while partition 7 hashes that source digest. A patched partition 8 does not stick
+  across an Android 10 boot; it persists only while partition 7 holds a payload whose digest differs.**
 * The recovery boot we captured Nov 20 ran with `androidboot.selinux=permissive` and
   `androidboot.veritymode=enforcing` in its cmdline, so a script there is not blocked by policy, only by the kernel.
 * The recovery ramdisk's tool set is complete (`system/bin/` lists `sh`, `mount`, `umount`, `dd`, `mkdir`, `cp`,
@@ -3887,3 +3892,142 @@ keeps the stock 663 B verbatim and adds 431 B (one `service hu_evidence`, one `s
 `6c69e501d9d452ff10cb09f62f35fc26338c77553d34d284c7d044ad0af5479e`, identical to `scripts/hu_recovery_evidence.sh`.
 Nothing was flashed in this pass; the unit stays parked until the owner cold-cycles it. Evidence file:
 `analysis/recovery-evidence.txt`.
+
+## Nov 21 (early) - partition 8 is stock again, and the reason is `install-recovery.sh`, not the OEM package
+
+**Partition 8 read back as the capture.** A full read of partition 8 (`toybox dd bs=1M count=96` through
+`toybox base64`, decoded locally) is 100,663,296 B hashing `1fdf5ea77fc66f48977d7846c468959a5845d0222dc73c3fe07a1b96b6cb023b`
+- byte-identical to `a14-work/hu-stock-backup-refresh/recovery.bin`. The kernel blob is `a514a3ffb77e`, and the
+first 39,104,512 B compared against the capture with **zero differing bytes**. So the patched recovery
+(`a4cf5533482e…`, then the 21:34 build) is off the disk today. Partition 7 still hashes
+`b449aee98c01…` (**D76**) and `misc` is unchanged.
+
+**The mechanism, found by reading the boot's own console record.** The record the recovery run copied
+(`/cache/hu-evidence/console-ramoops-0`, 67,548 B, 1,093 lines, sha256 `0691c6be…`) is the text of the
+*Android 10* boot that preceded the recovery boot: its kernel cmdline carries `androidboot.mode=normal` and
+`b.mode=normal`, and its last line is `reboot: Restarting system with command 'recovery'`, preceded by
+`init: Received sys.powerctl='reboot,recovery' from pid: 8684 (/system/bin/adbd)` - our own adb-triggered
+reboot. Inside that record, at t=19.9 s: `init: Service 'flash_recovery' (pid 313) exited with status 0`.
+The Nov 13 probe already carried `init.svc.flash_recovery: stopped` and `ro.boottime.flash_recovery`, and
+this boot carries `ro.boottime.flash_recovery: 3759993000`. The service is `/system/bin/install-recovery.sh`:
+
+```
+applypatch --check EMMC:/dev/block/by-name/recovery:39122944:f75bcfb46815c97c6464a939fcbcc9fdff6991c5
+applypatch --patch /system/recovery-from-boot.p --source EMMC:/dev/block/by-name/boot:27406336:ecb5315f120b5008094ff8bf6b62063257fc363d --target ...
+```
+
+Both digests verify against the images we hold: partition 8 over its first 39,122,944 B hashes exactly
+`f75bcfb46815…` (so today's check passes and says "Recovery image already installed"), and partition 7 over
+its first 27,406,336 B hashes exactly `ecb5315f120b…` - the same digest for the Nov 11 stock backup boot and
+the post-flash `b449aee9` image, which is what L0's byte-identical repack produced. The patch file is
+`/system/recovery-from-boot.p` (11,805,157 B, sha1 `fd7418c590e0…`), applied by `/system/bin/applypatch`.
+
+**Why the Nov 20 claim was wrong.** The Nov 20 note checked `/vendor/recovery-from-boot.p` and
+`/vendor/etc/init/vendor_flash_recovery.rc` and found both absent, concluding nothing re-flashes recovery.
+This firmware keeps the patch in `/system`, not `/vendor`, and defines the service in init rather than in a
+vendor rc - so the check missed the real path. Consequence, stated precisely: **while partition 7 holds an
+image whose first 27,406,336 B hash to `ecb5315f…` (the OEM Android 10 boot, and our byte-identical repacks),
+every Android 10 boot rewrites partition 8 back to stock**; a patched partition 8 therefore only survives
+between writing it and the next Android 10 boot. With an Android 14 payload on partition 7 the source digest
+no longer matches, `applypatch` cannot reconstruct the target, and partition 8 stays as we put it - which is
+exactly the behaviour the evidence route needs during payload experiments, and exactly the self-healing
+behaviour that protects **D80**'s condition after a restore to stock Android 10.
+
+**Why the 22:06 run never reached the restore step.** `/cache/hu-evidence.log` ends at
+`copied pmsg-ramoops-0: 262132 bytes, digest 795baae5…`. The next line the script writes is
+`say "p8 digest $(dig /dev/block/by-name/recovery)"`, and that line never appears - the digest of a 96 MiB
+block device through `sha256sum` never returned. So the script stalled there and the staged request
+(`/cache/hu-restore.request`, nonce `nov20-rung2-1795208096-27817`) was never acted on. Partition 7 needed no
+restore anyway: it already equals the rollback. `dig()` now reads through `head -c` with a 64 MiB cap, so a
+digest is a bounded read and cannot wait on a device; partition 7's digest stays exact (its partition is
+32 MiB), partition 8's is a first-64-MiB digest, and the offline gate asserts the capped value.
+
+**The interpreter is mksh, and the gate can run on the unit.** `busybox-applets.txt` came back 0 bytes on the
+unit because this busybox build has no `ash` applet and no `--version`/`--list` handling: run as
+`busybox --version` it answers `applet not found`. The recovery ramdisk's `/sbin/sh` is **MIRBSD KSH R40**
+(`KSH_VERSION=@(#)MIRBSD KSH R40 2011-10-07`, static 32-bit ARM, 206,684 B) - the same family as Android's
+`/system/bin/sh`. Pushing that exact binary to `/data/local/tmp` and syntax-checking the script with it gives
+`hush -n /data/local/tmp/hu-evidence.sh` rc 0 on the unit, and the device's own `sh -n` also gives rc 0. The
+dialect gate is therefore the ramdisk's own mksh on the unit, not `dash -n` or `busybox ash -n`, and it no
+longer needs the build host. Nothing was executed against a partition: `-n` parses and stops, and the script
+itself refuses to run outside the recovery ramdisk (its guard needs `/dev/block/by-name/misc`, `/sbin/busybox`
+and `/sbin/sh`, none of which exist in Android 10).
+
+**Rebuilt candidate, offline.** `scripts/patch_recovery_evidence.sh` ran against the capture:
+`a14-work/recovery-evidence/recovery-evidence.img` is 39,088,128 B, sha256
+`dfe61ba7b3d6e0344dc5831c49e219fb157baaac73ad4812655cbdac761fb199`. Kernel blob `a514a3ffb77e`, `second`
+blob `fb80617e7c97` and `recovery_dtbo` `28a07d4946e9` byte-identical to the capture; ramdisk gzip
+12,519,199 -> 12,482,657 B at 25,675,776 (485 cpio entries, no duplicates); header changes only
+`ramdisk_size` and the stored dtbo offset; stock `init.recovery.rk30board.rc` keeps 663 B verbatim and adds
+431 B (one `service hu_evidence`, one `start hu_evidence`, stock console and usb-controller lines still one
+each). Its sha1 over the applypatch target span is `c72cae70cb96…`, which is why the check fails and the
+patch rewrites recovery on an Android 10 boot. Injected `/sbin/hu-evidence.sh` hashes
+`646c0a709742a53116bdaa7de1bbf3ef7c5a96e063adcb20548371c398ed3747`, equal to `scripts/hu_recovery_evidence.sh`.
+
+**The offline gate now covers what the device actually taught us.** `scripts/smoke_recovery_evidence.sh`
+still passes rc 0, nine scenarios, with new assertions: the tool listings (`list-sbin.txt`,
+`list-systembin.txt`, `list-by-name.txt`, `mounts.txt`, `busybox-version.txt`) must be written; the `p8 digest`
+line must be *reached*; and its value must equal the sha256 of the first 64 MiB of the partition, which is the
+regression guard for the stall. The harness maps `/sbin`, `/system/bin` and `/dev/block/by-name` onto fake
+directories so `record_tools` lists the fake world instead of the workstation's, and its busybox shim keeps
+refusing `dd wc cp rm ls tr sha256sum`.
+
+## Nov 21 (late morning) - the reverter is `/init.rc`'s `flash_recovery`, and it fires before adbd comes up
+
+**The isolation test.** Partition 8 was written twice today from `/cache/hu-patched-recovery.bin`
+(`dd bs=512 count=76720` = the exact 39,086,080 B image span; the written span read back as the image's own
+sha256 both times), then a plain `adb reboot` (bootreason `reboot,adb`, mode normal). The first read the
+moment adbd answered - ~40 s after the reboot, `uptime` still under a minute - already showed partition 8
+back on the capture: its first 39,086,080 B hash `3308f7136600ff01d118a5cdb71d931144777fabce67c988e8922829d58a516c`
+and its first 67,108,864 B hash `311bfc0f69103db253c7c356dbee641c4350983794a1679e7af9b5a817ade456`, both exactly
+the stock capture's prefixes. So the revert happens *before* adbd, not during the recovery boot: a recovery
+boot is not needed to undo a patched partition 8. The same boot carries `init.svc.flash_recovery: stopped`
+and `ro.boottime.flash_recovery: 3759993000` - the service ran at boot time 3.76 s, which is why nothing was
+seen: the oldest line surviving in logcat at first read was 16 s after boot, and `/dev/kmsg` had rolled too.
+
+**Where the service is defined.** Grepping `/system/etc/init`, `/vendor/etc/init`, `/odm/etc/init` and the
+boot ramdisk's `init.rc` found nothing, because the service is in the *root* init rc: a bounded
+`find / -maxdepth 4 -name '*.rc'` + `grep -l flash_recovery` returns `/init.rc`, whose line 854 is
+`service flash_recovery /system/bin/install-recovery.sh` with `class main` and `oneshot` - started with the
+main class, hence 3.76 s, no property trigger needed. The Nov 20 check for
+`/vendor/etc/init/vendor_flash_recovery.rc` looked only at vendor paths and concluded the wrong thing.
+
+**Boot-stage copy ruled out.** The restore is byte-exact stock over the applypatch target span
+(39,122,944 B), and nothing outside Android holds a stock copy: `backup` (p9, 112,263,168 B) is all zeros;
+`mmcblk2boot0`/`boot1` are 4 MiB each, too small; the partitions occupy the disk contiguously (sum
+122,666,974 of 122,683,392 sectors, the 8.4 MiB tail is the backup GPT), so there is no hidden region;
+`uboot.bin`'s four `ANDROID!` hits are `Kernel load addr 0x%08x` format strings, and uboot has no bspatch
+machinery - its flash writes only run in loader mode (`fb_mmc_flash_write`, "Flashing Raw Image"); the boot
+partition's tail beyond its content end (27,406,336 B) is pointer-table data, not a patch; boot ramdisk and
+`second` reference nothing recovery; vendor kernel modules are WiFi/BT/GPU drivers; no binary outside
+`install-recovery.sh` itself references `recovery-from-boot` or `by-name/recovery`. The only stock source is
+the patch: `/system/recovery-from-boot.p`, applied against partition 7.
+
+**The pin that explains the payload plan.** `boot.bin`'s content end is 27,406,336 B - exactly the length
+applypatch hashes as its source - and the stock `recovery.bin` content end is 39,122,944 B, exactly its
+target length. So the patch encodes *this OEM boot image* -> *this stock recovery image*. While partition 7
+hashes `ecb5315f…` (stock Android 10 boot, or our byte-identical repacks like `b449aee98c01…`) every Android
+10 boot rewrites partition 8 back to stock. With an Android 14 payload on partition 7 the source digest no
+longer matches and applypatch cannot reconstruct the target, so partition 8 keeps what we wrote - the
+evidence route stays intact during payload boots, and after a restore to Android 10 recovery self-heals,
+which is the protection **D80** wanted (**D82** releases the restriction outright).
+
+**Why a patched recovery still boots.** Recovery boots do not run Android's init: the recovery ramdisk's own
+`init.rc`/`init.recovery.rk30board.rc` define no flash service, and the kernel loads the recovery kernel and
+ramdisk from partition 8 before anything can rewrite it. That is why the Nov 20 patched ramdisk ran at all,
+and why the script can read pstore there. Practical rule for the ladder: **write the patched partition 8, then
+enter recovery directly - never boot Android in between**, because one Android boot erases the patch again.
+
+**Rebuilds are not byte-reproducible.** The splice re-gzips the ramdisk, and gzip stores timestamps, so three
+builds of the same content hash differently: `dfe61ba7b3d6…` (39,088,128 B, earlier script), `f8a4a779b2fb…`
+and `8201bde5021e…` (39,086,080 B, current script `646c0a709742…`, after the evidence-file rename away from
+names that collide with the offline harness's path mapping). What is registered is the digest of the *staged
+copy* that gets written; today `/cache/hu-patched-recovery.bin` = `8201bde5021e…` and partition 8 was verified
+live to that digest. Offline gates re-run before any write: `scripts/smoke_recovery_evidence.sh` 9 scenarios
+rc 0, and the sandbox harness at `a14-work/tmp/rec-smoke/run-scenarios.sh` scenarios A-F pass (its `run.sh` is
+regenerated from the repo source by sed each run, so the harness cannot drift behind the script again).
+
+**Live staging right now.** Partition 8 holds `8201bde5021e…`; `/cache` holds the restore request
+(nonce `nov20-rung2-1795208096-27817`, still unconsumed - partition 7 equals the rollback, so the recovery run
+will log a skip) and `/cache/hu-rollback-boot.bin` (`b449aee98c01…`, 33,554,432 B). Android must not boot
+before the owner enters recovery.

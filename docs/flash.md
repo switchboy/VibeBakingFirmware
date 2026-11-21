@@ -3,9 +3,10 @@
 The install path is the one the head unit already has: an `update.zip` at the root of a USB/SD stick,
 installed by the **stock** recovery using the **stock** `update-binary`. We build the payload files
 that binary understands and reuse its own script vocabulary - nothing is invented, no partition is
-resized, and the bootloader and mainboard firmware are never written (**D18**). Recovery is writable from
-Nov 20 while its MTC/mainboard flashing stays intact (**D80**), so it becomes the tool rather than a menu
-(**D42**) - see "Recovery is now ours (Nov 20)".
+resized, and the bootloader and mainboard firmware are never written (**D18**). Recovery is fully writable
+since the owner released all recovery restrictions (**D83**, superseding **D80**'s condition), with one
+pairing rule: recovery and `boot`/`super` are **never altered in the same flash**. Recovery becomes the tool
+rather than a menu (**D42**) - see "Recovery is now ours (Nov 20)".
 
 ## Why we do not touch the bootloader (recovery was unbanned Nov 20, **D80**)
 
@@ -62,11 +63,28 @@ adb shell 'printf "%s\n" nonce-<n> > /cache/hu-restore.request'
 ```
 
 The current candidate image is `a14-work/recovery-evidence/recovery-evidence.img` - 39,088,128 B, sha256
-`d64ebd22d6142554d0b788373889059e88d66c7b1eddb8453ccadbb3fb76094a` (evidence: `analysis/recovery-evidence.txt`).
-The build on the disk now (`a4cf5533482e…`, 39,086,080 B) carries the script whose evidence directory vanished; it
-is superseded, and partition 8 always rolls back to the capture `1fdf5ea77fc6…` (100,663,296 B). Before partition 8
-is written again the script has to pass `dash -n` and `busybox ash -n` on the build host - this workstation has no
-busybox ash - alongside `scripts/smoke_recovery_evidence.sh`.
+`dfe61ba7b3d6e0344dc5831c49e219fb157baaac73ad4812655cbdac761fb199`, with the injected script hashing
+`646c0a709742a53116bdaa7de1bbf3ef7c5a96e063adcb20548371c398ed3747` (evidence: `analysis/recovery-evidence.txt`).
+The two earlier builds are superseded: `a4cf5533482e…` (its evidence directory vanished under the `/cache` mount)
+and the 21:34 build, whose script stalled hashing the whole recovery partition.
+
+**Partition 8 self-heals (**D82**).** `/system/bin/install-recovery.sh`, started by init as `flash_recovery` on
+every Android 10 boot, runs `applypatch` with target `recovery:39,122,944:f75bcfb4…` and source
+`boot:27,406,336:ecb5315f…`; partition 7 hashes that source today, so an Android 10 boot rewrites partition 8 back
+to stock by itself. That means a patched partition 8 does not need a manual rollback after a restore to stock
+Android 10 - the firmware restores it - and the patch persists across a boot only while partition 7 holds an image
+that does not hash to that source digest, which is exactly the Android 14 payload case where the evidence is needed.
+Rollback to the capture `1fdf5ea77fc6…` (100,663,296 B) is still available by hand and is what a full firmware
+restore produces.
+
+The gate before writing partition 8 is `scripts/smoke_recovery_evidence.sh` (rc 0) plus a syntax check with the
+recovery ramdisk's own shell - `/sbin/sh` is MIRBSD KSH R40, not busybox ash - run on the unit:
+
+```
+adb push a14-work/recovery-evidence/rd-src/sbin/sh /data/local/tmp/hush
+adb push scripts/hu_recovery_evidence.sh /data/local/tmp/hu-evidence.sh
+adb shell '/data/local/tmp/hush -n /data/local/tmp/hu-evidence.sh; echo rc=$?'   # must be rc 0
+```
 
 `/cache` is the destination because recovery's `init.rc` already creates it, its `recovery.fstab` maps
 `/dev/block/by-name/cache`, Android 10 mounts it and adb root can write it, and it is neither a boot-chain

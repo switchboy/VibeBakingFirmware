@@ -31,12 +31,16 @@ SRC="$REPO/scripts/hu_recovery_evidence.sh"
 S="${TMPDIR:-/tmp/opencode}/hu-evidence-smoke"
 rm -rf "$S"
 mkdir -p "$S/cache" "$S/pstore" "$S/mntext" "$S/mntint" "$S/mntsd" "$S/hucard" "$S/by-name" \
-        "$S/binfull" "$S/binbare"
+        "$S/fakesbin" "$S/binfull" "$S/binbare"
 
 BOOT_BYTES=33554432
 RECOVERY_BYTES=100663296
 RAMOOPS_BASE=1114112
 RAMOOPS_BYTES=1048576
+
+# /sbin stands in for the recovery ramdisk's own directory, so record_tools' `ls -l /sbin` lists the fake
+# world instead of the workstation's. /sbin/sh is mksh R40 on the unit (measured Nov 21), not busybox ash.
+mkdir -p "$S/fakesbin"; : > "$S/fakesbin/sh"
 
 truncate -s "$BOOT_BYTES" "$S/by-name/boot"
 truncate -s "$RECOVERY_BYTES" "$S/by-name/recovery"
@@ -83,8 +87,8 @@ EOF
     chmod 755 "$dir/$app"
   done
 }
-mk_fake_bin "$S/binfull" sha256sum sha1sum md5sum dd cp cat cut cmp wc tr rm stat grep mkdir echo mount umount sync awk head tail touch date
-mk_fake_bin "$S/binbare" dd cp cat cut stat mount umount mkdir echo head tail touch date awk
+mk_fake_bin "$S/binfull" sha256sum sha1sum md5sum dd cp cat cut cmp wc tr rm ls stat grep mkdir echo mount umount sync awk head tail touch date
+mk_fake_bin "$S/binbare" dd cp cat cut stat ls mount umount mkdir echo head tail touch date awk
 ln -sfn "$S/binfull" "$S/bincur"
 
 cat > "$S/busybox" <<EOF
@@ -111,19 +115,23 @@ case "\$app" in
 esac
 EOF
 chmod 755 "$S/busybox"
+# The fake /sbin must contain a busybox and an sh, so record_tools' directory listing is non-empty.
+cp "$S/busybox" "$S/fakesbin/busybox"
 
 # Rewrite the on-device paths to the scratch dir. /sbin/sh is only used by the guard, so it becomes a file.
 # The `-b` block-device test cannot be satisfied by regular files, so it becomes `-e`.
 sed \
   -e "s|^BB=/sbin/busybox|BB=$S/busybox|" \
   -e "s|/sbin/busybox|$S/busybox|g" \
+  -e "s|/sbin/sh|$S/fakesbin/sh|" \
+  -e "s|/sbin|$S/fakesbin|g" \
   -e "s|^SB=/system/bin|SB=$S/bincur|" \
-  -e "s|/sbin/sh|$S/fake-sh|" \
+  -e "s|/system/bin|$S/bincur|g" \
   -e "s|^OUT=/cache/hu-evidence$|OUT=$S/cache/hu-evidence|" \
   -e "s|^LOG=/cache/hu-evidence.log$|LOG=$S/cache/hu-evidence.log|" \
   -e "s|^REQ=/cache/hu-restore.request$|REQ=$S/cache/hu-restore.request|" \
   -e "s|^ROLLBACK=/cache/hu-rollback-boot.bin$|ROLLBACK=$S/cache/hu-rollback-boot.bin|" \
-  -e "s|/dev/block/by-name/|$S/by-name/|" \
+  -e "s|/dev/block/by-name|$S/by-name|g" \
   -e "s|/proc/mounts|$S/fake-mounts|" \
   -e "s|/sys/fs/pstore|$S/pstore|" \
   -e "s|/dev/console|$S/console.log|" \
@@ -207,6 +215,18 @@ expect "no restore request - recovery behaves as stock"
 # The directory must exist INSIDE the mounted partition, i.e. created after the mount, not before it.
 grep -n "^cache mounted" "$S/console.log" >/dev/null && ok "mount line precedes the mkdir line" || no "no mount line"
 [ -f "$E/console-ramoops-0" ] && ok "record persisted in /cache/hu-evidence" || no "record not in /cache/hu-evidence"
+# record_tools must produce the directory listings - busybox's own --list-applets came back empty on the unit,
+# so the listing is what tells the next rung what this environment can do.
+expect "tool listing:"
+for f in list-sbin.txt list-systembin.txt list-by-name.txt mounts.txt busybox-version.txt; do
+  [ -s "$E/$f" ] && ok "$f written" || no "$f empty or missing"
+done
+# The Nov 20 22:06 run stalled forever hashing the whole 96 MiB recovery partition and never reached the
+# restore step. dig() caps the read, so the digest recorded is the one over the first 64 MiB.
+CAP=67108864
+want8=$(head -c "$CAP" "$S/by-name/recovery" | sha256sum | cut -d' ' -f1)
+grep -qF "p8 digest $want8" "$S/console.log" && ok "p8 digest is the capped first $CAP bytes" || no "p8 digest not the capped read"
+grep -n "p8 digest" "$S/console.log" >/dev/null && ok "the p8 line is reached" || no "script never reached the p8 digest line (the Nov 20 stall)"
 boot_untouched && ok "partition 7 untouched" || no "partition 7 was written"
 expect "rebooting out of recovery"
 expect "cold power cycle"

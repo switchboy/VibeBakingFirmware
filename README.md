@@ -195,7 +195,8 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   mounting `/cache`, so the directory vanished under the mount point - the first run wrote nothing and logged
   nothing (**D81**).
 * **The rebuilt candidate is ready and verified offline**: `a14-work/recovery-evidence/recovery-evidence.img`
-  39,088,128 B, sha256 `d64ebd22d6142554d0b788373889059e88d66c7b1eddb8453ccadbb3fb76094a`. Kernel, `second` and
+  39,088,128 B, sha256 `d64ebd22d6142554d0b788373889059e88d66c7b1eddb8453ccadbb3fb76094a` (superseded Nov 21 by
+  `dfe61ba7b3d6…`, see "Status (Nov 21)"). Kernel, `second` and
   `recovery_dtbo` blobs are byte-identical to the capture, the header changes only `ramdisk_size` and the stored
   dtbo offset, the stock `init.recovery.rk30board.rc` content stays verbatim with one appended service, and the
   injected script hashes equal the repo file. Evidence: `analysis/recovery-evidence.txt`. Nothing was flashed in
@@ -219,3 +220,37 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   `/cache/hu-evidence.log` and `/cache/hu-evidence/` over adb; decide from that log whether the service ran at all.
   Then the rebuilt image goes on partition 8 only after `dash -n` and `busybox ash -n` pass on the build host,
   since this workstation has no busybox ash. Partition 8 always rolls back to the capture `1fdf5ea77fc6…`.
+  (Nov 21: the unit is back on Android 10 and the records are readable; the `dash`/`busybox ash` gate turned out
+  to be the wrong dialect - recovery's shell is mksh, and the gate now runs on the unit. See "Status (Nov 21)".)
+
+## Status (Nov 21)
+
+* **Partition 8 is stock again, by itself.** A full read hashes `1fdf5ea77fc6…`, byte-identical to
+  `a14-work/hu-stock-backup-refresh/recovery.bin`, zero differing bytes over the first 39,104,512 B. The reason is
+  `/system/bin/install-recovery.sh`, init service `flash_recovery`, measured running at t=19.9 s in the boot's own
+  console record: it `applypatch`es recovery from `/system/recovery-from-boot.p` with source
+  `boot:27,406,336:ecb5315f…` and target `recovery:39,122,944:f75bcfb4…`, and both digests verify against the
+  images we hold. So **while partition 7 holds an OEM Android 10 boot image, every Android 10 boot rewrites
+  partition 8 back to stock** - the patched recovery is transient by design, and needs no manual rollback after a
+  restore to stock Android 10. With an Android 14 payload on partition 7 the source digest mismatches, `applypatch`
+  refuses, and the patched recovery persists: exactly when its console reader is needed (**D82**).
+* **The record we wanted is saved and identified.** `/cache/hu-evidence/console-ramoops-0` (67,548 B) is the
+  Android 10 boot's own console text - 1,093 lines, its last line `reboot: Restarting system with command
+  'recovery'`, preceded by `init: Received sys.powerctl='reboot,recovery' from pid: 8684 (/system/bin/adbd)`, so
+  the recovery entry was our adb-triggered reboot. `pmsg-ramoops-0` is 262,132 B. The 22:06 run stalled hashing
+  the whole 96 MiB recovery partition and never reached the restore step, which is why the staged request was not
+  acted on; partition 7 needed no restore anyway (`b449aee98c01…`, already equal to the rollback).
+* **Digests are bounded reads now.** `dig()` pipes through `head -c` with a 64 MiB cap, so partition 7's digest
+  stays exact and partition 8's is a first-64-MiB digest; the offline gate asserts the `p8 digest` line is reached
+  and equals the capped read's sha256.
+* **The dialect gate runs on the unit, not on the NAS.** The recovery ramdisk's `/sbin/sh` is MIRBSD KSH R40
+  (static 32-bit ARM), and its busybox has no `ash` applet and no `--version`/`--list` handling - that is why
+  `busybox-applets.txt` came back 0 bytes. Pushing `/sbin/sh` to `/data/local/tmp/hush` and running `hush -n` on
+  the candidate script gives rc 0 on the unit. So `dash -n`/`busybox ash -n` were the wrong gate, and the blocked
+  build host is no longer needed for this step.
+* **Current candidate, nothing flashed**: `a14-work/recovery-evidence/recovery-evidence.img` 39,088,128 B, sha256
+  `dfe61ba7b3d6e0344dc5831c49e219fb157baaac73ad4812655cbdac761fb199`, injecting `scripts/hu_recovery_evidence.sh`
+  (`646c0a709742a53116bdaa7de1bbf3ef7c5a96e063adcb20548371c398ed3747`, byte-identical). Kernel, `second` and
+  `recovery_dtbo` blobs byte-identical to the capture; stock rc verbatim plus one appended service; offline gate
+  `scripts/smoke_recovery_evidence.sh` (`b83e36cdc8a6…`) passes nine scenarios. Evidence:
+  `analysis/recovery-evidence.txt`.
