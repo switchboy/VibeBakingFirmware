@@ -9,10 +9,13 @@
 #   /sbin/hu-early.sh         pstore copy + misc head 2048 B, first action
 #   /sbin/hu-hb.sh            heartbeat "alive up=<uptime>" every 5 s for 20 min
 #   /sbin/hu-state.sh         guarded state snapshot at a given delay
-#   /sbin/hu-net.sh           Ethernet bring-up, gated on /cache/hu-net.request nonce: carrier poll,
-#                             static 192.168.1.127/24 (router MAC-bound) + eth0:1 alias 192.168.77.2, adbd RESTART
-#                             (stop -> port -> start, verified in /proc/net/tcp), telnetd in the same
-#                             block, then a background DIAGNOSTIC-only udhcpc (~60 s)
+#   /sbin/hu-net.sh           Ethernet bring-up, gated on /cache/hu-net.request nonce: wait for the
+#                             eth0 node, ifconfig eth0 UP (retried every 2 s, real rc logged), static
+#                             192.168.1.127/24 (router MAC-bound) + eth0:1 alias 192.168.77.2 and
+#                             default gw, adbd RESTART (stop -> port -> start, verified in
+#                             /proc/net/tcp) and telnetd in the same block - none of that waits for
+#                             carrier - then carrier is watched ~120 s with the L2 counters, and a
+#                             background DIAGNOSTIC-only udhcpc (~60 s)
 #   /sbin/hu-card.sh          FAT32 card copy as the no-network channel; stays mounted until the
 #                             120 s snapshot has landed and re-copies every tick
 #   /sbin/hu-udhcpc.script    busybox udhcpc lease script (ramdisk ships no default.script); records

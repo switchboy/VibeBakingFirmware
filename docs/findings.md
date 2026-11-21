@@ -4413,3 +4413,40 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   `1fdf5ea77fc66f48…`, `misc` `909bdd979111bcd5…` equal to the recorded baseline, nonce
   `nov21-netmod4-1795297537-64` unconsumed (no `net-done-*` marker, because the marker is written only
   after the listener check).
+
+* **Build v5 - the bring-up order is node -> OPEN -> address -> adbd, carrier only afterwards
+  (Nov 22, built - not written).** Build v4's boot proved class **(B)**: the dongle enumerated at
+  1.262 s and `ax88179_178a` registered `eth0` at 1.699 s, but `ax88179 - Link status is: 1` never
+  appeared and there was no `ADDRCONF` line at all, because v4 polled `carrier` before touching the
+  interface - this driver negotiates the PHY only once the interface is opened (build v2's boot:
+  UP at ~1.71 s -> `ADDRCONF(NETDEV_UP)` at 2.081 s -> `Link status is: 1` at 5.128 s). v4 also
+  showed `hu: net begin` at 1.661 s, *before* the node existed, so an `ifconfig` issued at that
+  moment cannot work. `hu-net.sh` now waits for `/sys/class/net/eth0` (poll interval chosen at
+  runtime: 0.5 s if the ramdisk's toybox accepts a fractional sleep, else busybox's integer 1 s -
+  busybox 1.11.1 rejects fractions, and the choice is logged once as `nap:`), brings the interface UP
+  with `guarded 2` retried every 2 s and logs the real exit status, verifies the open from
+  `/sys/class/net/eth0/flags` (IFF_UP in bit 0; the sysfs value is hex and goes straight into the
+  arithmetic), then sets the static address/alias/gateway and restarts adbd and telnetd - none of
+  that waits for carrier, since a TCP listener binds without a link - and only then watches carrier
+  for ~120 s logging carrier together with the five L2 counters every 5 s. Nothing stops early
+  because carrier is missing; the window closes only at its end. DHCP stays diagnostic only.
+  `hu-h-common.sh` gained `nap_probe`/`nap` and `iface_up_state`; the other five scripts are
+  byte-unchanged. Built image `a14-work/recovery-netmodule/recovery-netmodule.img`, 39,094,272 B,
+  sha256 `ab9af9798a987084060c8afef60b96f282bb6fd45ae7786d841c362194e6983a`; kernel (25,671,688 B),
+  second (924,672 B) and dtbo (803 B, sha256 `28a07d4946e9f278…`) blobs `cmp`-identical to the
+  capture. The ramdisk grew (lz4 12,519,199 -> 12,489,526 B is the second blob's compressed size
+  shrinking as the archive changes), so exactly four header bytes differ from the capture: the
+  ramdisk-size field at 16..18 and the low byte of the dtbo offset at 1637 (39,120,896 ->
+  39,092,224) - the builder refuses any other header byte change, and cmdline/boardname/kernel size
+  are verbatim. The dtbo blob is byte-identical and now lives inside the written span; the partition
+  region beyond the span is zeros up to the untouched stock dtbo blob at 39,120,896. Name-explicit
+  digests: `hu-h-common.sh 18f941443d02cac9`, `hu-early.sh 9812ad519f080e06`, `hu-hb.sh
+  e47639d0a974b858`, `hu-state.sh d61685b771f25082`, `hu-net.sh 526089b31cb8df19`, `hu-card.sh
+  9e2292857a059e24`, `hu-udhcpc.script b877ed13e30e0c6a`, `init.recovery.rk30board.rc
+  b57d152d9634efd1` (unchanged), `prop.default 92dbf6d62fb0b5b5` (unchanged). Each built copy was
+  `cmp`-checked against its repo source. Offline gate now 19 scenarios rc 0 (the fake `/sys` only
+  reports carrier 1 after a successful `ifconfig eth0 up`, and scenarios cover a late node, an
+  `up` that fails twice then succeeds, a dark link that still runs the critical path, and a node
+  that never appears); dialect gate `mksh-R40 -n` rc 0 on all seven scripts. The hex arithmetic in
+  `iface_up_state` was checked against the unit's mksh: `0x113` -> 275 with bit0=1, `0x102` -> 258
+  with bit0=0, and the ramdisk ships `/system/bin/sleep -> toybox`, so the fractional probe execs.

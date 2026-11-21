@@ -2364,3 +2364,23 @@ DECIDED by the owner, supersedes D87's `192.168.1.250`)**
 * **DHCP cannot move the address.** The lease script records the offer and never calls `ifconfig`/`route`,
   so the diagnostic attempt cannot replace the static address mid-session; a router re-offer of the same
   address is therefore harmless either way.
+
+**D89 - bring-up order: wait for the node, OPEN the interface, address, restart adbd; carrier is
+diagnostics only (Nov 22, DECIDED by the owner after the class (B) diagnosis, supersedes D87's
+carrier-first order)**
+* **Why.** Build v4 polled `carrier` before touching `eth0` and carrier never arrived: the ax88179
+  driver negotiates the PHY only when the interface is opened, so polling a closed interface waits
+  forever on the very thing only opening it can produce (deadlock). Measured: v4 logged no
+  `ADDRCONF(NETDEV_UP)` and no `Link status is: 1`, counters stayed 0/0; v2's boot opened eth0 at
+  ~1.71 s and got carrier at 5.128 s. The same boot showed `hu: net begin` at 1.661 s, before the
+  node existed at 1.699 s, so the open must be preceded by a wait for the node and retried.
+* **The order.** Wait for `/sys/class/net/eth0` (poll ~0.5 s if toybox accepts a fractional sleep,
+  else busybox integer 1 s; logged once), `ifconfig eth0 up` retried every 2 s with the real exit
+  status logged, verified from `/sys/class/net/eth0/flags` bit 0, then static `192.168.1.127/24`
+  (D88) + `eth0:1` alias `192.168.77.2` + gateway `192.168.1.1`, then `ctl.stop adbd` -> port 5555
+  -> `ctl.start adbd` (D87) plus telnetd 2323, verified in `/proc/net/tcp`. None of that is gated
+  on carrier: a TCP listener binds without a link. Carrier is watched afterwards for ~120 s, logged
+  every 5 s together with the L2 counters, and its absence never stops the module - only the window
+  end does. DHCP stays diagnostic-only.
+* **Hot-plug is covered by design.** The node wait is bounded by the nonce window and logs every
+  10 s, so plugging the dongle in after the menu is up creates the node and the module brings it up.

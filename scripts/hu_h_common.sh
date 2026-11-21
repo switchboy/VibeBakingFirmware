@@ -46,6 +46,39 @@ say() {
 
 uptime_s() { $SB/cut -d' ' -f1 /proc/uptime 2>/dev/null; }
 
+# Poll nap: ~0.5 s if the ramdisk's toybox accepts a fractional sleep, otherwise the integer busybox
+# sleep 1 (busybox 1.11.1 rejects fractions and exits 1). nap_probe measures which one works and says
+# so once per boot, so the record states what the polls actually cost instead of assuming it; nap()
+# then uses that answer. Default is the safe integer busybox sleep.
+nap_probe() {
+  NAPF=${NAPF:-}
+  if [ -z "$NAPF" ]; then
+    if $SB/sleep 0.5 2>/dev/null; then NAPF=1; else NAPF=0; fi
+    if [ "$NAPF" = 1 ]; then say "nap: poll interval 0.5s via toybox fractional=1"; else say "nap: poll interval 1s via busybox fractional=0"; fi
+  fi
+}
+
+nap() {
+  NAPF=${NAPF:-0}
+  if [ "$NAPF" = 1 ]; then $SB/sleep 0.5; else $BB sleep 1; fi
+}
+
+# Is the interface administratively OPEN? /sys/class/net/<iface>/flags holds IFF_UP in bit 0 (down
+# ethernet reads 0x102 = BROADCAST|MULTICAST, open adds 0x1 and the driver adds 0x10 = RUNNING).
+# busybox ifconfig is the fallback because the sysfs attribute could be missing on this kernel; the
+# value is 1/0, and empty means "could not tell".
+iface_up_state() {
+  f=$($SB/cat "/sys/class/net/$1/flags" 2>/dev/null)
+  if [ -n "$f" ]; then
+    # the sysfs value is already hex ("0x113"), so it goes straight into the arithmetic - prefixing
+    # another 0x here would make it 0x0x113, which neither mksh nor bash can evaluate.
+    v=$(( $f ))
+    if [ $((v & 1)) -eq 1 ]; then echo 1; else echo 0; fi
+    return 0
+  fi
+  if $BB ifconfig "$1" 2>/dev/null | $SB/grep -a -q 'UP '; then echo 1; else echo 0; fi
+}
+
 # busybox ifconfig prints "inet addr:<ip>  Bcast:...". The address is field 2 of that line, and
 # the inet6 line ("inet6 addr: fe80::...") is skipped because its value starts with a space, not a
 # digit. grep/head/cut come from toybox; busybox has no cut.
