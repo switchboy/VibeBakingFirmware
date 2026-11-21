@@ -4372,3 +4372,44 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   `hu-udhcpc.script b877ed13e30e0c6a`, `init.recovery.rk30board.rc b57d152d9634efd1`,
   `prop.default 92dbf6d62fb0b5b5`. Offline gate 15 scenarios rc 0 (expectations re-pointed at
   `192.168.1.127`), dialect gate `mksh-R40 -n` rc 0 on all seven scripts.
+
+* **Build v4's recovery boot (Nov 21 night, 22:45, read-only through pstore and the card).** The patched
+  partition 8 ran (`-HUPATCH` visible in the OEM header per the owner), the dongle enumerated, and the
+  module ran to completion, but carrier never came. Exact lines from this boot's `console-ramoops-0`
+  (57,014 B, sha256 `63b3c3ed912b7f8dab1c600c146ad03d904d4306f46cd3d5f5d23230735e6f50`): `[    0.975554] --mtc ann 1-1 0424` (hub);
+  `[    1.262027] usb 1-1.2: new high-speed USB device number 3 using ehci-platform`;
+  `[    1.359610] --mtc ann 1-1.2 0b95` and `[    1.359638] usb 1-1.2: New USB device found,
+  idVendor=0b95, idProduct=1790 … Product: AX88179`;
+  `[    1.699389] ax88179_178a 1-1.2:1.0 eth0: register 'ax88179_178a' at usb-fe3c0000.usb-1.2,
+  ASIX AX88179 USB 3.0 Gigabit Ethernet, 00:0a:cd:27:a5:b2`. `ax88179 - Link status is: 1` appears
+  **zero** times in this boot and there is no `ADDRCONF` line for `eth0` at all. The module's own lines:
+  `hu: net: waiting for carrier on eth0 (t=0s) carrier=none` … `(t=55s) carrier=none`, then
+  `hu: net: no carrier on eth0 after 60 s - stopping, no reboot` at 110.728 s and
+  `init: Service 'hu_net' (pid 144) exited with status 0`. No static/alias/route line, no
+  `ctl.stop`/`ctl.start`, no listener line, no telnetd, no DHCP attempt - the critical path never ran, by
+  design. The snapshot proves the link was idle: `=== l2 counters (rx_packets=0 tx_packets=0 rx_errors=0
+  tx_errors=0 rx_dropped=0 )` and busybox `ifconfig` shows `BROADCAST MULTICAST` without `RUNNING`,
+  `carrier:0`.
+* **Why carrier never arrived: an ordering deadlock introduced by build v4, proven by comparing boots.**
+  Build v4 polls `carrier` *before* touching the interface. In the 20:57 boot (build v2) the kernel
+  logged `IPv6: ADDRCONF(NETDEV_UP): eth0: link is not ready` at 2.081 s and
+  `ax88179_178a 1-1.2:1.0 eth0: ax88179 - Link status is: 1` at 5.128 s - the interface had already been
+  brought UP, which is what makes this driver negotiate the PHY. Build v2 logged
+  `hu: net: ifconfig eth0 up issued` only at 11.789 s because `guarded 10` delays the *log*, not the
+  command: the `ifconfig eth0 up` itself executed at ~1.71 s. Build v4 never brought `eth0` UP, so there
+  is no `ADDRCONF(NETDEV_UP)`, no negotiation, counters stay 0/0 and `carrier` stays empty. So class
+  **(B)** - enumerated but no carrier - is caused by the module's own order, not by USB power/timing and
+  not by the cable: the fix is to bring the interface UP first, then wait for carrier.
+* **Durability fixes worked as designed (D86).** The card copy is now complete and self-consistent:
+  `/mnt/media_rw/363A-7751/hu-mark.log` 8,614 B sha256
+  `d9970d17d8d30284f8364d1f25c269e308544891bff5575b51f48b2afb4c87a8` (full timeline, not just the
+  first 1.7 s), `state-recovery-5.txt` 4,536 B sha256 `8869de48a861f016…`,
+  `state-recovery-30.txt` 4,611 B sha256
+  `765c53667e7bd9c6ea948361fb8071912d096188536f383775a333d48d9276b1`,
+  `state-recovery-120.txt` 4,643 B sha256 `a86f4d6fc26fbe00…`, `misc-head.bin` 2,048 B sha256
+  `e5a00aa9991ac8a5…` (all zeros, recovery clears the BCB early). `state end out=… size=4536` shows the
+  `stat` quoting fix working, and `state copied to card rc=0` shows the per-snapshot card copy working.
+  Partition state after this boot: p7 `b449aee98c01a7da…`, p8 auto-reverted to stock
+  `1fdf5ea77fc66f48…`, `misc` `909bdd979111bcd5…` equal to the recorded baseline, nonce
+  `nov21-netmod4-1795297537-64` unconsumed (no `net-done-*` marker, because the marker is written only
+  after the listener check).
