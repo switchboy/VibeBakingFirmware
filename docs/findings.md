@@ -3981,19 +3981,19 @@ moment adbd answered - ~40 s after the reboot, `uptime` still under a minute - a
 back on the capture: its first 39,086,080 B hash `3308f7136600ff01d118a5cdb71d931144777fabce67c988e8922829d58a516c`
 and its first 67,108,864 B hash `311bfc0f69103db253c7c356dbee641c4350983794a1679e7af9b5a817ade456`, both exactly
 the stock capture's prefixes. So the revert happens *before* adbd, not during the recovery boot: a recovery
-boot is not needed to undo a patched partition 8. The same boot carries `init.svc.flash_recovery: stopped`
-and `ro.boottime.flash_recovery: 3759993000` - the service ran at boot time 3.76 s, which is why nothing was
+boot is not needed to undo a patched partition 8. The same boot carries init.svc.flash_recovery stopped and
+ro.boottime.flash_recovery 3759993000 - the service ran at boot time 3.76 s, which is why nothing was
 seen: the oldest line surviving in logcat at first read was 16 s after boot, and `/dev/kmsg` had rolled too.
 
 **Where the service is defined.** Grepping `/system/etc/init`, `/vendor/etc/init`, `/odm/etc/init` and the
 boot ramdisk's `init.rc` found nothing, because the service is in the *root* init rc: a bounded
-`find / -maxdepth 4 -name '*.rc'` + `grep -l flash_recovery` returns `/init.rc`, whose line 854 is
-`service flash_recovery /system/bin/install-recovery.sh` with `class main` and `oneshot` - started with the
+`find / -maxdepth 4 -name '*.rc'` + `grep -l flash_recovery` returns /init.rc, whose line 854 defines
+service flash_recovery /system/bin/install-recovery.sh with class main and oneshot - started with the
 main class, hence 3.76 s, no property trigger needed. The Nov 20 check for
 `/vendor/etc/init/vendor_flash_recovery.rc` looked only at vendor paths and concluded the wrong thing.
 
 **Boot-stage copy ruled out.** The restore is byte-exact stock over the applypatch target span
-(39,122,944 B), and nothing outside Android holds a stock copy: `backup` (p9, 112,263,168 B) is all zeros;
+(39,122,944 B), and nothing outside Android holds a stock copy: backup (p9, 112,263,168 B) is all zeros;
 `mmcblk2boot0`/`boot1` are 4 MiB each, too small; the partitions occupy the disk contiguously (sum
 122,666,974 of 122,683,392 sectors, the 8.4 MiB tail is the backup GPT), so there is no hidden region;
 `uboot.bin`'s four `ANDROID!` hits are `Kernel load addr 0x%08x` format strings, and uboot has no bspatch
@@ -4019,11 +4019,12 @@ and why the script can read pstore there. Practical rule for the ladder: **write
 enter recovery directly - never boot Android in between**, because one Android boot erases the patch again.
 
 **Rebuilds are not byte-reproducible.** The splice re-gzips the ramdisk, and gzip stores timestamps, so three
-builds of the same content hash differently: `dfe61ba7b3d6…` (39,088,128 B, earlier script), `f8a4a779b2fb…`
-and `8201bde5021e…` (39,086,080 B, current script `646c0a709742…`, after the evidence-file rename away from
+builds of the same content hash differently: `dfe61ba7b3d6…` (39,088,128 B, earlier script),
+`f8a4a779b2fb98786ae0613536c65ff2635bfede3938206c825ddcc2c9660fc7` (written to partition 8 twice today before
+the revert experiments) and `8201bde5021eccbb83adb1f66a3ffc6fee9054c9edba9410f7b89c649e295509` (39,086,080 B, current script `646c0a709742…`, after the evidence-file rename away from
 names that collide with the offline harness's path mapping). What is registered is the digest of the *staged
-copy* that gets written; today `/cache/hu-patched-recovery.bin` = `8201bde5021e…` and partition 8 was verified
-live to that digest. Offline gates re-run before any write: `scripts/smoke_recovery_evidence.sh` 9 scenarios
+copy* that gets written; today `/cache/hu-patched-recovery.bin` = `8201bde5021eccbb83adb1f66a3ffc6fee9054c9edba9410f7b89c649e295509`
+and partition 8 was verified live to that digest. Offline gates re-run before any write: `scripts/smoke_recovery_evidence.sh` 9 scenarios
 rc 0, and the sandbox harness at `a14-work/tmp/rec-smoke/run-scenarios.sh` scenarios A-F pass (its `run.sh` is
 regenerated from the repo source by sed each run, so the harness cannot drift behind the script again).
 

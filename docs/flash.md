@@ -62,11 +62,12 @@ adb push a14-work/hu-stock-backup-refresh/boot.bin /cache/hu-rollback-boot.bin  
 adb shell 'printf "%s\n" nonce-<n> > /cache/hu-restore.request'
 ```
 
-The current candidate image is `a14-work/recovery-evidence/recovery-evidence.img` - 39,088,128 B, sha256
-`dfe61ba7b3d6e0344dc5831c49e219fb157baaac73ad4812655cbdac761fb199`, with the injected script hashing
+The current candidate image is `a14-work/recovery-evidence/recovery-evidence.img` - 39,086,080 B, sha256
+`8201bde5021eccbb83adb1f66a3ffc6fee9054c9edba9410f7b89c649e295509`, with the injected script hashing
 `646c0a709742a53116bdaa7de1bbf3ef7c5a96e063adcb20548371c398ed3747` (evidence: `analysis/recovery-evidence.txt`).
-The two earlier builds are superseded: `a4cf5533482e…` (its evidence directory vanished under the `/cache` mount)
-and the 21:34 build, whose script stalled hashing the whole recovery partition.
+Rebuilding the same content hashes differently (gzip stores timestamps), so what is registered is the digest of
+the copy actually staged at `/cache/hu-patched-recovery.bin` and written; `dfe61ba7b3d6…` and `f8a4a779b2fb…`
+and the earlier `a4cf5533482e…` are all superseded builds of the same content.
 
 **Partition 8 self-heals (**D82**).** `/system/bin/install-recovery.sh`, started by init as `flash_recovery` on
 every Android 10 boot, runs `applypatch` with target `recovery:39,122,944:f75bcfb4…` and source
@@ -75,7 +76,10 @@ to stock by itself. That means a patched partition 8 does not need a manual roll
 Android 10 - the firmware restores it - and the patch persists across a boot only while partition 7 holds an image
 that does not hash to that source digest, which is exactly the Android 14 payload case where the evidence is needed.
 Rollback to the capture `1fdf5ea77fc6…` (100,663,296 B) is still available by hand and is what a full firmware
-restore produces.
+restore produces. The revert fires at boot time 3.76 s (`ro.boottime.flash_recovery` measured Nov 21), before adbd
+comes up, so the staging rule is: **write partition 8, then enter recovery immediately - never boot Android in
+between**, because one Android boot erases the patch; recovery itself does not run Android's init, so the patched
+ramdisk survives the recovery boot (**D83**'s practical consequence).
 
 The gate before writing partition 8 is `scripts/smoke_recovery_evidence.sh` (rc 0) plus a syntax check with the
 recovery ramdisk's own shell - `/sbin/sh` is MIRBSD KSH R40, not busybox ash - run on the unit:

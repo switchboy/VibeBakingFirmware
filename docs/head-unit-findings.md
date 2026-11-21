@@ -300,7 +300,8 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
     hashes `909bdd979111…` exactly as captured, because nothing has been written to it; the permission is held in
     reserve, since the ladder's reboot-target token uses `bootloader` and never writes the BCB. Every other
     boot-chain partition other than `recovery` stays forbidden (**D18**/**D19**; `recovery` itself was unbanned on
-    Nov 20, **D80**).
+    Nov 20, **D80**, and all recovery restrictions were released on Nov 20 evening, **D83** - recovery and
+    `boot`/`super` never in the same flash).
 13. ~~Tonight's approvals: may I run **P0** ... and after that, **L0**?~~ Answered Nov 19: **P0 then L0**, both
     executed. P0 proved the console route (**D69**); L0 wrote `L0-stock.img` (33,554,432 B) as the whole
     partition, partition 7 went `0bd1cc806740…` -> `4121b58f7759…`, and Android 10 rebooted from our repack with
@@ -321,13 +322,21 @@ Measured Nov 13 with root (`iw` at `/system/bin/iw`, dongle on USB port `1-1.4`,
     the fact that you had to force recovery means init never wrote a Boot Control Block (`misc` still
     `909bdd979111…`), so that boot hung rather than taking the hand-off.
 16. ~~The only thing that unblocks a second Android 14 attempt: a channel that reads a boot while it is dying~~
-    **Answered by your own lift on Nov 20 (D80).** You allowed writing `recovery` while MTC/mainboard flashing stays
-    intact, and that is the channel: recovery boots *after* a dead boot, and while it runs `console-ramoops-0` still
-    holds the dead boot's text (**D77**). A patched partition 8 (stock recovery bytes + one inert appended service,
-    **D42**'s splice) reads that record into `/cache` and puts partition 7 back on the known-good image by itself, so
-    a failed Android 14 boot leaves a log we can read over adb and a unit that comes back on its own. What is still
-    asked of you: **if a boot hangs instead of exiting, force recovery with your grip - and do not cold power-cycle
-    first**, because a cold cycle erases the RAM records (**D69**/**D77**). The UART probe stays declined (**D63**),
+    **Answered by your own lift on Nov 20 (D80), and by your full release on Nov 20 evening (D83).** You allowed
+    writing `recovery` while MTC/mainboard flashing stayed intact, and on Nov 20 evening you released all recovery
+    restrictions yourself - *"as long as we have a booting system we can revert the recovery ... Dig in to recovery.
+    Let an agent reverse engeneer it if you have to. Make it our own"* - with one rule we keep: recovery and
+    `boot`/`super` are never altered in the same flash. And that is the channel: recovery boots *after* a dead boot,
+    and while it runs `console-ramoops-0` still holds the dead boot's text (**D77**). A patched partition 8 (stock
+    recovery bytes + one inert appended service, **D42**'s splice) reads that record into `/cache` and puts
+    partition 7 back on the known-good image by itself, so a failed Android 14 boot leaves a log we can read over
+    adb and a unit that comes back on its own. One mechanic changed the staging rule (**D82**/**D83**, measured
+    Nov 21): Android's own init service `flash_recovery` rewrites partition 8 back to stock at boot time 3.76 s on
+    every Android 10 boot, so after we write a patched partition 8 you must enter recovery **immediately** - one
+    Android boot in between erases the patch again. Under an Android 14 payload the patch cannot reconstruct the
+    stock image, so the patched recovery persists there without any re-write. What is still asked of you:
+    **if a boot hangs instead of exiting, force recovery with your grip - and do not cold power-cycle first**,
+    because a cold cycle erases the RAM records (**D69**/**D77**). The UART probe stays declined (**D63**),
     and the bootSD card route stays your own restore route (**D39**); neither is needed for evidence now.
 
 

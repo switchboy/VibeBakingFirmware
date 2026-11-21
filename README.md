@@ -120,9 +120,11 @@ Build host paths (NAS): build tree `/srv/dev-disk-by-label-SSData/aospbuild/line
   the verified Lineage/AOSP review and licensing rules are recorded there.
 * Bluetooth is a deliberate second pass after first boot (`docs/decisions.md`, "Bluetooth route").
 * No partition is ever resized, and uboot/trust/dtb/dtbo/vbmeta/RKLoader/security are never written by our
-  tooling. Recovery is writable from Nov 20 under the owner's condition that MTC/mainboard flashing stays intact
-  (**D80**), so it is written only as the D42-style patch and always rolled back to the byte-exact capture
-  `1fdf5ea77fc6…` (**D11**/**D18**/**D19**). Restoring the unit's own firmware still means the OEM package or the
+  tooling. Recovery restrictions were fully released by the owner on Nov 20 evening (**D83**, superseding
+  **D80**'s condition), under one pairing rule: recovery and `boot`/`super` are never altered in the same flash.
+  Recovery is written as the D42-style patch and self-heals back to the byte-exact capture `1fdf5ea77fc6…` on
+  Android 10 boots via init's `flash_recovery` (**D82**), so enter recovery right after writing it, never after an
+  intervening Android boot (**D11**/**D18**/**D19**/**D83**). Restoring the unit's own firmware still means the OEM package or the
   stock backup (**D39**/**D40**).
 
 ## Status (Nov 18/19)
