@@ -2234,6 +2234,51 @@ signed-package route because verification reads the **ramdisk's** cert, not `/sy
 stay the kernel, the `RSCE` second (rehash its per-entry SHA1 if ever touched), the dtbo, the header page and
 `system/bin/recovery` itself, which is the only carrier of the RKA and MTC/IAP flashing logic.
 
+**D84 - the rapid-fire recovery module is Ethernet-first: a USB-Ethernet dongle on the host port, TCP adb plus
+telnetd, WiFi only as a fallback (Nov 21 evening, DECIDED; measurement in findings, "Nov 21 (evening)").** The
+owner's request was a recovery with minimal WiFi and ssh/adb-like access so flashing and testing can run rapid-fire
+from the workstation. Measured answer: the ssh/adb-like requirement is satisfied without WiFi at all.
+
+* **Ethernet first, because the kernel already carries the driver.** A USB-Ethernet adapter plugged into the head
+  unit's USB host port binds as `eth0` through `ax88179_178a`, which is built into the kernel blob recovery boots
+  (`ax88179_178a`, `asix_`, `cdc_ether`, `cdc_ncm`, `r8152` all present as strings, none in `lsmod`). No module,
+  no firmware file, no supplicant, no WPA2 question. Through that link the unit reads 120 MB/s over adb and pings
+  the workstation (`192.168.1.161`) at ~1 ms.
+* **ssh-like access is telnetd plus TCP adb, not ssh.** Busybox 1.11.1 in the recovery ramdisk has no `ssh`/`sshd`
+  and no dropbear, so an ssh server is not available on this hardware without building one. What the ramdisk does
+  have is `busybox telnetd -l /sbin/sh` (login shell mksh R40, running as root in recovery) and the shipped
+  `adbd`, which honours `service.adb.tcp.port` / `persist.adb.tcp.port`. SELinux is permissive on this unit
+  (`androidboot.selinux=permissive`, `getenforce` Permissive), so neither needs a policy change. Both are started
+  by the network phase behind `/cache/hu-net.request`, nonce-gated like the restore request.
+* **WiFi stays the documented fallback, not the primary.** The chip is RTL8188EU USB and `8188eu.ko` matches the
+  recovery kernel's vermagic, so `insmod` is plausible; but busybox has no `wpa_supplicant`, `/system/bin/wpa_supplicant`
+  does not exist, `/vendor/bin/hw/wpa_supplicant` is a binder HAL that cannot run in recovery, and cfg80211's
+  `regulatory.db` request cannot be served because `firmware_class.path` points at `/vendor/etc/firmware`, which
+  recovery never mounts (the built-in default regdomain applies). So the fallback works only against an **open**
+  bench AP via `iw dev wlan0 connect`, and shipping the module plus `iw` into the ramdisk is deferred until the
+  Ethernet path is proven on a recovery boot.
+* **The loop this enables.** Recovery boots after a failed payload -> evidence plus the `misc` BCB capture land in
+  `/cache` -> the restore runs if a request is staged -> the network phase comes up and the script does **not**
+  reboot, so the window stays open -> the workstation pushes a payload and drives the partition write over the LAN
+  -> reboot from the net shell -> the next boot is either the payload or recovery again. Payload flashes never touch
+  partition 8 (**D83**'s pairing rule, one variable per flash, **D62**), and the diagnostic tokens
+  (`panic=12 init_fatal_reboot_target=recovery`, **D72**/**D73**) keep fatal deaths landing back in recovery on
+  their own. Kernel-stage hangs still need the owner's grip; the network window only covers crashes and init-fatal
+  reboots.
+* **Staging does not go through `/cache`.** `/cache` is 356 MiB with 185 MiB free and writes at ~8 MB/s, so a
+  3.26 GiB `super` cannot be staged there. Payload writes stream straight to the partition, or recovery pulls them
+  with busybox `wget` from a workstation server. Per-cycle changes only need the boot image (tens of MB), which is
+  what makes the cycle rapid; `super` is written when it changes.
+* **The boundary is unchanged.** Ramdisk-only additions - the script, the request/conf files, and (later) a module
+  and `iw` if the WiFi fallback is ever built. Kernel, `second`, dtbo, header page and `system/bin/recovery` stay
+  byte-for-byte; the builder refuses byte movement outside the ramdisk span.
+* **Gates before any partition-8 write.** `scripts/smoke_recovery_evidence.sh` thirteen scenarios rc 0, sandbox
+  driver `a14-work/tmp/rec-smoke/run-scenarios.sh` A-I pass, and `mksh -n`/`hush -n` with the ramdisk's own shell on
+  the unit (**D82**) for the dialect. Current candidate: `a14-work/recovery-evidence/recovery-evidence.img`,
+  39,088,128 B, sha256 `90923603efc1cf081102653070e6c30726dece83a512534d34e62ea4bafe00ce`, injected script
+  `5e663ff46bbe74d7db164029e81e675fdc2a551491044f47acaed34833eaebbf`. Writing it is a recovery-only flash: partition
+  7 and `super` stay untouched in the same flash.
+
 Practical consequence measured Nov 21 (late morning): partition 8 is reverted by Android's own `flash_recovery`
 before adbd comes up, so a recovery entry must be entered immediately after writing partition 8, never after an
 intervening Android boot; while an Android 14 payload sits on partition 7, the patch source digest mismatches and

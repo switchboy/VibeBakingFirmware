@@ -4108,3 +4108,101 @@ dynamic aarch64, 22 NEEDED libs, `librecovery_ui_ext.so` dlopen'd at runtime). T
 applet symlinks in `system/bin`; the 32-bit static busybox 1.11.1 (1,807,056 B) serves `res/*.sh` via
 `#!/sbin/sh`. So a recovery of ours = stock binary + our ramdisk services + our cert, not a rewritten UI - and
 the OEM card-install route keeps working because HCT's cert stays in the zip.
+
+## Nov 21 (evening) - a USB-Ethernet dongle on the host port makes recovery reachable, and the recovery script gains a network phase
+
+**The Ethernet route exists, and it needs no driver work.** The owner plugged a USB-Ethernet adapter into one of
+the head unit's USB host ports at 14:50, and `eth0` appeared bound on the host controller `fe3c0000.usb`
+(device path `usb1/1-1/1-1.2`), driver `ax88179_178a` - an ASIX AX88179_178A gigabit adapter (MAC
+`00:0a:cd:27:a5:b2`, the ASIX OUI). `carrier=1`, `operstate=up`, `speed=1000`, `mtu=1500`. That driver is
+**built into the kernel** - it is absent from `lsmod`, and the kernel blob we boot in recovery (the same #190
+build) carries the strings `ax88179_178a`, `asix_`, `cdc_ether`, `cdc_ncm` and `r8152`. So recovery needs no
+module, no firmware file and no supplicant for this route: the kernel probes the dongle itself, and the interface
+appears without userspace help. The WiFi chip stays the fallback (RTL8188EU USB, driver `rtl8188eu`, module
+`8188eu.ko` vermagic `4.19.111+ SMP preempt mod_unload modversions aarch64` matching that kernel), but WiFi needs
+an association path busybox does not have: this busybox has no `wpa_supplicant`, `/system/bin/wpa_supplicant` does
+not exist on the live unit, and `/vendor/bin/hw/wpa_supplicant` is a HAL binary that talks to binder - which does
+not run in recovery.
+
+**The LAN is real and fast over Ethernet.** Ping from the workstation (`192.168.1.161`) to the unit
+(`192.168.1.120`) answered at 1.0-3.3 ms, gateway `192.168.1.1` answered from the unit, and the ARP table lists
+both interfaces (`eth0` and `wlan0`) reaching both hosts. Reading 120 MiB through adb took 1 s (125,829,120 B in
+one second, ~120 MB/s) - the gigabit path, not the WiFi chip's ~3-5 MB/s. Writing is the storage's limit, not the
+link's: `adb push` of 100 MiB into `/cache` took 12 s (~8.3 MB/s), and a 200 MiB `dd` there failed with ENOSPC,
+because `/cache` is 356 MiB total with 185 MiB free (`/dev/block/mmcblk2p11`). Payload staging therefore goes
+straight to the partition (streamed `dd`, or busybox `wget` pulling from a workstation HTTP server), not through
+`/cache`. `/proc/net/fib_trie` shows a single local address `192.168.1.120` in a `/29` node (host entries `.120`
+and `.127`) alongside two `/24` routes on `wlan0` and `eth0` - the netd-assigned mask is odd, but same-subnet
+traffic to the workstation works either way.
+
+**SELinux does not stand in the way.** The kernel cmdline carries `androidboot.selinux=permissive`, `getprop
+ro.boot.selinux` says `permissive` and `getenforce` says `Permissive`. The recovery ramdisk's shipped policy defines
+domains `init`, `logd`, `recovery`, `shell`, `toolbox`, `ueventd`, and the names `adbd`, `adbd_exec`, `adbd_socket`,
+`adb_service`, `ctl_adbd_prop`, `net_bind_service`, `ethernet_service` and `tcp_socket` are present in it; init.rc
+defines `service adbd /system/bin/adbd --root_seclabel=u:r:su:s0 --device_banner=recovery` (disabled, socket
+`adbd stream`) and `service recovery ... seclabel u:r:recovery:s0`. Enforcement is off, so binding a TCP socket or
+writing a partition from our service is allowed regardless of what the policy says; the script records what the
+environment can do instead of trusting that. Recovery's `adbd` honours `service.adb.tcp.port` and
+`persist.adb.tcp.port` (both strings are in the shipped `/system/bin/adbd`), and `init.recovery.rk30board.rc`
+starts `console` on userdebug - the same cmdline also carries `firmware_class.path=/vendor/etc/firmware`, which
+recovery never mounts, so a kernel firmware request (cfg80211's `regulatory.db`) falls back to the built-in default
+regdomain; that only matters for the WiFi fallback, not for Ethernet.
+
+**The partition map, measured on the live unit through `/dev/block/by-name`.** `uboot`=`mmcblk2p1`,
+`trust`=`mmcblk2p2`, `misc`=`mmcblk2p3`, `dtb`=`mmcblk2p4`, `dtbo`=`mmcblk2p5`, `vbmeta`=`mmcblk2p6`,
+`boot`=`mmcblk2p7`, `recovery`=`mmcblk2p8`, `backup`=`mmcblk2p9`, `security`=`mmcblk2p10`, `cache`=`mmcblk2p11`,
+`metadata`=`mmcblk2p12`, `frp`=`mmcblk2p13`, `super`=`mmcblk2p14`, `userdata`=`mmcblk2p15`. This corrects the
+earlier assumption that `misc` is partition 9: partition 9 is the all-zero `backup`, and `misc` is partition 3.
+Recovery's init starts `ueventd`, so `/dev/block/by-name/*` exists in recovery as it does in Android.
+
+**The applets the net phase needs are already in the ramdisk.** Strings over the ramdisk's static busybox show
+`ifconfig`, `route`, `telnetd`, `telnet`, `httpd`, `udhcpc`, `ping`, `brctl`, `wget`, `tftp`, `insmod`, `lsmod`,
+`modprobe`, `rmmod` and `devmem`; the ramdisk's `/system/bin` (toybox 0.8.0 plus real binaries) carries `dd`, `ls`,
+`cp`, `rm`, `tr`, `wc`, `nc`, `netcat`, `netstat`, `getprop`, `setprop`, `strings`, `base64`, `insmod`, `lsusb`,
+`devmem`, `adbd`, `ueventd`, `sh` and `linker64`. The script resolves each tool through `tool()` (the `/system/bin`
+copy when it exists, else the busybox applet), so no applet is assumed.
+
+**What the script now does (extension of `scripts/hu_recovery_evidence.sh`, no new service, no rc change).** Three
+additions, all inert unless asked for:
+
+* **The BCB capture.** Every recovery boot copies the first 4 KiB of `misc` into `/cache/hu-evidence/misc-bcb.bin`
+  (plus a printable view through `strings`, or a busybox `grep` for `boot-recovery` when `strings` is missing).
+  Whether a plain `reboot` from recovery clears the boot request or parks the menu again becomes measurable by
+  comparing that file across boots instead of guessing from the Nov 20 parking.
+* **The network phase.** `/cache/hu-net.request` (nonce, done-marker named after the nonce, same rule as the
+  restore) arms it. It waits up to 12 s for `/sys/class/net/<iface>` (`eth0` by default), sets
+  `192.168.1.120/255.255.255.0` with busybox `ifconfig`, adds a default route to `192.168.1.1`, starts TCP adb
+  (`setprop service.adb.tcp.port 5555` then `setprop ctl.start adbd`, reporting `init.svc.adbd` afterwards), starts
+  `busybox telnetd -l /sbin/sh` (the login shell is mksh R40, root in recovery), and records the listening ports
+  (`netstat -tn`) and the interface listing into `/cache/hu-evidence/`. When no interface appears it tries the WiFi
+  fallback only if the ramdisk actually carries a module (`/sbin/modules/8188eu.ko` or `/lib/modules/8188eu.ko`) and
+  `/cache/hu-net.conf` names an open AP - `insmod`, then `iw dev wlan0 connect <ssid>`, then the same IP and
+  daemons. Without both it stops and behaves exactly as before.
+* **Reboot suppression while a session is armed.** If the network came up the script does not reboot: recovery
+  stays up so the workstation can drive partition writes and read the evidence, and the log says so. With no
+  network armed the old reboot-out path (and its cold-cycle note) is unchanged. An install package on a card still
+  exits before any of this, so the owner's OEM card route keeps the untouched recovery UI.
+* **A write probe, measured not assumed.** The phase opens partition 7 for writing through `dd conv=notrunc bs=1
+  count=0` - zero bytes - and logs whether that open succeeded, which answers the open question of whether a
+  recovery-side shell can write partitions at all.
+
+**Offline gates re-run after the extension.** `bash --posix -n` on the script passes; the repo gate
+`scripts/smoke_recovery_evidence.sh` now covers thirteen scenarios (the nine existing ones plus Ethernet armed,
+consumed net request, no-interface reboot path, and the WiFi-fallback branch) and exits 0 - 91 assertions. The
+sandbox driver `a14-work/tmp/rec-smoke/run-scenarios.sh` covers A-I and reports `ALL SCENARIOS PASS`; its shims
+now record `ifconfig`/`route`/`telnetd`/`insmod` into `state.net` and `setprop`/`getprop` into `state.props`
+instead of executing them, so a dry-run can never touch the workstation's interfaces, routing table or module
+loader. The rebuilt candidate is `a14-work/recovery-evidence/recovery-evidence.img`, 39,088,128 B, sha256
+`90923603efc1cf081102653070e6c30726dece83a512534d34e62ea4bafe00ce`, injecting
+`hu-evidence.sh` `5e663ff46bbe74d7db164029e81e675fdc2a551491044f47acaed34833eaebbf` over an rc whose stock prefix
+is verbatim; kernel blob `a514a3ffb77e…`, second blob `fb80617e7c97…` and dtbo `28a07d4946e9…` are byte-identical
+to the capture, and the builder refused no byte outside the ramdisk span.
+
+**Still to measure on the unit, in order.** (1) Whether the dongle enumerates inside a recovery boot - the host
+controller probes at boot regardless of userspace, but recovery's gadget config is on the *other* controller
+(`fe800000.dwc3`), so this is expected and must still be observed. (2) Whether a plain `reboot` from recovery
+boots partition 7 or parks the menu again, read from `misc-bcb.bin` before and after. (3) Whether recovery-side
+partition writes succeed (the probe's answer). (4) Whether recovery's cmdline also carries
+`androidboot.selinux=permissive`. None of these was written in this pass: partition 7 stays `b449aee98c01…`,
+`misc` stays `909bdd979111…`, and partition 8 still holds the previously staged build until the owner enters
+recovery or a new build is written under **D83**'s pairing rule.

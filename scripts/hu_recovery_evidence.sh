@@ -28,9 +28,18 @@ OUT=/cache/hu-evidence
 LOG=/cache/hu-evidence.log
 REQ=/cache/hu-restore.request
 ROLLBACK=/cache/hu-rollback-boot.bin
+NETREQ=/cache/hu-net.request
+NETCONF=/cache/hu-net.conf
 PSTORE=/sys/fs/pstore
 RAMOOPS_BASE=1114112      # 0x110000
 RAMOOPS_BYTES=1048576
+# Ethernet defaults, overridable through $NETCONF (line per key: iface ip gw adbtelnet). The workstation on
+# this bench LAN is 192.168.1.161; the unit has been 192.168.1.120 throughout (measured Nov 21).
+IFACE=eth0
+NETIP=192.168.1.120
+NETMASK=255.255.255.0
+NETGW=192.168.1.1
+ADBPORT=5555
 
 if [ ! -e /dev/block/by-name/misc ] || [ ! -e /sbin/busybox ] || [ ! -e /sbin/sh ]; then
   echo "hu-evidence: no /dev/block/by-name/misc, /sbin/busybox or /sbin/sh - not the unit's recovery; doing nothing" >&2
@@ -46,6 +55,12 @@ SHA=$(tool sha256sum)
 SHA1=$(tool sha1sum)
 MD5=$(tool md5sum)
 TR=$(tool tr)
+STRINGS=$(tool strings)
+DD=$(tool dd)
+LS=$(tool ls)
+SETPROP=$(tool setprop)
+GETPROP=$(tool getprop)
+NETSTAT=$(tool netstat)
 
 say() {
   $BB echo "$($BB date -u +%s 2>/dev/null) $1" >> "$LOG" 2>/dev/null
@@ -148,6 +163,20 @@ $BB cat /proc/sys/kernel/random/boot_id > "$OUT/recovery-boot-id.txt" 2>>"$LOG"
 $BB echo "read by recovery: uptime=$($BB cut -d' ' -f1 /proc/uptime 2>/dev/null) epoch=$($BB date -u +%s)" > "$OUT/when.txt" 2>>"$LOG"
 say "p8 digest $(dig /dev/block/by-name/recovery)"
 
+# 3b. The bootloader control block. misc holds the reboot-mode request that decides which boot happens next,
+# so its first 4 KiB is kept on every recovery boot: whether a plain `reboot` clears it (booting partition 7)
+# or leaves it parked in recovery is measured by comparing this file across boots, not guessed.
+if $BB head -c 4096 /dev/block/by-name/misc > "$OUT/misc-bcb.bin" 2>>"$LOG"; then
+  say "misc BCB kept: $(sz "$OUT/misc-bcb.bin") bytes, digest $(dig "$OUT/misc-bcb.bin")"
+  if $STRINGS "$OUT/misc-bcb.bin" > "$OUT/misc-bcb.txt" 2>>"$LOG"; then
+    say "BCB text view kept through strings"
+  elif $BB grep -a "boot-recovery" "$OUT/misc-bcb.bin" > "$OUT/misc-bcb.txt" 2>>"$LOG"; then
+    say "busybox grep found boot-recovery in the BCB"
+  fi
+else
+  say "misc BCB read failed"
+fi
+
 # 4. Restore partition 7 only when a risky write asked for it. The request carries a nonce, so a consumed
 # request cannot re-arm the restore even though this busybox has no rm applet: the done-marker is named after
 # the nonce, and a fresh request with a new nonce runs again.
@@ -234,7 +263,108 @@ if [ "$keep" != 1 ]; then
 fi
 if [ "$keep" = 1 ]; then exit 0; fi
 
-if [ "$got" = 1 ] || [ "$restored" = 1 ] || [ -f "$OUT/restore-skipped.txt" ]; then
+# 5. The network phase (D84). A boot that dies leaves no shell; recovery does, and the USB host port takes a
+# USB-Ethernet dongle. Measured Nov 21: the dongle (ASIX AX88179_178A) binds on fe3c0000.usb as eth0 while
+# Android runs, the driver is BUILT INTO the kernel blob (ax88179_178a, plus asix/cdc_ether/cdc_ncm/r8152
+# strings in the same kernel that recovery boots), and SELinux is permissive (androidboot.selinux=permissive),
+# so binding sockets and writing partitions need no policy work. busybox here has ifconfig/route/telnetd,
+# and the ramdisk's /system/bin has setprop/getprop/netstat/dd/strings - no WiFi, no wpa_supplicant, no modules.
+net_nonce=$($BB awk '{print $1}' "$NETREQ" 2>/dev/null)
+net_done="$OUT/net-done.txt"
+if [ -n "$net_nonce" ]; then net_done="$OUT/net-done-$net_nonce.txt"; fi
+netup=0
+if [ -f "$NETREQ" ] && [ ! -f "$net_done" ]; then
+  # Optional overrides; a missing conf means the defaults above.
+  if [ -f "$NETCONF" ]; then
+    v=$($BB awk -F= '/^iface=/ {print $2}' "$NETCONF" 2>/dev/null); [ -n "$v" ] && IFACE="$v"
+    v=$($BB awk -F= '/^ip=/ {print $2}' "$NETCONF" 2>/dev/null); [ -n "$v" ] && NETIP="$v"
+    v=$($BB awk -F= '/^gw=/ {print $2}' "$NETCONF" 2>/dev/null); [ -n "$v" ] && NETGW="$v"
+    ssid=$($BB awk -F= '/^ssid=/ {print $2}' "$NETCONF" 2>/dev/null)
+  fi
+  say "net requested (nonce=${net_nonce:-none}): iface=$IFACE ip=$NETIP gw=$NETGW adbport=$ADBPORT"
+
+  # The dongle binds asynchronously; wait for the interface rather than assuming it.
+  i=0
+  while [ "$i" -lt 12 ]; do
+    if [ -d "/sys/class/net/$IFACE" ]; then break; fi
+    $BB sleep 1
+    i=$((i+1))
+  done
+  $LS -l /sys/class/net > "$OUT/list-ifaces.txt" 2>>"$LOG"
+
+  if [ -d "/sys/class/net/$IFACE" ]; then
+    say "interface $IFACE present after $i s (carrier=$($BB cat /sys/class/net/$IFACE/carrier 2>/dev/null || echo '?'))"
+    # busybox's ifconfig takes the classic keyword form; toybox's would not, so this goes through busybox.
+    if $BB ifconfig "$IFACE" "$NETIP" netmask "$NETMASK" up 2>>"$LOG"; then
+      netup=1
+      say "ip set: $IFACE=$NETIP/$NETMASK"
+      $BB route add default gw "$NETGW" 2>>"$LOG"
+      say "route: default via $NETGW rc=$?"
+    else
+      say "ifconfig failed for $IFACE"
+    fi
+
+    if [ "$netup" = 1 ]; then
+      # TCP adb. adbd is a disabled service in recovery's init.rc; ro.debuggable=1 and the permissive policy
+      # make an unauthenticated TCP adbd possible. If init has no adbd domain the property shows it.
+      $SETPROP service.adb.tcp.port "$ADBPORT" 2>>"$LOG"
+      $SETPROP ctl.start adbd 2>>"$LOG"
+      $BB sleep 2
+      say "adbd: service.adb.tcp.port=$($GETPROP service.adb.tcp.port) init.svc.adbd=$($GETPROP init.svc.adbd)"
+
+      # An interactive shell on telnet: /sbin/sh is mksh R40 on the unit (measured Nov 21), root in recovery.
+      if $BB telnetd -l /sbin/sh 2>>"$LOG"; then say "telnetd started (port 23, login /sbin/sh)"; else say "telnetd failed"; fi
+
+      # What the workstation can actually reach, recorded rather than assumed.
+      $NETSTAT -tn > "$OUT/list-net.txt" 2>>"$LOG"
+      # Can this environment write a partition? Probed with a zero-length write (conv=notrunc opens O_WRONLY
+      # and writes nothing), so the answer is measured without changing any bytes.
+      if $DD conv=notrunc bs=1 count=0 of=/dev/block/by-name/boot 2>>"$LOG"; then
+        say "p7 write probe: open-for-write OK (0 bytes written)"
+      else
+        say "p7 write probe FAILED - partition writes must happen from Android instead"
+      fi
+      say "net up: workstation reaches $NETIP via adb:$ADBPORT and telnet:23; staying in recovery, no reboot"
+      $BB touch "$net_done" 2>>"$LOG"
+      $BB sync 2>/dev/null
+    fi
+  else
+    # No Ethernet: the WiFi fallback, only live if the ramdisk carries the module and the conf names an AP.
+    # The recovery kernel has cfg80211/mac80211 built in and its vermagic matches Android's 8188eu.ko
+    # (4.19.111+ SMP preempt mod_unload modversions aarch64), so insmod is the intended route; this unit's
+    # WiFi chip is an RTL8188EU USB module. busybox has no wpa_supplicant, so only an OPEN AP works via iw.
+    ko=""
+    for k in /sbin/modules/8188eu.ko /lib/modules/8188eu.ko; do
+      [ -f "$k" ] && ko="$k" && break
+    done
+    if [ -n "$ko" ]; then
+      say "no $IFACE - trying WiFi fallback: insmod $ko"
+      $BB insmod "$ko" 2>>"$LOG"
+      say "insmod rc=$?, modules now: $($BB lsmod 2>/dev/null | $TR '\n' ' ')"
+      if [ -n "${ssid:-}" ] && [ -x "$SB/iw" ]; then
+        $(tool iw) dev wlan0 connect "$ssid" 2>>"$LOG"
+        say "iw connect rc=$?"
+        $BB ifconfig wlan0 "$NETIP" netmask "$NETMASK" up 2>>"$LOG" && netup=1
+        if [ "$netup" = 1 ]; then
+          $SETPROP service.adb.tcp.port "$ADBPORT" 2>>"$LOG"; $SETPROP ctl.start adbd 2>>"$LOG"
+          $BB telnetd -l /sbin/sh 2>>"$LOG"
+          say "wifi net up on wlan0 ($ssid)"
+          $BB touch "$net_done" 2>>"$LOG"
+        fi
+      else
+        say "no open-AP ssid in $NETCONF, or iw absent - WiFi fallback stopped"
+      fi
+    else
+      say "no $IFACE and no WiFi module in the ramdisk - network stopped, rebooting out as before"
+    fi
+  fi
+elif [ -f "$NETREQ" ]; then
+  say "net request already consumed ($net_done present) - network not brought up again"
+fi
+
+if [ "$netup" = 1 ]; then
+  say "network armed: recovery stays up for the workstation; partition 7 is left alone until it writes one"
+elif [ "$got" = 1 ] || [ "$restored" = 1 ] || [ -f "$OUT/restore-skipped.txt" ]; then
   say "rebooting out of recovery; if this lands back in the recovery menu (reboot-mode), a cold power cycle boots partition 7"
   $BB reboot
 fi

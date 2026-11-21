@@ -462,3 +462,31 @@ This file is the index plus the risk register, and it must not restate numbers -
     header page, `system/bin/recovery` (all RKA/MTC logic lives only there). Next offline step for "make it our
     own": build our cert, splice `otacerts.zip` with both certs into a candidate partition-8 image keeping
     `hu_evidence`, gate it (smoke + mksh `-n` on the unit), and write it only as a recovery-only flash (**D83**).
+29. **Nov 21 (evening, live read-only + offline build): the owner's USB-Ethernet dongle works on the host port,
+    and the recovery script gains a network phase - the rapid-fire route is Ethernet-first (**D84**).** The owner
+    connected a USB-Ethernet adapter at 14:50; `eth0` bound on host controller `fe3c0000.usb` (device `1-1.2`) via
+    `ax88179_178a` (ASIX AX88179_178A, MAC `00:0a:cd:27:a5:b2`), `carrier=1`, `operstate=up`, `speed=1000`. That
+    driver is built into the kernel recovery boots (strings `ax88179_178a`/`asix_`/`cdc_ether`/`cdc_ncm`/`r8152`,
+    nothing in `lsmod`), so recovery needs no module, firmware file or supplicant. Measured through it: ping
+    `192.168.1.161` -> `192.168.1.120` at 1.0-3.3 ms, adb read 125,829,120 B in 1 s (~120 MB/s), `adb push` 100 MiB
+    to `/cache` in 12 s (~8.3 MB/s, eMMC-bound), and a 200 MiB `dd` there failed ENOSPC - `/cache` is 356 MiB with
+    185 MiB free, so payloads stream straight to the partition or come in over busybox `wget`. SELinux is
+    permissive (`androidboot.selinux=permissive`, `getenforce` Permissive) and the recovery policy names
+    `adbd`/`ctl_adbd_prop`/`net_bind_service`, so TCP adb (`service.adb.tcp.port 5555` + `ctl.start adbd`) and
+    `busybox telnetd -l /sbin/sh` need no policy work; ssh is not available (busybox 1.11.1 has no ssh/dropbear),
+    and WiFi stays the open-AP-only fallback (no wpa_supplicant in busybox; the vendor HAL needs binder;
+    `firmware_class.path` points at an unmounted `/vendor/etc/firmware`, so cfg80211 falls back to the default
+    regdomain). Partition map measured through `/dev/block/by-name`: `misc`=`mmcblk2p3` (p9 is the all-zero
+    `backup`), `boot`=p7, `recovery`=p8, `cache`=p11, `super`=p14 - the earlier misc-as-p9 note was wrong.
+    `scripts/hu_recovery_evidence.sh` now captures the `misc` BCB first 4 KiB on every recovery boot, brings the
+    network up behind `/cache/hu-net.request` (nonce + done-marker, optional `/cache/hu-net.conf` iface/ip/gw/ssid),
+    probes partition 7 with a zero-length `dd conv=notrunc` write, and suppresses the reboot-out while a session is
+    armed; the card-package guard still exits first. Gates: `bash --posix -n` clean, repo smoke 13 scenarios rc 0
+    (91 assertions), sandbox harness A-I pass (its shims now record `ifconfig`/`route`/`telnetd`/`insmod`/`setprop`
+    instead of executing them). Rebuilt candidate `a14-work/recovery-evidence/recovery-evidence.img`
+    39,088,128 B, `90923603efc1…`, script `5e663ff46bbe…`, kernel/`second`/dtbo blobs byte-identical
+    (`a514a3ffb77e`, `fb80617e7c97`, `28a07d4946e9`). Nothing was written: partition 7 stays `b449aee98c01…`,
+    `misc` stays `909bdd979111…`, partition 8 still holds the staged `8201bde5021e…` build. Next: the owner enters
+    recovery (or the new build is written as a recovery-only flash under **D84**), then the four measurements -
+    dongle enumeration in recovery, reboot-out parking from `misc-bcb.bin` across boots, whether a recovery-side
+    partition write is allowed, and recovery's own cmdline selinux value.

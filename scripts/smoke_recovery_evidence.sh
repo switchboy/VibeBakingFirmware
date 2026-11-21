@@ -31,7 +31,7 @@ SRC="$REPO/scripts/hu_recovery_evidence.sh"
 S="${TMPDIR:-/tmp/opencode}/hu-evidence-smoke"
 rm -rf "$S"
 mkdir -p "$S/cache" "$S/pstore" "$S/mntext" "$S/mntint" "$S/mntsd" "$S/hucard" "$S/by-name" \
-        "$S/fakesbin" "$S/binfull" "$S/binbare"
+        "$S/fakesbin" "$S/binfull" "$S/binbare" "$S/fakenet" "$S/fakelibmods"
 
 BOOT_BYTES=33554432
 RECOVERY_BYTES=100663296
@@ -82,12 +82,37 @@ exit 0
 EOF
         ;;
       sync) printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/sync" ;;
+      # The net phase's property plumbing and port listing. setprop/getprop go through a fake property file,
+      # netstat reports two LISTEN sockets so the workstation-facing record is non-empty, iw is a stub that
+      # succeeds so the WiFi-fallback scenario can reach the branch.
+      setprop)
+        cat > "$dir/setprop" <<EOF
+#!/usr/bin/env bash
+printf '%s=%s\n' "\$1" "\$2" >> "$S/fake-props"
+exit 0
+EOF
+        ;;
+      getprop)
+        cat > "$dir/getprop" <<EOF
+#!/usr/bin/env bash
+if [ -f "$S/fake-props" ]; then grep -m1 "^\$1=" "$S/fake-props" 2>/dev/null | cut -d= -f2; fi
+exit 0
+EOF
+        ;;
+      netstat) printf '#!/usr/bin/env bash\nprintf "tcp  0 0 0.0.0.0:5555 0.0.0.0:* LISTEN\\ntcp  0 0 0.0.0.0:23 0.0.0.0:* LISTEN\\n"\n' > "$dir/netstat" ;;
+      iw)
+        cat > "$dir/iw" <<EOF
+#!/usr/bin/env bash
+printf "iw %s\n" "\$*" >> "$S/net-state"
+exit 0
+EOF
+        ;;
       *) printf '#!/usr/bin/env bash\nexec %s "$@"\n' "$app" > "$dir/$app" ;;
     esac
     chmod 755 "$dir/$app"
   done
 }
-mk_fake_bin "$S/binfull" sha256sum sha1sum md5sum dd cp cat cut cmp wc tr rm ls stat grep mkdir echo mount umount sync awk head tail touch date
+mk_fake_bin "$S/binfull" sha256sum sha1sum md5sum dd cp cat cut cmp wc tr rm ls stat grep mkdir echo mount umount sync awk head tail touch date setprop getprop netstat strings iw
 mk_fake_bin "$S/binbare" dd cp cat cut stat ls mount umount mkdir echo head tail touch date awk
 ln -sfn "$S/binfull" "$S/bincur"
 
@@ -107,6 +132,16 @@ case "\$app" in
   sha1sum|md5sum)
     if [ -f "$S/no-digests" ]; then exit 1; fi
     exec "\$app" "\$@" ;;
+  # The net phase's applets. ifconfig/route/telnetd/insmod are recorded rather than executed, so a scenario
+  # can see whether the script actually reached them.
+  ifconfig) printf 'ifconfig %s\\n' "\$*" >> "$S/net-state"; exit 0 ;;
+  route) printf 'route %s\\n' "\$*" >> "$S/net-state"; exit 0 ;;
+  telnetd) : > "$S/telnetd"; printf 'telnetd %s\\n' "\$*" >> "$S/net-state"; exit 0 ;;
+  httpd) : > "$S/httpd"; printf 'httpd %s\\n' "\$*" >> "$S/net-state"; exit 0 ;;
+  insmod) if [ -f "\$1" ]; then printf 'insmod %s\\n' "\$1" >> "$S/net-state"; : > "$S/insmod"; exit 0; fi
+          echo "smoke: insmod target missing: \$1" >&2; exit 1 ;;
+  lsmod) printf '8188eu 1253376 0\\n' ;;
+  wget|tftp) printf 'fetch %s\\n' "\$*" >> "$S/net-state"; exit 0 ;;
   dd|wc|cp|rm|ls|tr|sha256sum)
     echo "smoke: script asked busybox for applet '\$app', which the real one lacks (measured Nov 20)" >&2
     exit 1 ;;
@@ -131,6 +166,11 @@ sed \
   -e "s|^LOG=/cache/hu-evidence.log$|LOG=$S/cache/hu-evidence.log|" \
   -e "s|^REQ=/cache/hu-restore.request$|REQ=$S/cache/hu-restore.request|" \
   -e "s|^ROLLBACK=/cache/hu-rollback-boot.bin$|ROLLBACK=$S/cache/hu-rollback-boot.bin|" \
+  -e "s|^CACHE=/cache$|CACHE=$S/cache|" \
+  -e "s|^NETREQ=/cache/hu-net.request$|NETREQ=$S/cache/hu-net.request|" \
+  -e "s|^NETCONF=/cache/hu-net.conf$|NETCONF=$S/cache/hu-net.conf|" \
+  -e "s|/sys/class/net|$S/fakenet|g" \
+  -e "s|/lib/modules|$S/fakelibmods|g" \
   -e "s|/dev/block/by-name|$S/by-name|g" \
   -e "s|/proc/mounts|$S/fake-mounts|" \
   -e "s|/sys/fs/pstore|$S/pstore|" \
@@ -152,8 +192,13 @@ sed -i -e 's|\[ -b "$c" \]|[ -e "$c" ]|' "$S/evidence.sh"
 
 reset_state() {
   : > "$S/fake-mounts"
-  rm -f "$S/console.log" "$S/rebooted" "$S/no-digests" "$S/cache/hu-evidence.log"
+  rm -f "$S/console.log" "$S/rebooted" "$S/no-digests" "$S/cache/hu-evidence.log" \
+        "$S/net-state" "$S/telnetd" "$S/httpd" "$S/insmod" "$S/fake-props"
   rm -rf "$S/cache"; mkdir -p "$S/cache"
+  # The net phase looks for the interface under /sys/class/net (mapped to $S/fakenet) and a WiFi module in
+  # the ramdisk, so both are emptied per scenario and filled by PRE when a scenario needs them.
+  rm -rf "$S/fakenet" "$S/fakelibmods" "$S/fakesbin/modules"
+  mkdir -p "$S/fakenet" "$S/fakelibmods"
   # truncate to the same size does not clear bytes that are already there, so zero through 0 first.
   truncate -s 0 "$S/by-name/boot"; truncate -s "$BOOT_BYTES" "$S/by-name/boot"
   truncate -s 0 "$S/rollback.bin"; truncate -s "$BOOT_BYTES" "$S/rollback.bin"
@@ -170,6 +215,11 @@ reset_state() {
 # The fake world is rebuilt before every scenario; PRE runs after reset_state, because staging inputs
 # before run() would simply be wiped by it.
 stage_request() { cp "$S/rollback.bin" "$S/cache/hu-rollback-boot.bin"; printf 'nonce-17\n' > "$S/cache/hu-restore.request"; }
+# Net staging: a request arms the network phase for one boot (done-marker named after its nonce, same rule
+# as the restore), and an interface directory under the fake /sys/class/net stands in for a bound dongle.
+stage_net() { printf "${1:-nonce-9}\n" > "$S/cache/hu-net.request"; }
+iface_eth0() { mkdir -p "$S/fakenet/eth0"; printf '1\n' > "$S/fakenet/eth0/carrier"; }
+iface_wifi() { mkdir -p "$S/fakesbin/modules"; : > "$S/fakesbin/modules/8188eu.ko"; printf 'ssid=bench-open\n' > "$S/cache/hu-net.conf"; }
 dirty_boot() { printf '\xff' | dd of="$S/by-name/boot" bs=1 count=1 seek=4096 conv=notrunc 2>/dev/null; }
 # Partition 7 is sparse-zero between scenarios, so "untouched" is its digest still being the all-zeros
 # digest of that size - stat cannot see sparseness.
@@ -231,6 +281,8 @@ boot_untouched && ok "partition 7 untouched" || no "partition 7 was written"
 expect "rebooting out of recovery"
 expect "cold power cycle"
 [ -f "$S/rebooted" ] && ok "rebooted so the record becomes readable over adb" || no "no reboot"
+# The BCB capture runs on every recovery boot, so the parking question is measurable across boots.
+[ -f "$E/misc-bcb.bin" ] && ok "misc BCB kept ($(stat -c %s "$E/misc-bcb.bin") bytes)" || no "misc-bcb.bin missing"
 
 printf '=== 3. restore requested, partition 7 differs: written back, verified, request consumed ===\n'
 PRE='stage_request; dirty_boot'
@@ -294,6 +346,58 @@ expect "pstore not mounted - reading raw RAM"
 grep -qF "rockchip_display" "$E/ramoops-raw.bin" 2>/dev/null && ok "the RAM record reached the dump at the right offset" || no "record not at the ramoops offset"
 [ -f "$E/ramoops-text.txt" ] && ok "printable view kept through /system/bin/tr" || no "printable view missing"
 rm -f "$S/no-pstore"
+
+printf '=== 10. net request armed and a dongle bound: Ethernet comes up, restore still runs, NO reboot ===\n'
+rm -f "$S/no-pstore"
+PRE='stage_request; dirty_boot; stage_net nonce-9; iface_eth0'
+run
+[ "$(cat "$S/rc")" = 0 ] && ok "rc=0" || { no "rc=$(cat "$S/rc")"; cat "$S/console.log"; }
+expect "net requested (nonce=nonce-9)"
+expect "interface eth0 present"
+expect "ip set: eth0=192.168.1.120/255.255.255.0"
+expect "route: default via 192.168.1.1"
+expect "adbd: service.adb.tcp.port=5555"
+expect "telnetd started"
+expect "p7 write probe: open-for-write OK"
+expect "net up: workstation reaches 192.168.1.120"
+expect "network armed"
+grep -q "ifconfig eth0 192.168.1.120 netmask" "$S/net-state" 2>/dev/null && ok "busybox ifconfig reached with the bench IP" || no "ifconfig not reached"
+grep -q "telnetd -l" "$S/net-state" 2>/dev/null && ok "telnetd reached (login shell on port 23)" || no "telnetd not reached"
+grep -q "route add default gw" "$S/net-state" 2>/dev/null && ok "default route issued" || no "no default route line"
+[ -f "$S/telnetd" ] && ok "telnetd daemon marker" || no "telnetd marker missing"
+[ -s "$E/list-net.txt" ] && ok "listening ports recorded" || no "list-net.txt empty"
+[ -s "$E/list-ifaces.txt" ] && ok "interface listing recorded" || no "list-ifaces.txt empty"
+[ -f "$E/net-done-nonce-9.txt" ] && ok "net done-marker named after the nonce" || no "net done-marker missing"
+[ -f "$E/restore-ok.txt" ] && ok "the restore ran despite the net phase" || no "restore did not run"
+boot_matches_rollback && ok "partition 7 restored before the network came up" || no "partition 7 not restored"
+[ -f "$S/rebooted" ] && no "rebooted while the net session is armed - the workstation would lose the recovery window" || ok "stayed in recovery"
+
+printf '=== 11. a consumed net request does not re-arm the network ===\n'
+PRE='stage_net nonce-9; mkdir -p "$E"; touch "$E/net-done-nonce-9.txt"'
+run
+expect "net request already consumed"
+[ -f "$S/telnetd" ] && no "telnetd started despite the consumed request" || ok "no telnetd"
+[ -f "$S/rebooted" ] && ok "reboot-out behaviour is back (no net armed)" || no "no reboot on a consumed request"
+
+printf '=== 12. no dongle bound and no WiFi module: the old reboot-out path stays ===\n'
+PRE='stage_net nonce-10'
+run
+expect "no eth0 and no WiFi module in the ramdisk"
+[ -f "$S/telnetd" ] && no "telnetd started without an interface" || ok "no telnetd"
+[ -f "$S/rebooted" ] && ok "rebooted as before" || no "no reboot"
+[ -f "$E/net-done-nonce-10.txt" ] && no "done-marker written although nothing came up" || ok "marker only written on success"
+
+printf '=== 13. no dongle, module plus open ssid in conf: the WiFi fallback path is reached ===\n'
+PRE='stage_net nonce-11; iface_wifi'
+run
+expect "trying WiFi fallback: insmod"
+expect "insmod rc=0"
+expect "iw connect rc=0"
+expect "wifi net up on wlan0 (bench-open)"
+[ -f "$S/insmod" ] && ok "insmod reached the shipped 8188eu.ko" || no "insmod marker missing"
+grep -q "iw dev wlan0 connect bench-open" "$S/net-state" 2>/dev/null && ok "iw reached with the open AP" || no "iw line not recorded"
+grep -q "ifconfig wlan0 192.168.1.120" "$S/net-state" 2>/dev/null && ok "wlan0 got the bench IP" || no "wlan0 ifconfig not recorded"
+[ -f "$S/rebooted" ] && no "rebooted with the WiFi session armed" || ok "stayed in recovery"
 
 printf '=== result ===\n'
 if [ "$fail" = 0 ]; then echo "all scenarios pass: $(wc -l < "$S/console.log") console lines from the last run"; fi
