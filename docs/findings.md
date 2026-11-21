@@ -4296,3 +4296,42 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   determinism: the splice is byte-stable in CONTENT, but `cp` gives the injected files fresh mtimes, so the
   cpio (and thus the image sha256) depends on the build moment - verify by `cmp` against the file actually
   staged, and by the blob digests, not by re-running the builder.
+
+* **The recovery boot of Nov 21 evening, read back through pstore (read-only).** `/cache` only kept the
+  lines written before ~1.7 s, but `/dev/kmsg` did not: the current `console-ramoops-0` (57,183 B, sha256
+  `2a59ffff9ff71e2c…`) contains the whole recovery boot, region `a14-work`-side extract
+  `/tmp/opencode/rec-boot-kmsg.txt` sha256 `2894687a4c4b62f2…`. Timeline from it: `init: First stage mount
+  skipped (recovery mode)` 1.037; `EXT4-fs (mmcblk2p11)` mounted 1.639; module services begin 1.68-1.73;
+  `IPv6: ADDRCONF(NETDEV_UP): eth0: link is not ready` 2.081; `ax88179_178a 1-1.2:1.0 eth0: ax88179 - Link
+  status is: 1` 5.128 (the dongle's carrier, not 1.70 s); `hu: net: ifconfig eth0 up issued` 11.79;
+  `hu: net: udhcpc finished` 41.83 with no lease, so the static fallback `192.168.77.2` was used
+  (`hu: net: address=192.168.77.2` 59.99); `init: Received control message 'start' for 'adbd' from pid: 480
+  (/system/bin/setprop ctl.start adbd)` 76.06 followed by `hu: net: adbd svc=running tcpport=5555 secure=0`
+  and `hu: net: adbd listen line=none` - setting `service.adb.tcp.port` on an already-running adbd binds
+  nothing, exactly as the stock `init.rc` shape predicts (no trigger on that property); `hu: net: telnetd on
+  2323 (login /sbin/sh)` 78.18 proves busybox 1.11.1 `telnetd -l /sbin/sh -p 2323` works; heartbeat ticks
+  continued to 558 s; `hu: state end` at 54.88 (up=6.72), 79.85 (31.71) and 169.86 (121.71);
+  `init: Received sys.powerctl='reboot,' from pid: 134 (/system/bin/recovery)` 560.42 after the owner chose
+  "Reboot system now", preceded by a second `EXT4-fs (mmcblk2p11)` mount at 560.397; the boot ends with
+  `reboot: Restarting system with command ''`. The previous Android boot's buffer ends with
+  `reboot: Restarting system with command 'recovery'` - the entry that `adb reboot recovery` produced.
+  Durability finding: files written to `/cache` during recovery did not survive the reboot
+  (`state-recovery-{5,30,120}.txt`, `misc-head.bin`, `net-done-<nonce>.txt` are absent afterwards;
+  `hu-mark.log` came back with only its pre-1.7 s content) while the pstore copy `pstore-1.69/console-ramoops-0`
+  survived. The card copy taken at up=47 s is `/mnt/media_rw/363A-7751/hu-mark.log` 807 B, sha256
+  `a5a93789454777fefcfd04f2e0f9b7f7cb2734c830960a457557e47e501b325e`, and its sibling
+  `state-recovery-5.txt` 2,252 B, sha256 `89e01edf37b9cc6962466474aa18fd79ab2b8aa3b3a10d6e3032ac33578ffb00` -
+  both prove the snapshot existed inside recovery even though `/cache` lost it afterwards. The recovery UI's own strings carry `/cache/`, `unlink`, `format_volume` and
+  `EnsurePathUnmounted`, and the card mount logged `FAT-fs (mmcblk0p1): Volume was not properly unmounted`,
+  so unmounts at reboot are lazy: treat `/cache` writes made inside recovery as unreliable and read evidence
+  from kmsg-after-reboot and from the FAT card copies instead.
+* **What the BCB actually held (step 5).** `hu-early.sh` read the misc head read-only at up=36.84 s and
+  copied it to the card: `/mnt/media_rw/363A-7751/misc-head.bin` 2,048 B, sha256
+  `e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad`, all
+  zeros - recovery had already cleared the BCB by then. After the reboot the whole 4 MiB misc partition
+  hashes `909bdd979111bcd531d6f410…`, byte-identical to the pre-write baseline. So `adb reboot recovery`
+  does write a BCB (the bootloader honoured it and entered recovery, and the kernel logged
+  `Restarting system with command 'recovery'`), and recovery zeroes it early - a misc read taken from
+  inside recovery can never show it. Also measured: the `stat` call in `hu-state.sh` printed an empty size
+  because `\"$out\"` inside a double-quoted string passes the quote characters to toybox `stat` as part of
+  the argument; the unquoted call in `hu-early.sh` printed 2048 correctly.

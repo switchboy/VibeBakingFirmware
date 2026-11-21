@@ -2313,3 +2313,40 @@ network build into one recovery boot, p8 only, p7/p14 untouched, one variable pe
   the image if any byte outside the ramdisk span moves; kernel, `second` and dtbo stay byte-identical, and
   `super` is never resized. Nothing in this pass was written, and nothing will be written without the
   owner's explicit go.
+
+**D86 - recovery evidence is read back through kmsg and the FAT card, not through `/cache` (Nov 21 evening,
+MEASURED)**
+* **What the Nov 21 recovery boot proved.** The module ran the whole 561 s window (heartbeat ticks to
+  558 s, all three state snapshots exited with status 0), yet `/cache` came back holding only the lines
+  written before ~1.7 s: `state-recovery-{5,30,120}.txt`, `misc-head.bin` and `net-done-<nonce>.txt` were
+  created inside recovery (the card copy at up=47 s proves the first two exist) and are absent afterwards.
+  The boot ends with a fresh `EXT4-fs (mmcblk2p11)` mount at 560.397 s immediately before
+  `reboot: Restarting system with command ''`, and the card logged
+  `FAT-fs (mmcblk0p1): Volume was not properly unmounted`, so partitions are detached lazily at reboot and
+  uncommitted writes are lost. Therefore: `/cache` files written inside recovery are treated as
+  best-effort only, and the evidence of record is `/dev/kmsg` read back after the reboot through
+  `/sys/fs/pstore/console-ramoops-0`, plus copies on the plain FAT32 card.
+* **Marker discipline stays, but the log is not the archive.** `say()` keeps writing both channels; the
+  kmsg copy is authoritative. `$BB sync` after every write is added so anything that does land in `/cache`
+  lands on the device, and `hu-card.sh` re-copies after each snapshot rather than once at up=47 s.
+* **The BCB question is settled by kernel text, not by a misc read.** recovery clears the BCB before any
+  module can read it (`misc-head.bin` at up=36.8 s is all zeros), so `adb reboot recovery` is confirmed by
+  `reboot: Restarting system with command 'recovery'` in the previous boot's console and by the bootloader
+  entering recovery - not by reading `misc` from inside recovery.
+
+**D87 - the next build fixes TCP adb, makes the fallback address reachable, and repairs the size report
+(Nov 21 evening, DECIDED, not yet built or written)**
+* **TCP adb needs a restart, not a `ctl.start`.** The boot measured
+  `init: Received control message 'start' for 'adbd'` followed by `adbd svc=running tcpport=5555 secure=0`
+  and `listen line=none`: stock recovery `init.rc` has no trigger on `service.adb.tcp.port`, so a property
+  set and a `start` on a running adbd bind nothing. The module will set the port, then `ctl.stop adbd`,
+  then `ctl.start adbd`, and read `/proc/net/tcp` for `15B3` state `0A` before claiming success.
+* **The static fallback moves onto the LAN subnet.** `192.168.77.2` left the unit unreachable from the
+  workstation (no route, and this session has no root to add an alias). The fallback becomes
+  `192.168.1.250/24` with gateway `192.168.1.1`, so the workstation can reach it with no privileged
+  workstation-side change; DHCP is still attempted first and its result is logged. Pending owner
+  confirmation that `192.168.1.250` is free on the LAN.
+* **Small repairs:** the state snapshot's `stat` call quoted the path inside a double-quoted string, so
+  toybox received literal quote characters and reported an empty size; and the carrier read at up=1.70 s
+  came back empty because the driver reports carrier only after `ax88179 - Link status is: 1` at 5.13 s, so
+  the poll waits for carrier rather than for the interface node.
