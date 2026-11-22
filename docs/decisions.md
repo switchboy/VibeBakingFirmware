@@ -2433,3 +2433,31 @@ carrier-first order)**
   without asking. The clang+lld probe stays as evidence only. HU_TEST plan when a toolchain exists:
   scenarios run on the unit from `/data/local/tmp` against a loopback file, plus a host-side x86_64 build
   of the same source for scenario logic; qemu-user is unavailable here.
+
+**D94 - the toolchain is authorized and the wrapper is built (Nov 22, OWNER DECIDED)**
+* **Route.** The owner installed `sudo pacman -S zig qemu-user` himself (official repositories, no AUR,
+  no full upgrade by the agent) and authorized that toolchain, which supersedes D93's block. Measured:
+  `zig` 0.17.1, `qemu-aarch64` 11.1.3, `llvm-strip` from LLVM 23.1.5.
+* **Build rule.** `tools/hu_wrap.c` is compiled with `zig cc -target aarch64-linux-musl -static -Os
+  -Wl,--build-id=none` then `llvm-strip`, with `SOURCE_DATE_EPOCH=1760000000`, raw syscalls only, and
+  the reboot as `syscall(SYS_reboot, MAGIC1, MAGIC2, RESTART2, "recovery")`. The build gate requires
+  `file` to report a static stripped aarch64 ELF and `readelf` to show no `NEEDED` and no `INTERP`; a
+  second build in another directory reproduces the same digest. HU_TEST runs on the workstation (native
+  x86_64 and `qemu-aarch64`) and on the unit from `/data/local/tmp` against a loopback file. The
+  write-fail scenario is host-only: on the unit, root under permissive SELinux writes a `0444` file.
+
+**D95 - injected boot images are built by an in-place cpio transform; nothing flashes without GO (Nov 22)**
+* **Why not extract-and-repack.** The payload ramdisk's cpio carries `dev/console`, `dev/null` and
+  `dev/urandom` as device nodes, and `cpio -idm` refuses them as a non-root user (`mknod() is not
+  permitted`). The archive also uses 110-byte headers (13 eight-hex fields, namesize at 94, filesize at
+  54, devmajor/devminor at 78/86), so a GNU-cpio repack would rewrite every header.
+* **The transform.** `scripts/inject_hu_wrap_boot.py` walks the archive byte-by-byte: untouched entries
+  are copied verbatim, the entry named `init` is renamed to `init.real` (name and namesize bytes only),
+  one new `init` entry holds the wrapper with mode `0755` and inode max+1 at that position, the trailer
+  and its trailing padding are kept, and the stream is recompressed with gzip `mtime=0`. The header page
+  may differ only in `ramdisk_size` (bytes 16..19) and, when explicitly asked, inside the 512-byte
+  cmdline field at 64..575; the tail is carried verbatim from the rebuilt content end.
+* **Staged, not flashed.** Three images are staged offline with recorded digests, built on a
+  `tools/rebuild_boot_faithful.py` base that passes `tools/identity_gate.py`. Flashing any of them still
+  needs the owner's explicit GO, one variable per flash, and partitions 7 and 8 never written in the
+  same flash (**D62**).

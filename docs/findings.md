@@ -4705,3 +4705,94 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   It is kept as evidence of what clang+lld can do here and is **not** used: the owner directed to stop
   because none of the preferred toolchains (zig, musl-gcc, aarch64-linux-gnu-gcc) exist, and not to
   install packages or improvise a route without asking.
+
+## Nov 22 (evening) - the wrapper is built, HU_TEST runs, and three injected boot images are staged offline
+
+* **Toolchain, installed by the owner.** `sudo pacman -S zig qemu-user` from the official repositories,
+  no AUR and no full upgrade. Measured here: `zig version` 0.17.1, `qemu-aarch64 version 11.1.3`,
+  `llvm-strip, compatible with GNU strip` from LLVM 23.1.5, `clang version 23.1.5` - the inventory
+  earlier in this file recorded clang 23.1.4, the package install moved LLVM and clang to 23.1.5.
+  GNU ld 2.47 still lists no aarch64 emulation and no `/usr/aarch64*` sysroot appeared, so zig and
+  qemu-user are the only cross-target and user-mode runners.
+* **Build.** `tools/hu_wrap.c` sha256 `fa0eedb6bf62ce0bd94a053084e73a90f3a6c219dcc791b989ac660b76bc3647`.
+  `scripts/build_hu_wrap.sh` compiles with `zig cc -target aarch64-linux-musl -static -Os -Wl,--build-id=none`
+  and then `llvm-strip`, with the same flags for `-target x86_64-linux-musl`, and `SOURCE_DATE_EPOCH=1760000000`.
+  `hu-wrap-aarch64` is 13,968 B sha256 `99627bcec382241b15c97b140fba4bfbbc70e68fc6460843d81d54c372477051`,
+  reported by `file` as `ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, stripped`,
+  with no `NEEDED` entry and no `INTERP` segment. `hu-wrap-x86_64` is 13,264 B sha256
+  `d141941a515a1b9b6050be63511f6ab18fc0e4826fd4d919ad5a24e30f99eb6d`, same two gates. The build log is
+  a14-work/wraptest-nov22/build.log sha256 `39afc476073d4f0b5fdd855fb01a287d17593580c3f34ae1adcc1aa954ad5d82`.
+  A second build into a different directory reproduces the aarch64 digest byte-for-byte: the packing is
+  deterministic.
+* **HU_TEST on the workstation.** `scripts/smoke_hu_wrap.sh` runs the x86_64 build natively and the
+  aarch64 build under `qemu-aarch64 -L / -0 <argv0>`, against a plain file standing in for `misc`, with
+  the reboot syscall suppressed in test mode. Six scenarios plus twelve source-level assertions,
+  **0 failures**: healthy arm (`bcb pwrite=2048`, `bcb verified`, `init.real` ran, file equals the BCB
+  blob), misc missing (`ARM FAILED: misc open failed`, boot continues), write fails (read-only file
+  untouched, boot continues), passthrough (`argv0=/sbin/adbd` reached the exec untouched, no BCB write),
+  watchdog fires (`BCB still armed, rebooting into recovery`, reboot suppressed), disarmed before the
+  watchdog (`BCB disarmed, no reboot`).
+* **HU_TEST on the unit.** The same binary was pushed to `/data/local/tmp/hu-wraptest`, copied as `init`
+  so `argv0` has basename `init` and as `notinit` for the passthrough leg, run against loopback files
+  with `HU_TEST=1`. s1 healthy arm: `pwrite=2048`, readback verified, `init.real` ran. s2 misc missing:
+  `ARM FAILED: misc open failed`, boot continues. s4 passthrough (`argv0=./notinit`):
+  `passthrough: not PID-1-as-init`, no `pwrite`, loopback untouched. s5 watchdog: still armed at the
+  tick, reboot suppressed. s6 disarmed before the tick: `BCB disarmed, no reboot`. Logs and loopbacks
+  are archived in a14-work/wraptest-nov22/unit/; the armed loopbacks `unit-misc1.bin` and `unit-misc5.bin`
+  hash to the registered BCB blob `ceaae1a6314a19927ab431d55b46d08a6aaf73e9bcceb578244783c06bffd00e`,
+  `unit-misc4.bin` is all zeros. Scenario logs sha256: s1 `170c185ba1c377d24296f9d99800030c90aafb14b5a03566cd63ee750e284c0f`,
+  s2 `3d58448852b01d2b6222bef4db6155ed25e50f72a36ef990d00989c24fa81c4d`, s4 `0d2e2c8b64ee68737dbb3283d3b2bc3d24829998d96d335c1bb47bbcc7e8421f`,
+  s5 `4fa83894bd55f0ca2fef6d29cda7309adc47569642e20ea4427d2b7ab381f49e`, s6 `4618d363b7516d30956d63fa27f5984a52d3fc27280120ac70a5fe6823eae4b0`.
+  **The write-fail leg cannot be enforced on the unit**: as root under permissive SELinux a `0444`
+  regular file is still writable, so the unit's s3 reports `bcb pwrite=2048` rather than `ARM FAILED`.
+  That leg is host-only; the node-level failure path is exercised by the misc-missing leg.
+* **The ramdisk cpio layout, measured.** Both ramdisks decompress to a cpio whose entry headers are
+  **110 bytes**: thirteen eight-hex-character fields - inode at 6, mode at 14, uid at 22, gid at 30,
+  nlink at 38, zero at 46, filesize at 54, zero at 62, zero at 70, devmajor at 78, devminor at 86,
+  namesize at 94, zero at 102 - then the name, padded so the entry data starts on a 4-byte boundary,
+  and the data itself padded to 4 bytes. The last entry is `TRAILER!!!`, followed by trailing padding:
+  172 B in the stock Android 10 ramdisk, 252 B in the Android 14 payload ramdisk. `cpio -itv
+  --format=newc` and `7z l` read these archives and list the payload's device nodes with their
+  devmajor/devminor (`dev/console` 5:1, `dev/null` 1:3, `dev/urandom` 1:9). `cpio -idm` as a non-root
+  user fails on those nodes: `cpio: dev/console: mknod() is not permitted`, and the same for `dev/null`
+  and `dev/urandom`, so extract-and-repack cannot be used for the payload ramdisk.
+* **Injection is an in-place byte transform.** `scripts/inject_hu_wrap_boot.py` walks the archive,
+  copies untouched entries verbatim, renames the entry named `init` to `init.real` (only the name and
+  namesize bytes change), inserts one new `init` entry holding the wrapper with mode `0755` and inode
+  max+1 at that position, keeps the trailer and its trailing padding, and recompresses with gzip
+  `mtime=0` and no stored filename. `scripts/verify_hu_wrap_boot.sh` checks it independently: two builds
+  produce the same image; `7z x` extracts `/init` byte-identical to the wrapper binary and `/init.real`
+  byte-identical to the base image's original `/init`; the fstab is unchanged; the wrapper extracted
+  from the image passes the arm and passthrough scenarios; device nodes keep their mode and
+  devmajor:devminor; the resource entries inside `second` and in the tail match their declared SHA1s.
+  `7z` cannot create device nodes as a non-root user, so the node check compares the cpio streams, not
+  the extracted directories.
+* **Three staged images, all 33,554,432 B, built offline; nothing was flashed.**
+
+  | image | sha256 | base | header diff | ramdisk gz | content end |
+  |---|---|---|---|---|---|
+  | hu-wrap-stock-a10.img | `b1378cd794979f97fd0715087b2191f2bcc89ad4204361922d88e44542b45467` | stock p7 capture `b449aee98c01a7da797b…` | bytes 16..19 | 810,786 B | 27,412,480 B |
+  | hu-wrap-a14rd.img | `8f287e8bfa98b3fc2e7286f9bc914ceff06a34ee4d4337929a15d4ac0cca074a` | faithful A14 base `e504655b…` | bytes 16..19 | 1,637,631 B | 28,239,872 B |
+  | hu-wrap-a14rd-diag.img | `02ac85b9aee47174786ef758db0255dfec20a21e2196d6248589832d77a2cd7a` | same base | bytes 16..19 and 397..440 | 1,637,631 B | 28,239,872 B |
+
+  The base a14-work/hu-wrap-boot/base-a14rd-faithful.img sha256 `e504655bd32c3c9c6bcb0de3de6a2a9a3f67c33f3638e7bac022151217b11f4f`
+  is `tools/rebuild_boot_faithful.py` output from the Nov 20 stock capture and the shape A payload, and its
+  digest is **identical to the Nov 19 faithful image** recorded earlier in this file: the rebuild reproduces
+  across the capture refresh. `tools/identity_gate.py` passes on that pair: the pipeline reproduces the stock capture byte-for-byte,
+  the kernel blob (25,671,688 B) and the `second` blob (924,672 B) are identical, the tail is identical
+  from the content end onward, and the payload's header deviations stay inside bytes 16..19 and 64..575.
+  All three images carry the tail verbatim from their own content end, so the splash data and the tail
+  resource header at 32,092,160 B keep their base positions.
+* **Cmdline tokens ride in partition 7's header - the earlier claim was wrong.** The header cmdline
+  field is 512 B at bytes 64..575 and D60 already permits writing it. Measured again today:
+  `boot-min.img` `3cf40129…` and `boot-diag.img` `85dd1138…` differ by **exactly 9 bytes at 397..405**,
+  `" panic=12"`, with kernel, ramdisk, `second` and every load address identical. The stock header
+  cmdline (334 B) appears **verbatim** inside the live `/proc/cmdline` (670 B), which is what u-boot
+  appends to. So `ignore_loglevel`, `panic=10` and `softlockup_panic=1` can be carried in p7 alone: the
+  staged hu-wrap-a14rd-diag.img puts them at bytes 397..440, 377 B total inside the 512 B field. Whether
+  this vendor kernel honours those tokens is **not measured** - that is a boot-time question.
+* **Gates that cannot run on this workstation:** `tools/payload_coupling_check.py` and
+  `scripts/verify_artifacts.sh` need the Lineage tree at /srv/dev-disk-by-label-SSData/aospbuild/lineage21s
+  (build host, not mounted here), `tools/vendor_link_closure.py` needs the same tree,
+  `scripts/check_super.py` runs on the build host, and offline vintf stays indirect through the dist
+  `check_vintf` logs, which are skipped with `SKIP_DIST=1`.

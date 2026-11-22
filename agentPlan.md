@@ -515,3 +515,37 @@ Next on the owner's go: stage the image to `/cache`, dd partition 8 (write span 
 dongle plugged in **before** power-up, read `-HUPATCH` in the menu header and the activity LED, then
 `adb connect` to the logged address and host-side verify partition 7 still hashes to `b449aee98c01…`. Step 5
 (exit mechanics) and Step 6 (re-entry) follow only after adb-in-recovery is proven.
+
+30. **Nov 22 (live + offline): the arming matrix is measured, the wrapper is built and gated, three
+    injected images are staged - nothing flashed (**D90**-**D95**).** Phase A filled the arming matrix on
+    the eMMC BCB: armed BCB + warm reboot, armed BCB + kernel panic and armed BCB + a 60 s power cut with
+    **no reboot command issued** all land in recovery; unarmed BCB + normal reboot and unarmed BCB + panic
+    boot Android; u-boot adds `b.mode=recovery` when `misc` carries `boot-recovery`, and a panic without an
+    armed BCB leaves `b.mode=panic` and boots Android (**D90**). The reboot-mode register path is dropped -
+    `/dev/mem` is absent and busybox 1.11.1 has no `devmem`, and every tested boot read
+    `androidboot.mode=normal` (**D91**). A cold power cut is now an accepted last-resort recovery entry, and
+    it destroys RAMoops (`/sys/fs/pstore` was `total 0`), so the live console plus card copies are the
+    evidence. Partition 7 was written with its own first 4,096 B as a no-change write (`conv=notrunc`, rc 0)
+    and hashed `b449aee98c01…` before **and** after, with partition 8 and `misc` untouched in the same
+    operation (**D62** held). The owner installed the toolchain himself (`sudo pacman -S zig qemu-user`):
+    zig 0.17.1, qemu-aarch64 11.1.3, llvm-strip from LLVM 23.1.5 (**D94**). `tools/hu_wrap.c` builds to a
+    static stripped aarch64 ELF with no `NEEDED` and no `INTERP` (`99627bcec382…`, 13,968 B), and a second
+    build in another directory gives the same digest byte-for-byte. HU_TEST passes on the workstation
+    (native x86_64 plus `qemu-aarch64`, six scenarios and twelve source assertions, 0 failures) and on the
+    unit from `/data/local/tmp/hu-wraptest` against loopback files (healthy arm, misc missing, passthrough,
+    watchdog fires, disarmed before the tick); the write-fail leg cannot be enforced on the unit because
+    root under permissive SELinux writes a `0444` regular file, so it stays host-only. Injection became an
+    in-place cpio byte transform (**D95**): extract-and-repack is refused because `cpio -idm` cannot create
+    the payload's `dev/console`/`dev/null`/`dev/urandom` nodes as a non-root user and the archive uses
+    110-byte headers (13 eight-hex fields, namesize at 94, filesize at 54, devmajor/devminor at 78/86).
+    Three images are staged, all 33,554,432 B: `hu-wrap-stock-a10.img` `b1378cd79497…`,
+    `hu-wrap-a14rd.img` `8f287e8bfa98…`, and `hu-wrap-a14rd-diag.img` `02ac85b9aee4…` (header bytes
+    16..19 plus the cmdline tokens at 397..440). `scripts/verify_hu_wrap_boot.sh` rc 0 on all three,
+    `tools/identity_gate.py` PASS. The earlier claim that cmdline tokens need a boot-chain write was
+    **wrong**: the header cmdline field is 512 B at 64..575, D60 permits it, `boot-min.img` `3cf40129…` and
+    `boot-diag.img` `85dd1138…` differ by exactly 9 bytes at 397..405, and the stock header cmdline sits
+    verbatim inside the live `/proc/cmdline`. Partition 7 still holds stock `b449aee98c01…`, partition 8
+    stock `1fdf5ea77fc6…`, `misc` the baseline `909bdd979111…`; Phase B needs the owner's GO, the disarm rc
+    service is designed (**D92**) but not yet written into an image, and the `netd`/Ethernet interaction
+    with the static address is still unexamined. Evidence: a14-work/phaseA-nov22/ and
+    a14-work/wraptest-nov22/ with manifests.
