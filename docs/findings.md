@@ -4642,3 +4642,16 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   is the workstation record and shows `card: no mountable FAT32 card found - channel unused` in both
   patched recovery boots, while Android-written files in `/cache` (`dd-out-v6.txt`) did survive
   recovery boots. The idempotent partition 7 write was **not** performed.
+
+* **Idempotent partition 7 write - a no-change write, recorded for D62 (Nov 22, evening).** The first
+  4,096 B of `a14-work/hu-stock-postflash-143452/boot.bin` (the D76 rollback capture,
+  `b449aee98c01a7da797b…`) were staged in `/data/local/tmp/hu-p7-head.bin` (`cmp`-identical to the
+  capture head, head digest `fac15a4b138e113f6e3d…`) and written onto `/dev/block/by-name/boot` with
+  `dd bs=4096 count=1 conv=notrunc`, rc 0, 4,096 B @ 7.2 MB/s. Host readback of the first 4 KiB hashed
+  `fac15a4b138e113f6e3d…` and `cmp` matched the source head; the full partition then hashed
+  `b449aee98c01a7da797be1c2aa8238ce4bef3e5ee3ae731afdcf3c53218c4384` both **before and after**, and was
+  byte-identical to the capture. Partition 8 stayed stock `1fdf5ea77fc66f48977d…` and `misc` stayed at
+  the baseline in the same operation, so the D62 pairing rule was not violated: partition 7 and
+  partition 8 were not written in the same flash, and writing identical bytes leaves partition 7
+  unchanged. This is the calibration of the Phase C write path: `dd` from a staged file plus a host
+  readback proves the write without a digest change.
