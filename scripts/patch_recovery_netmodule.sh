@@ -32,8 +32,11 @@ WORK=/run/media/Daan/Opslagmonster/a14-work
 CAPTURE="${1:-$WORK/hu-stock-backup-refresh/recovery.bin}"
 OUTDIR="${2:-$WORK/recovery-netmodule}"
 LOG="$OUTDIR/patch.log"
-PART_BYTES=100663296
-DTBO_SIZE=803          # measured Nov 12 by unpack_bootimg on the stock recovery.bin
+PART_BYTES=${HU_PART_BYTES:-100663296}
+# recovery_dtbo size, measured Nov 12 by unpack_bootimg on the eMMC stock recovery.bin. The card's own
+# recovery partition carries its own dtbo payload; when patching the card capture, set HU_DTBO_SIZE to the
+# size measured from that capture rather than assuming this one.
+DTBO_SIZE=${HU_DTBO_SIZE:-803}
 
 mkdir -p "$OUTDIR/inject"
 : > "$LOG"
@@ -145,11 +148,12 @@ OUT="$OUTDIR/recovery-netmodule.img"
 [ -f "$OUT" ] || fail "no output image written"
 
 say "=== 5. only the ramdisk span may differ ==="
-python3 - "$CAPTURE" "$OUT" >> "$LOG" 2>&1 <<'PY'
+python3 - "$CAPTURE" "$OUT" "$DTBO_SIZE" >> "$LOG" 2>&1 <<'PY'
 import struct, sys, hashlib
 sys.path.insert(0, "/run/media/Daan/Opslagmonster/VibeBakingFirmware/tools")
 import rebuild_boot_faithful as R
 a = open(sys.argv[1], "rb").read(); b = open(sys.argv[2], "rb").read()
+dtbo_sz = int(sys.argv[3])   # recovery_dtbo span, from the capture being patched
 ka, ra, sa, ao, so = R.offsets(a)
 kb, rb, sb, bo, sbo = R.offsets(b)
 ca, cb = R.roundup(so + sa), R.roundup(sbo + sb)
@@ -159,7 +163,7 @@ if ka != kb or sa != sb: print("REFUSE: kernel or second size changed")
 if a[2048:2048+ka] != b[2048:2048+ka]: print("REFUSE: kernel bytes changed")
 if a[so:so+sa] != b[sbo:sbo+sa]: print("REFUSE: second bytes changed")
 da = struct.unpack_from("<Q", a, 1636)[0]; db = struct.unpack_from("<Q", b, 1636)[0]
-if a[da:da+803] != b[db:db+803]: print("REFUSE: recovery_dtbo bytes changed")
+if a[da:da+dtbo_sz] != b[db:db+dtbo_sz]: print("REFUSE: recovery_dtbo bytes changed")
 allowed = set(range(16, 20)) | set(range(1636, 1644))
 bad = [i for i in range(min(len(b), 2048)) if a[i] != b[i] and i not in allowed]
 if bad: print(f"REFUSE: header bytes changed outside ramdisk_size/dtbo offset: {bad[:12]}")
@@ -168,7 +172,7 @@ for i in range(2048, cb):
         print(f"REFUSE: byte {i} changed outside the ramdisk/second span"); break
 print(f"kernel blob digest  {hashlib.sha256(a[2048:2048+ka]).hexdigest()[:12]} vs {hashlib.sha256(b[2048:2048+kb]).hexdigest()[:12]}")
 print(f"second blob digest  {hashlib.sha256(a[so:so+sa]).hexdigest()[:12]} vs {hashlib.sha256(b[sbo:sbo+sa]).hexdigest()[:12]}")
-print(f"dtbo digest         {hashlib.sha256(a[da:da+803]).hexdigest()[:12]} vs {hashlib.sha256(b[db:db+803]).hexdigest()[:12]}")
+print(f"dtbo digest         {hashlib.sha256(a[da:da+dtbo_sz]).hexdigest()[:12]} vs {hashlib.sha256(b[db:db+dtbo_sz]).hexdigest()[:12]}")
 tail = a[cb:]
 nz = sum(1 for x in tail if x)
 print(f"partition tail beyond patched content end: {len(tail):,} B, non-zero {nz:,} (left untouched by the write)")
