@@ -4986,7 +4986,7 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   zeroed 4,194,304 B file it re-armed with rc 0, the head digest equalled the registered blob digest, offsets
   13..63 and 73..2047 stayed all zero, the byte at 2048 was untouched, a second arm left the whole-file digest
   at `6c3d06b0`, an eMMC-shaped target was refused with rc 1 and stayed byte-identical, and a missing target
-  was refused with rc 1. `tools/sd_card_layout.py` `773d714eb2fa…` reads the GPT out of the captured card
+  was refused with rc 1. `tools/sd_card_layout.py` reads the GPT out of the captured card
   image and checks each partition span against the size the device reported.
 * **The single-stream card pull stalled after 241,047,471 B of 7,948,206,080 B.** The file's mtime stayed at
   epoch `1795377882` while the workstation's `adb exec-out` process ran 46 min; both socket tables showed
