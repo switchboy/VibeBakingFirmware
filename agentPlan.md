@@ -548,4 +548,7 @@ dongle plugged in **before** power-up, read `-HUPATCH` in the menu header and th
     stock `1fdf5ea77fc6…`, `misc` the baseline `909bdd979111…`; Phase B needs the owner's GO, the disarm rc
     service is designed (**D92**) but not yet written into an image, and the `netd`/Ethernet interaction
     with the static address is still unexamined. Evidence: a14-work/phaseA-nov22/ and
-    a14-work/wraptest-nov22/ with manifests.
+    a14-work/wraptest-nov22/ with manifests. Both evidence dirs, the staged images, the pulled vendor
+    images and the tree's finished pass are now mirrored in cold storage on the NAS (**D96**): the copies are
+    additive, nothing was moved or deleted, and the flash loop still reads its inputs locally
+    (docs/housekeeping.md).

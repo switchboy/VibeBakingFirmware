@@ -4796,3 +4796,78 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   (build host, not mounted here), `tools/vendor_link_closure.py` needs the same tree,
   `scripts/check_super.py` runs on the build host, and offline vintf stays indirect through the dist
   `check_vintf` logs, which are skipped with `SKIP_DIST=1`.
+
+## Nov 22 (night) - the NAS build host is reachable again, and the gates that were blocked ran
+
+* **Access restored.** The owner gave the NAS root credential and the wrapper outside the repo was
+  rebuilt: /tmp/opencode/build_host.env (mode 600), /tmp/opencode/askpass.sh (700) and
+  /tmp/opencode/omv.sh (700). Password authentication goes through `SSH_ASKPASS`, the credential never
+  appears in argv, stdout, docs or the repo. `sh /tmp/opencode/omv.sh 'echo NAS_OK'` returns `NAS_OK`
+  from host `apollo` at `192.168.1.29` (Debian 13, kernel 6.12.107+deb13-amd64, as root), ping rtt
+  0.13-0.21 ms. On that host: `python3 3.13.5`, `/usr/sbin/debugfs`, `cpio`, `gzip`, `sha256sum`;
+  `simg2img` and `lpdump` are not on PATH but exist in the tree at
+  /srv/dev-disk-by-label-SSData/aospbuild/lineage21s/out/host/linux-x86/bin. Space: SSData is 372 G
+  with **2.7 G free** (100% used), NAS `/tmp` is tmpfs with 8.2 G free, `free -h` shows 23 Gi total
+  and 12 Gi available.
+* **Nothing moved to cold storage.** `/srv/cold` exists on the NAS, but the build artifacts are still in
+  the tree: /srv/dev-disk-by-label-SSData/aospbuild/lineage21s is present, `out` is 118 G, and the
+  product dir is `out/target/product/rk3399` (not `rk3399-px6-hct4`). The repo checkout on the NAS is
+  /srv/dev-disk-by-label-SSData/aospbuild/VibeBakingFirmware, and its `device/rk3399-px6-hct4/` still
+  holds the generated drop list `vendor_build_wins.txt`.
+* **Artifact digests read on the NAS (12-hex prefixes).** `boot.img` 32,796,672 B `cf05255148b8…`,
+  `vendor.img` 432,275,456 B `90ed4009ce96…`, `super.img` 2,277,550,048 B `2a1246aaf055…` - these are the
+  registered shape B artifacts, unchanged. Also there: `system.img` 1,012,871,168 B `3f177a1bee01…`,
+  `system_ext.img` 384,802,816 B `41e0cd3047ac…`, `product.img` 456,159,232 B `45e70fbb69dd…`,
+  `odm.img` 811,008 B `6135f61bc449…`, `recovery.img` 44,689,408 B `eb0f86b37bf7…`,
+  `ramdisk.img` 1,632,189 B `73966919b9dc…`, `super_empty.img` 4,644 B,
+  `lineage_rk3399-ota.zip` 1,012,957,295 B `931bbb45cff1…` dated 2026-11-08 13:29.
+  `vendor/hct4/prebuilt/vendor_a10.img` is 323,530,752 B `3fe2f53aa1f1…`; it was pulled to the
+  workstation and both sides hash to that value.
+* **What the shape A reference vendor actually contains.** Inside `vendor_a10.img`: `/lib64` 43 entries,
+  `/lib` 71 entries, `bin`, `etc`, `firmware`, `odm`, `overlay`, `build.prop`, `default.prop`,
+  `ueventd.rc`. `debugfs -R "find /"` finds **no** `libion.so` anywhere in it, `/lib` has
+  `libstagefright_softomx_plugin.so`, `/bin/hw` carries `android.hardware.health@2.0-service`
+  (**not** 2.1), and its manifest is version 1.0 target-level 4 with 26 inline HAL declarations and no
+  `<kernel>` tag. So the injected Android-14-era libraries and the 2.1 health service come from the
+  patched shape A vendor, not from this reference image.
+* **Coupling gate for the iteration-1 pair: PASS.** The vendor that ships with the shape A payload was
+  carved out of a14-work/a14chk-shapeA/raw-super.img with `lpdump` (extent `0 .. 1086079 linear super
+  1980416`) into 556,072,960 B sha256 `7a5ce939be0f…`. `tools/payload_coupling_check.py` against
+  hu-wrap-a14rd.img reports: kernel banner 4.19.111+, DTB inside `second` at +2048 size 152,425,
+  21 `.ko` with vermagic 4.19.101+/4.19.111+/4.4.167, `hu_insmod` list 14 module(s) 14 present
+  0 absent 0 wrong vermagic, `/lib64` and `/lib` each carrying libion.so, libaudioroute.so,
+  libaudioutils.so, libspeexresampler.so, libprotobuf-cpp-lite.so and
+  libstagefright_softomx_plugin.so, criterion HAL files present (the GNSS trio, the MFI trio,
+  audio.primary.rk30board.so, gralloc.rk30board.so, the 2.0 mapper/allocator impls and services,
+  the omx service, and health@2.1), manifest version 8.0 target-level 4 with no `<kernel>` tag.
+* **`scripts/verify_artifacts.sh` ran on the NAS** with `SHAPE=a10` and `WORK=/tmp/a14gate` (the SSData
+  scratch has only 2.7 G free, and the script switches to a scratch with room). Results: raw super
+  3,263,168,512 B, group `hct_dynamic_partitions` 3,258,974,208 B, all five logical partitions
+  byte-identical to their product-dir images with ext4 magic at offset 1080 and debugfs parsing them -
+  **ALL LOGICAL PARTITIONS VERIFIED: True**; used 2,289,852,416 B, spare 973,316,096 B, group fits
+  inside `super_partition_size`. VINTF logs are successful: `check_vintf_compatible.log` 155 lines,
+  `check_vintf_system.log` 57 lines, `check_vintf_vendor.log` 22 lines, each reporting
+  `Successfully processed VINTF information` - that closes the "offline vintf is indirect" gap with
+  evidence. The recovery ramdisk carries a real installer: `ramdisk-recovery.img` 13,523,948 B
+  decompressed to 38,768,128 B, `update_engine_sideload` 2,942,312 B,
+  `system/lib64/libfusesideload.so` 135,200 B, `system/etc/recovery.fstab` 4,190 B with rows for
+  metadata, cache, boot, recovery, misc and userdata. The OTA zip unzips cleanly (26 entries).
+* **The tree's current pass is shape-B-flavored and does not satisfy the shape A expectations.** The
+  built `boot.img` carries kernel 4.19.193 (30,455,816 B), `second` 544,768 B and header `dtb_size`
+  157,962; its ramdisk has **no** `first_stage_ramdisk/fstab.rk30board` (**D34**), the built vendor's
+  manifest is version 8.0 **target-level 5** and **declares `<kernel>`**, and `lib/hw/gralloc.rk30board.so`
+  is missing from it. `tools/vendor_link_closure.py` reports 12 audio/bluetooth common libraries
+  "not installed yet (rebuild after device.mk picks them up)" and one kept blob needing symbols Android
+  14 does not export (the audio 4.0/5.0 `IDevicesFactory`/`IStreamOut` symbols, 309 more listed). The
+  gate's verdict line: `VERDICT: flashable build = NO` for that artifact set. The pair that is flashable
+  for iteration 1 is the staged shape A pair measured above, not these tree images.
+* **Nothing was written on the NAS except its own /tmp scratch.** The closure tool ran against a copy of
+  the device dir in /tmp/a14gate, so the repo copy's generated files were untouched; /tmp/a14gate was
+  removed after the run. No build was started, no tree file changed, no head-unit write happened.
+
+* **After that gate run, additive copies were made into cold storage on the NAS** (the mergerfs DataPool,
+  which the Nov 11 note wrongly called ZFS). The Nov 22 wrapper work, the four staged boot images, the
+  pulled vendor images and the tree's finished pass are mirrored there; every copy was verified by
+  digest on the NAS side, nothing was moved or deleted, and the tree's `out/` stays inside `lineage21s`.
+  The paths, byte totals and verification counts, and the warning that the pool's older `hu-stock-backup`
+  is a Nov 11 backup rather than the iteration-1 rollback, are recorded in docs/housekeeping.md.

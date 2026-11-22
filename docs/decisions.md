@@ -2461,3 +2461,23 @@ carrier-first order)**
   `tools/rebuild_boot_faithful.py` base that passes `tools/identity_gate.py`. Flashing any of them still
   needs the owner's explicit GO, one variable per flash, and partitions 7 and 8 never written in the
   same flash (**D62**).
+
+**D96 - cold storage gets additive copies, not moves; the flash loop keeps its inputs local (Nov 22)**
+* **What was decided.** The Nov 22 wrapper work (`hu-wrap/`, `hu-wrap-boot/`, `wraptest-nov22/`,
+  `phaseA-nov22/`, `nas-pull/`, the D76 rollback image, and `a14diag/`'s two cmdline images) and the tree's
+  finished pass are *copied* into cold storage on the DataPool. Nothing on the workstation or the NAS is
+  deleted, and the tree's `out/` stays inside `lineage21s` rather than being moved: the gates read
+  `out/target/product/rk3399` and an incremental build needs it.
+* **Why copies.** The staged boot images, the wrapper binaries and the rollback image are inputs that the
+  flash-and-test loop reads leg by leg. Moving them to the pool would make every leg pull them over ssh,
+  and a pool hiccup mid-loop would stall the run with no local fallback. Copies cost 6.2 GB in a pool with
+  784 GB free and cost nothing in time.
+* **How the copy is proven.** Each set travels with its own digest list, and the proof is `sha256sum -c`
+  run on the NAS side (`LC_ALL=C`, judged on exit status) plus a byte-total comparison - the pool's total
+  equals the local logical total plus the manifest's bytes exactly. Paths, totals and verification counts
+  are recorded in docs/housekeeping.md, which now also corrects the pool's filesystem type: `fuse.mergerfs`
+  over four ext4 branches with `category.create=mfs,minfreespace=4G`, not ZFS.
+* **The trap this closes.** The pool already held `aospbuild-archive/hu-stock-backup/`, which looks like the
+  rollback but is the Nov 11 backup: its `boot.bin` and `super.bin` are not partition 7's stock digest
+  (**D76**) or the refreshed super backup. Rollback bases stay on the workstation; the pool copy is a
+  mirror, not the thing to restore from.
