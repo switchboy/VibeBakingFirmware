@@ -566,3 +566,23 @@ dongle plugged in **before** power-up, read `-HUPATCH` in the menu header and th
      (`fac15a4b138e…`, `b06dc33648a3…`, `0f2ec43e7a5c…`) and `flash_recovery` ran at 3.76 s (**D82**).
      Nothing was cloned afterwards, on the owner's instruction. Awaiting the owner's instructions; the next
      write needs an explicit go.
+
+31. **Nov 22 (late): the SD-boot card becomes the recovery carrier (**D98**); its module runs in card-boot
+    mode (**D99**, pending owner approval).** STEP 0.1 measured the three block devices by size and type:
+    `mmcblk1` SD 7,948,206,080 B is the boot card and is not mounted by Android, `mmcblk0` SD 31,266,439,168 B
+    is mounted rw, `mmcblk2` MMC 62,813,896,704 B is the eMMC, and `/dev/block/by-name/*` still points only at
+    mmcblk2 partitions. STEP 0.2 is a chunked base64 pull (`dd | base64` over exec-out, 33,554,432 B per chunk,
+    237 chunks): the pull pass assembled 7,948,206,080 B digest `ca6d1f4d3384…` at 3.36-3.73 MB/s per chunk, and
+    the verification pass re-reads every chunk before the image is trusted - it was still running when this item
+    was written, so no card-side write is allowed yet. The card's partition table is vendor-written: `EFI PART`,
+    header_size 92, entry_count claimed 0, entry_size claimed 15,523,839, entry CRC 0, no protective MBR, and the
+    start/end LBA fields sit at record offset 32/40 rather than 8/16; read from there the records tile the disk and
+    match the device-reported sizes for p1..p8. `tools/sd_card_layout.py` `41f60ea834e8…` and
+    `tools/card_image_analysis.py` `aab15720a666…` read that layout. The card's own boot and recovery share one
+    kernel blob (`a11c2667f843…`, Linux 4.19.111+, `ax88179_178a` strings present). STEP 0.3 runs on the verified
+    image: card misc BCB bytes, p8 header/dtbo/ramdisk/recovery-binary digests, `recovery.fstab`, `init.rc`,
+    `prop.default`. STEP 1 builds the card p8 patch with `HU_CARD_BUILD=1` from the card capture; the module's
+    card-boot mode keeps markers in RAM, resolves misc by size and type, refuses the card copy, and arms without a
+    nonce with a 30-minute window - that arm is the owner's decision to approve. STEP 2 needs a GO and writes only
+    the card's p8 plus the re-armed card misc (`scripts/arm_card_misc.sh` `026f22a31da8…`). STEP 4's ladder stays
+    as defined, with the eMMC resolved by size, never by-name.
