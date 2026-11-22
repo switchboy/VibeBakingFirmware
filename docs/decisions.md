@@ -2390,3 +2390,14 @@ carrier-first order)**
   LISTENER` while the workstation was already connected. The cause is the check, not the link: adbd
   binds 5555 on IPv6, so the entry lives in `/proc/net/tcp6`. Only the listener check changes; the
   bring-up order (D89), addressing (D88) and adbd restart (D87) stay as measured.
+
+**D90 - the eMMC misc BCB is the safety mechanism; the reboot-mode register is not (Nov 22, MEASURED)**
+* **Evidence.** Four boots, all with `androidboot.mode=normal` in their command line: armed BCB + warm
+  `sys.powerctl reboot` -> recovery; armed BCB + kernel panic -> recovery; unarmed BCB + kernel panic ->
+  Android; unarmed BCB + normal reboot -> Android. u-boot sets `b.mode=recovery` when it reads
+  `boot-recovery` in `misc`, and sets `b.mode=panic` after a panic reboot without entering recovery.
+  Therefore W1 arms `misc` and W2 disarms it on `sys.boot_completed=1`; a panic or a hang is only a
+  recovery entry when the BCB is armed. `misc` writes stay confined to the first 2048 B of the AOSP
+  `bootloader_message` layout (`boot-recovery\0` at 0, `recovery\n` at 64, zero padding, no arguments).
+* **Register probing is impossible on this unit.** `/dev/mem` is missing and busybox has no `devmem`
+  applet, so `0xff320300` is never read or written; the register rows come from command-line evidence.

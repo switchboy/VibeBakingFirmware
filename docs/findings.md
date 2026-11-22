@@ -4556,3 +4556,89 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   offline (`mksh -n` with the ramdisk's own `/sbin/sh`, D82) - and it can now run **inside recovery**
   over adb, because recovery ships that shell, so a failed boot does not need Android to syntax-check
   a candidate script.
+
+## Phase A arming tests (Nov 22, afternoon - the BCB is honoured, a panic alone is not)
+
+* **Build v6 ran in recovery and its own success verdict became truthful (epoch 1795343451).**
+  Partition 8 was written with `bs=512 count=76352 conv=notrunc` from Android at epoch 1795342854
+  (39,092,224 B @ 8.7 MB/s, rc 0); the host readback of the span (`bs=2048 count=19088`) hashed
+  `b2821cce34ae352a370cc5ccd0eba2a4698ae9de4da5a350b397c8f06195bb39` (`b2821cce34ae352a…`) and `cmp`
+  matched the build; the 28,672 B beyond the span stayed stock bytes. Partition 7 stayed
+  `b449aee98c01a7da797be1c2aa8238ce4bef3e5ee3ae731afdcf3c53218c4384` and `misc` stayed at the recorded
+  baseline `909bdd979111…` (prefix only, as registered) before the reboot into recovery.
+  Recovery answered at epoch 1795343499 (~48 s later) with transport `recovery`. This boot's live
+  console (`toybox dmesg`, 66,607 B, sha256 `fe075f5363984fcab8ec536305f7419e37b64f60ca312a9e4c2cab482a6fad1b`)
+  shows the listener verdict now names the table it found:
+  `[   13.217749] hu: net: adbd listen line=/proc/net/tcp6:   0: …:15B3 … 0A … (elapsed from carrier: 11 s)`
+  - no `NO TCP LISTENER` line, which is the point of build v6 (D89b). The unit's recovery header
+  carried `-HUPATCH` (`ro.bootimage.build.fingerprint` read over adb:
+  `rockchip/rk3399/rk3399:10/QQ2A.200305.004.A1/hct204011522:userdebug/release-keys-HUPATCH`),
+  confirming the patched prop line reaches the UI.
+
+* **The BCB write recipe, verified byte-for-byte.** The blob is the AOSP `bootloader_message` head:
+  `boot-recovery\0` at offset 0 (`command[32]`), all-zero `status[32]` at 32, `recovery\n` at offset 64
+  (`recovery[768]`), zero-padded to 2048 B - sha256 `ceaae1a6314a19927ab431d55b46d08a6aaf73e9bcceb578244783c06bffd00e`
+  (`ceaae1a6314a1992…`), no arguments. Written with `dd bs=2048 count=1 conv=notrunc` onto `misc`: the
+  full 4 MiB then hashed `a7c5eaf9cd0b62938af6d2cc427602cbbc4e43ca8fa68d2dbe5030c8564562ea` and exactly
+  22 bytes changed (offsets 0-12 and 64-72); bytes 2048..4 MiB stayed byte-identical to the recorded
+  baseline. The staged copy in `/cache` did not survive the next recovery boot, so the blob was written
+  later from `/data/local/tmp/hu-bcb.bin` (same digest), which is the durable staging place for Android-side writes.
+
+* **Warm reboot with the BCB armed lands in recovery (epoch 1795343730).** From patched recovery, with
+  `misc` armed, `setprop sys.powerctl reboot` produced another recovery boot - transport `recovery`,
+  sdk 29, header still `-HUPATCH`. Its console (70,314 B, sha256
+  `3f460518bc4ff26de1d7e050fa07fdd1862253f9090e6698f20a896615bd8d8d`) begins with
+  `Kernel command line: … androidboot.mode=normal … b.mode=recovery …` and the console of the boot that
+  preceded it (61,019 B, sha256 `78b6afcdb6d5a0004b7c3abae062ac4ed18b12c67216413c5dfc3e553254b73f`)
+  carries the two markers `hu: bcb write begin blob=ceaae1a6314a1992 command=boot-recovery recovery=recoveryNL offset=64 span=2048`
+  and `hu: bcb armed; warm reboot test; …` and ends `reboot: Restarting system with command ''`.
+  So the reboot-mode path was **normal** (`androidboot.mode=normal`) and u-boot still chose recovery
+  (`b.mode=recovery`) - the eMMC `misc` BCB is honoured on a warm reboot, independently of the register.
+  Inside that recovery boot the armed head read back as all zeros
+  (`e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad`): recovery clears the BCB early,
+  exactly as the owner warned.
+
+* **Panic with the BCB NOT armed lands in Android.** From patched recovery, `misc` head all zeros,
+  `echo c > /proc/sysrq-trigger` rebooted the unit and it came back as Android (transport `device`,
+  sdk 29, `sys.boot_completed=1`). That is the control: a panic alone does not enter recovery.
+
+* **Panic with the BCB armed lands in recovery (epoch 1795344145 crash).** From Android (stock p8),
+  the blob was written into `misc` (readback verified: full `a7c5eaf9cd0b6293…`, head equal to the blob),
+  then `echo 10 > /proc/sys/kernel/panic` and `echo c > /proc/sysrq-trigger`. The crashed boot's console
+  is recorded in **`dmesg-ramoops-0`** (105,125 B, sha256 `ae188fd27c3b81c5c68a46ac15da5d39e5e67b8b8ad78e06ebc608166752c523`):
+  `hu: bcb armed for PANIC-from-Android blob=ceaae1a6314a1992 command=boot-recovery recovery=recoveryNL`
+  at 89.612 s, `sysrq: Trigger a crash` at 90.950 s, `pc : sysrq_handle_crash+0x20/0x30`,
+  and `Kernel panic - not syncing: Fatal exception` at 91.108 s. The boot that followed it is the stock
+  recovery UI - the owner saw a header **without** `-HUPATCH` because Android had already reverted
+  partition 8 - and its console (50,598 B, sha256 `a138c1f755dd3101fcfe3269ed7dfbed498cd641619b9ed1c6eb0c73fe14996a`)
+  contains **no** module lines and begins `Kernel command line: … androidboot.mode=normal … b.mode=recovery`,
+  ending `reboot: Restarting system with command ''` at 576.141 s (the owner's menu reboot). Again:
+  normal register, recovery landing, so the armed BCB alone is enough on the panic path too.
+
+* **`b.mode=panic` is what a panic reboot leaves behind.** The boot that followed the first crash carried
+  `b.mode=panic` in its command line and booted Android normally, so the panic path does set its own
+  marker; u-boot does not turn it into recovery. `androidboot.mode=normal` stayed normal in all four
+  boots examined, which is why the register cannot be used as the safety mechanism.
+
+* **`/dev/mem` is absent in this recovery ramdisk, so the register cannot be probed on the unit.**
+  `ls -l /dev/mem` reports MISSING, busybox 1.11.1 answers `devmem: applet not found`, and
+  `toybox devmem 0xff320300` fails on the missing node. The register rows of the arming matrix are
+  therefore filled from boot command lines (`androidboot.mode=` / `b.mode=`) rather than from writes
+  at `0xff320300`, and that branch stops per the owner's instruction.
+
+* **pstore truth updated (Android side).** In Android, `/sys/fs/pstore` holds three entries -
+  `console-ramoops-0` 50,598 B, `pmsg-ramoops-0` 174 B (sha256 `ce67a923acaeed8b0e78d5562157f5363de4b3f338683306d19c9611f27603c8`,
+  a few adbd lines), and **`dmesg-ramoops-0`** which was never listed inside recovery: that is the crash
+  record backend, so a panic boot leaves a readable record that the *following* boot can pull. The
+  entries survived being read twice in this session, so the earlier "reading deletes it" note holds only
+  for the console slot's turnover across boots, not for deletion on read.
+
+* **State at the end of Phase A.** Partition 7 `b449aee98c01a7da797b…` (untouched), partition 8 stock
+  `1fdf5ea77fc66f48977d7846c468959a5845d0222dc73c3fe07a1b96b6cb023b` (`cmp`-identical to the rollback
+  capture), `misc` byte-identical to the recorded baseline `909bdd979111bcd531d6…` with an all-zero head
+  (recovery cleared the armed BCB). Android is up over the dongle: carrier=1, speed=1000, duplex=full,
+  ARP `REACHABLE`, port 5555 open. Both MMC cards were out for this whole cycle, so no card copies exist;
+  the marker log `hu-mark.log` (4,101 B, sha256 `6ef4fb6f39f04315ab7b04cbd88964b2803f750c1515e0e10654a3f5f1c00223`)
+  is the workstation record and shows `card: no mountable FAT32 card found - channel unused` in both
+  patched recovery boots, while Android-written files in `/cache` (`dd-out-v6.txt`) did survive
+  recovery boots. The idempotent partition 7 write was **not** performed.
