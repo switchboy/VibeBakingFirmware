@@ -4655,3 +4655,53 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   partition 8 were not written in the same flash, and writing identical bytes leaves partition 7
   unchanged. This is the calibration of the Phase C write path: `dd` from a staged file plus a host
   readback proves the write without a digest change.
+
+* **Cold-entry test with the BCB armed (Nov 22, evening - the cold column is filled).** From Android,
+  partition 8 was flashed with build v6 (`bs=512 count=76352 conv=notrunc`, rc 0, 39,092,224 B @
+  9.3 MB/s; host readback of the `bs=2048 count=19088` span hashed `b2821cce34ae352a370cc5ccd0eba2a4698ae9de4da5a350b397c8f06195bb39`
+  and `cmp` matched the build), then the BCB blob went into `misc[0:2048]` (full readback
+  `a7c5eaf9cd0b62938af6d2cc427602cbbc4e43ca8fa68d2dbe5030c8564562ea`, head byte-identical to the blob,
+  exactly 22 bytes changed, bytes 2048..4 MiB identical to the baseline). Marker lines:
+  `1795346793 p8-flash-v6-cold-begin`, `1795346798 p8-flash-v6-cold-end`,
+  `1795346835 cold-arm bcb blob=ceaae1a6314a1992 p8=b2821cce34ae352a awaiting-power-cut`. **No reboot
+  command was issued** - Android was still running (uptime 2007 s) when the owner cut power for 60 s.
+  The unit came back sitting in recovery with `-HUPATCH` visible and the activity LED active. Over adb:
+  transport `recovery`, sdk 29, `ro.bootimage.build.fingerprint` ending `release-keys-HUPATCH`,
+  carrier=1 speed=1000 duplex=full, ARP `REACHABLE`, port 5555 open. Its live console (69,946 B, sha256
+  `7d78f8aed65543299f8e055dfa63958b768cab101ebf4a9efc42379b6b1527ad`) begins
+  `Kernel command line: … androidboot.mode=normal … b.mode=recovery`, and the module ran normally:
+  `hu: card: no mountable FAT32 card found - channel unused` at 1.624 s, `node present at up=2.24`,
+  `ADDRCONF(NETDEV_UP)` 2.642 s, UP 4.34 s, `Link status is: 1` 5.635 s, address 10.641 s,
+  `ctl.start` 13.069 s, `adbd listen line=/proc/net/tcp6: … 15B3 … 0A (elapsed from carrier: 11 s)`
+  at 13.192 s, carrier watch tick 20.45 s. So **a power-on with an armed BCB enters recovery**, and
+  `androidboot.mode=normal` shows the reboot-mode register was not involved.
+* **What the cold cycle showed about durability.** Inside that recovery boot `/sys/fs/pstore` was
+  **empty** (`total 0`) - RAMoops content does not survive a hard power cut - so after a cold cycle the
+  failed boot's console is gone and only the live console plus card copies are evidence. After the
+  remote exit (`setprop sys.powerctl reboot`, rc 0, Android back ~40 s later, `sys.boot_completed=1`)
+  Android's pstore held the recovery boot's console: `console-ramoops-0` 60,234 B sha256
+  `7d81c45bd1bb2c8e60ab13e9f320bdc85294bb60f3c8ed3b2d4c08d52c656c82` (same boot as the live pull:
+  `hu: net begin nonce=nov22-netmod5-…` at 1.624731 s, ending `reboot: Restarting system with command ''`
+  at 189.150892 s) and `pmsg-ramoops-0` 3,685 B sha256 `f0e6782aa30df03fe2b417f069e17261627feb5978cc74b6750dafab4db9b57c`,
+  with **no** `dmesg-ramoops-0` because nothing panicked. Partition state after that Android boot: p7
+  unchanged `b449aee98c01a7da797b…`, partition 8 back to stock `1fdf5ea77fc66f48977d…`, `misc`
+  byte-identical to the baseline `909bdd979111…` (recovery cleared the armed head, read back as
+  `e5a00aa9991ac8a5ee31…` all zeros inside the recovery boot). Blob staging: `/data/local/tmp` was
+  **not** visible in that recovery boot (`hu-bcb.bin` and `hu-patched-recovery.bin` not found), while
+  the Android-written marker log survived - `hu-mark.log` 5,107 B sha256
+  `5d5d08b8bed4bf2edae3010d38ddee450dac4ed52a1404844c94b521dc3e3455` keeps the cold-arm lines, and the
+  recovery boot's own lines carry the unsynced device clock (`1514808001`), versus Android's clock
+  (`android epoch=1795348010`, `Sun Nov 22 12:46:50 CET 2026`), so marker epochs across boots are not
+  comparable and must be correlated by content.
+* **Toolchain inventory on the workstation (Nov 22 evening, read-only).** Present: `clang version 23.1.4`
+  (host target `x86_64-pc-linux-gnu`), `LLD 23.1.4`, `gcc (GCC) 16.2.1 20260810`,
+  `GNU ld (GNU Binutils) 2.47`, `/usr/bin/qemu-system-aarch64`. Absent: `zig`,
+  `aarch64-linux-musl-gcc`, `aarch64-linux-gnu-gcc`, `qemu-aarch64`, `qemu-aarch64-static`,
+  `/usr/aarch64*` sysroot directories, and any Android NDK. `ld --help` lists only
+  `elf_x86_64 elf_i386 elf32_x86_64 i386pep i386pe elf64bpf` - no aarch64 emulation. A probe compile
+  (freestanding, `-nostdlib`, raw syscalls, `-fuse-ld=lld`, `-Wl,--build-id=none`, `-Wl,-e,_start`)
+  produced a 1,072 B ELF: `ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked`,
+  no dynamic section, no `INTERP`, sha256 `b11327b88ba284c84d6160c43c7eb6201cc94b0cff1bc08bfb240551b8b9f1f8`.
+  It is kept as evidence of what clang+lld can do here and is **not** used: the owner directed to stop
+  because none of the preferred toolchains (zig, musl-gcc, aarch64-linux-gnu-gcc) exist, and not to
+  install packages or improvise a route without asking.

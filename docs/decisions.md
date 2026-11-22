@@ -2401,3 +2401,35 @@ carrier-first order)**
   `bootloader_message` layout (`boot-recovery\0` at 0, `recovery\n` at 64, zero padding, no arguments).
 * **Register probing is impossible on this unit.** `/dev/mem` is missing and busybox has no `devmem`
   applet, so `0xff320300` is never read or written; the register rows come from command-line evidence.
+
+**D91 - the cold column is filled: an armed BCB enters recovery on power-on (Nov 22, MEASURED)**
+* **Evidence.** Build v6 was flashed to partition 8, `misc[0:2048]` was armed, and no reboot command was
+  issued. The owner cut power for 60 s. The unit returned to patched recovery (`-HUPATCH` visible,
+  activity LED active, adb in recovery), with `androidboot.mode=normal` and `b.mode=recovery` in the
+  kernel command line. Combined with the warm and panic legs, the eMMC BCB decides the recovery landing
+  in all three entry paths that were tested.
+* **Register path dropped.** The reboot-mode register cannot be read or written on this unit (`/dev/mem`
+  missing, no `devmem` applet), and every tested boot had `androidboot.mode=normal`, so the wrapper arms
+  the BCB only - it does not touch `0xff320300`. A hard power cut also destroys RAMoops, so a cold cycle
+  leaves no previous-boot console: the live console and card copies are the evidence.
+
+**D92 - wrapper design accepted, BCB-only arming (Nov 22, OWNER DECIDED)**
+* **Arming condition.** Arm only when `getpid()==1 && argc==1 && basename(argv[0])=="init"`; otherwise
+  `execv("/init.real", argv)` immediately. Misc is located through sysfs by `PARTNAME=misc` on the MMC
+  device whose size is 122,683,392 sectors, mknod'd in a private tmpfs; the 2048 B BCB is written with
+  `pwrite` (`boot-recovery\0` at 0, `recovery\n` at 64, no arguments), fsynced and read back, and logged
+  as `HU-WRAP` lines to `/dev/kmsg`. Any failure logs `ARM FAILED` and still execs `/init.real`: the
+  wrapper never blocks or aborts a boot. A watchdog child (~300 s) re-reads the BCB through the open fd
+  and, if it is still armed, reboots with `SYS_reboot(MAGIC1, MAGIC2, RESTART2, "recovery")`.
+* **Disarm service.** The Android 14 rc service brings up eth0 (`192.168.1.127/24`, gateway
+  `192.168.1.1`), restarts adbd on TCP 5555 with `ro.adb.secure=0`, verifies the listener, and only then
+  zeroes `misc[0:2048]` and logs `HU-DISARM`. Net comes first so the unit is reachable before the arm is
+  removed. The `netd`/Ethernet interaction with the static address has to be checked and reported, not
+  assumed.
+
+**D93 - the wrapper build is blocked on this workstation (Nov 22, OWNER DECIDED)**
+* **Why.** None of the preferred toolchains exist (see the toolchain inventory in `docs/findings.md`).
+  The owner directed: report and stop; do not install system packages; do not improvise another route
+  without asking. The clang+lld probe stays as evidence only. HU_TEST plan when a toolchain exists:
+  scenarios run on the unit from `/data/local/tmp` against a loopback file, plus a host-side x86_64 build
+  of the same source for scenario logic; qemu-user is unavailable here.
