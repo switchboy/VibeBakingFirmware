@@ -5051,3 +5051,8 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   (`ax88179_178a.c` among them). The p8 ramdisk listing and its `init.recovery.rk30board.rc`,
   `recovery.fstab`, `prop.default` and `system/bin/recovery` digests come from the verified image, not from
   this partial stream.
+* **The base64 pull pass measured 3.36-3.73 MB/s per chunk and assembled the whole card.** 237 chunks of
+  33,554,432 B (last chunk 29,360,128 B) were decoded on the workstation and concatenated: 7,948,206,080 B,
+  digest `ca6d1f4d3384…` at epoch `1795384713`. The verification pass re-reads every chunk and compares digests
+  before the image is trusted; it was still in progress at the time of writing, so this digest is the assembled
+  stream, not yet a verified copy of the card.
