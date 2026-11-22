@@ -37,6 +37,10 @@ PART_BYTES=${HU_PART_BYTES:-100663296}
 # recovery partition carries its own dtbo payload; when patching the card capture, set HU_DTBO_SIZE to the
 # size measured from that capture rather than assuming this one.
 DTBO_SIZE=${HU_DTBO_SIZE:-803}
+# Card build (**D98**): HU_CARD_BUILD=1 patches the SD-boot card's own recovery capture. The appended rc
+# is built from the capture's stock rc plus hu_net_module_block_card.rc, /sbin/hu-card-boot.flag is baked
+# into the ramdisk (the module's card-boot switch), hu_install is not carried, and hu_card is not started.
+CARD_BUILD=${HU_CARD_BUILD:-0}
 
 mkdir -p "$OUTDIR/inject"
 : > "$LOG"
@@ -79,7 +83,31 @@ cp "$REPO/scripts/hu_net.sh"            "$RD/sbin/hu-net.sh"        && chmod 755
 cp "$REPO/scripts/hu_card.sh"           "$RD/sbin/hu-card.sh"       && chmod 755 "$RD/sbin/hu-card.sh"
 cp "$REPO/scripts/hu_udhcpc_script.sh"  "$RD/sbin/hu-udhcpc.script" && chmod 755 "$RD/sbin/hu-udhcpc.script"
 rm -f "$RD/sbin/hu-evidence.sh"   # the 18 KB evidence script is retired; its dig() path is not reused
-cp "$REPO/scripts/hu_net_module_append.rc" "$RD/init.recovery.rk30board.rc" && chmod 755 "$RD/init.recovery.rk30board.rc"
+if [ "$CARD_BUILD" = 1 ]; then
+  # Card build: the stock rc comes out of THIS capture, and only the block above is appended.
+  python3 - "$CAPTURE" "$REPO/scripts/hu_net_module_block_card.rc" "$RD/init.recovery.rk30board.rc" >> "$LOG" 2>&1 <<'PY'
+import gzip, sys, os, subprocess, tempfile
+sys.path.insert(0, "/run/media/Daan/Opslagmonster/VibeBakingFirmware/tools")
+import rebuild_boot_faithful as R
+cap, block, out = sys.argv[1], sys.argv[2], sys.argv[3]
+d = open(cap, "rb").read()
+ks, rs, ss, ro, so = R.offsets(d)
+tmp = tempfile.mkdtemp()
+open(os.path.join(tmp, "r.cpio"), "wb").write(gzip.decompress(d[ro:ro+rs]))
+subprocess.run(["cpio", "-idmf", "--quiet"], cwd=tmp, stdin=open(os.path.join(tmp, "r.cpio"), "rb"),
+               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+stock = open(os.path.join(tmp, "init.recovery.rk30board.rc"), "rb").read()
+tail = open(block, "rb").read()
+open(out, "wb").write(stock + tail)
+print(f"card build: stock rc {len(stock)} B from the capture kept verbatim + appended block {len(tail)} B")
+PY
+  grep -q "REFUSE\|Traceback" "$LOG" && fail "card rc splice refused"
+  touch "$RD/sbin/hu-card-boot.flag"
+  chmod 644 "$RD/sbin/hu-card-boot.flag"
+  say "card flag baked: /sbin/hu-card-boot.flag"
+else
+  cp "$REPO/scripts/hu_net_module_append.rc" "$RD/init.recovery.rk30board.rc" && chmod 755 "$RD/init.recovery.rk30board.rc"
+fi
 
 # prop.default patch: marker on the three build strings, and an unauthenticated TCP adbd (the
 # recovery ramdisk ships no adb keys, so ro.adb.secure default 1 would refuse our connection).
@@ -108,11 +136,11 @@ grep -q "REFUSE: prop.default" "$LOG" && fail "prop patch refused"
 mkdir -p "$OUTDIR/inject"
 cp "$RD/sbin/hu-h-common.sh" "$RD/sbin/hu-early.sh" "$RD/sbin/hu-hb.sh" "$RD/sbin/hu-state.sh" \
    "$RD/sbin/hu-net.sh" "$RD/sbin/hu-card.sh" "$RD/sbin/hu-udhcpc.script" "$RD/init.recovery.rk30board.rc" \
-   "$RD/prop.default" "$OUTDIR/inject/" 2>/dev/null
+   "$RD/prop.default" ${CARD_BUILD:+$RD/sbin/hu-card-boot.flag} "$OUTDIR/inject/" 2>/dev/null
 sha256sum "$OUTDIR/inject/"* >> "$LOG"
 
 say "=== 3. the appended rc keeps the stock file verbatim ==="
-python3 - "$CAPTURE" "$RD/init.recovery.rk30board.rc" >> "$LOG" 2>&1 <<'PY'
+python3 - "$CAPTURE" "$RD/init.recovery.rk30board.rc" "$CARD_BUILD" >> "$LOG" 2>&1 <<'PY'
 import sys, gzip
 sys.path.insert(0, "/run/media/Daan/Opslagmonster/VibeBakingFirmware/tools")
 import rebuild_boot_faithful as R
@@ -130,12 +158,16 @@ if not nb.startswith(old):
     print("REFUSE: appended rc does not start with the stock file verbatim"); sys.exit(1)
 tail = nb[len(old):]
 print(f"stock rc {len(old)} B kept verbatim; appended {len(tail)} B")
+card_build = sys.argv[3] == "1" if len(sys.argv) > 3 else False
 for svc in ("hu_early", "hu_hb", "hu_state5", "hu_state30", "hu_state120", "hu_net", "hu_card"):
     n = tail.count(b"service " + svc.encode())
     s = tail.count(b"start " + svc.encode())
-    print(f"service {svc}: defined {n}, started {s}")
-    if n != 1 or s != 1:
-        print("REFUSE: service not defined exactly once or not started exactly once"); sys.exit(1)
+    want_start = 0 if (card_build and svc == "hu_card") else 1
+    print(f"service {svc}: defined {n}, started {s} (want {want_start})")
+    if n != 1 or s != want_start:
+        print("REFUSE: service not defined exactly once or not started as expected"); sys.exit(1)
+if card_build and b"hu_install" in tail:
+    print("REFUSE: the card build must not carry hu_install"); sys.exit(1)
 print("retired hu_evidence absent from tail:", b"hu_evidence" not in tail)
 print("stock markers still present:", b"service console" in old, b"sys.usb.controller" in old)
 PY

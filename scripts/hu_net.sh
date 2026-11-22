@@ -32,6 +32,13 @@
 cache_ready || { say "net: cache not mounted, giving up"; exit 1; }
 
 nonce=$($SB/cut -d' ' -f1 "$NETREQ" 2>/dev/null)
+if [ -f "$CARD_FLAG" ] && [ -z "$nonce" ]; then
+  # Card build (**D98**, pending owner approval): the owner inserts the card deliberately, so the card
+  # boot itself is the arm and no nonce file is needed. The window is 30 min instead of 20 (see hold
+  # below); nothing here mounts or writes a block device.
+  nonce=card-boot
+  say "net: card-boot mode - arming without a nonce; window 30 min"
+fi
 if [ -z "$nonce" ]; then
   say "net: no request in $NETREQ - not arming"
   exit 0
@@ -194,10 +201,13 @@ say "net: l2 after dhcp: $(eth_stats | $SB/tr '\n' ' ')"
 guarded 3 "$SB/cat /proc/net/arp >> \"$LOG\""
 say "net: address after dhcp=$addr / alias=$(iface_addr "$ALIASIF") (eth0 untouched by the dhcp script)"
 
-# 7. Hold the window for 20 min (120 ticks of 10 s). A NEW nonce in the request file extends it again,
-#    so the owner can keep the session open without flashing anything. Tick counts are overridable for
-#    offline tests only; the unit always uses the defaults.
-hold=${HOLD_ITERS:-120}
+# 7. Hold the window. 120 ticks of 10 s = 20 min off the card flag; on the card flag (**D98**) the
+#    default is 360 ticks = 30 min, the window the owner asked for. A NEW nonce in the request file
+#    extends it again, so the owner can keep the session open without flashing anything. Tick counts
+#    are overridable for offline tests only; the unit always uses the defaults.
+hold_default=120
+[ -f "$CARD_FLAG" ] && hold_default=360
+hold=${HOLD_ITERS:-$hold_default}
 cur=$nonce
 h=0
 while [ "$h" -lt "$hold" ]; do

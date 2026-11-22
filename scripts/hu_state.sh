@@ -32,8 +32,12 @@ say "state end out=$out size=${size:-none} up=$up"
 
 # The card is the durable channel. hu-card.sh keeps its own mount alive until the 120 s snapshot
 # exists, so either mount point is a valid destination; copies are additive and never touch an
-# install package.
+# install package. In card-boot mode (**D98**) the boot card IS this device, so copying there would be
+# a module writing a block device - refused, and the snapshot stays in RAM.
 dst=none
+if [ -f "$CARD_FLAG" ]; then
+  say "state card copy: card-boot mode - refusing to write to a block device, snapshot stays in RAM ($out)"
+else
 if [ -d /mnt/hucard ]; then dst=/mnt/hucard
 elif $SB/grep -q " /mnt/external_sd " /proc/mounts 2>/dev/null; then dst=/mnt/external_sd
 fi
@@ -44,5 +48,6 @@ if [ "$dst" != none ]; then
   say "state card copy out=$b dst=$dst"
 else
   say "state card copy: no card mounted - snapshot only in /cache (best effort)"
+fi
 fi
 exit 0

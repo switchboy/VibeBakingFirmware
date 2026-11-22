@@ -286,7 +286,8 @@ run hu-early.sh
 [ "$(cat "$S/rc")" = 0 ] && ok "rc=0" || { no "rc=$(cat "$S/rc")"; cat "$S/cache/hu-mark.log"; }
 expect "early begin"
 expect "early pstore copied files=2"
-expect "early misc head size=2048"
+expect "early misc node=$S/by-name/misc"
+expect "head size=2048"
 ls "$S"/cache/pstore-*/console-ramoops-0 >/dev/null 2>&1 && ok "pstore file kept" || no "pstore copy missing"
 [ "$(stat -c %s "$S/cache/misc-head.bin")" = 2048 ] && ok "misc head is exactly 2048 B" || no "misc head wrong size"
 [ -f "$S/state.reboot" ] && no "rebooted" || ok "no reboot requested"

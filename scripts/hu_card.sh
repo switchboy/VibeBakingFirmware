@@ -6,6 +6,13 @@
 # the live page cache, so it captures what /cache would otherwise lose. Copies are additive and never
 # touch an install package.
 . /sbin/hu-h-common.sh
+# Card-boot mode (**D98**): in a card boot the boot card is this very device, so mounting or copying
+# onto it would be the module writing a block device - refused here, and the service is not started in
+# the card build's appended rc either.
+if [ -f "$CARD_FLAG" ]; then
+  say "card: card-boot mode - the boot card is this device; refusing to mount or write anything"
+  exit 0
+fi
 cache_ready || { say "card: cache not mounted, giving up"; exit 1; }
 say "card begin"
 

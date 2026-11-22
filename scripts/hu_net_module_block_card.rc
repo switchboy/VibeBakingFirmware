@@ -1,0 +1,49 @@
+# hu_net_module_block_card.rc - the appended block for the SD-card build (**D98**). It is appended to
+# the CARD's own stock init.recovery.rk30board.rc byte-for-byte (the builder takes the stock bytes out
+# of the card capture rather than trusting the eMMC's copy), so the stock menu and its update.zip path
+# stay intact. Differences from the eMMC block: state snapshots land in /tmp instead of /cache, because
+# in a card boot /cache is unmeasured and the module must not mount a partition; hu_card is DEFINED but
+# NOT started, since the boot card is this device and copying onto it would be the module writing a
+# block device; hu_install is absent entirely. Nothing here reboots.
+service hu_early /sbin/hu-early.sh
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+service hu_hb /sbin/hu-hb.sh
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+service hu_state5 /sbin/hu-state.sh 5 /tmp/state-recovery-5.txt
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+service hu_state30 /sbin/hu-state.sh 30 /tmp/state-recovery-30.txt
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+service hu_state120 /sbin/hu-state.sh 120 /tmp/state-recovery-120.txt
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+service hu_net /sbin/hu-net.sh
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+service hu_card /sbin/hu-card.sh
+    oneshot
+    disabled
+    seclabel u:r:shell:s0
+
+on boot
+    start hu_early
+    start hu_hb
+    start hu_state5
+    start hu_state30
+    start hu_state120
+    start hu_net

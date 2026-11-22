@@ -36,6 +36,46 @@ ALIASIP=192.168.77.2
 ADBPORT=5555
 TELNETPORT=2323
 
+# Card-boot mode (**D98**). The flag file is baked into the SD-boot card's own recovery ramdisk. When it
+# is present the module never mounts a partition and never opens a block device: markers and logs live in
+# RAM (/tmp), and the misc head is read from the card's own misc node resolved by SIZE and TYPE from
+# /proc/partitions plus /sys/block/<n>/device/type - never through by-name, which is measured to point at
+# the eMMC while Android runs and is unmeasured inside a card boot.
+CARD_FLAG=/sbin/hu-card-boot.flag
+CARD_BLOCKS=7761920    # 7,948,206,080 B / 1024 - the SD-boot card, as /proc/partitions reports blocks
+MISC_BLOCKS=4096       # 4,194,304 B / 1024 - the card's misc partition
+if [ -f "$CARD_FLAG" ]; then
+  CACHE=/tmp
+  LOG=/tmp/hu-mark.log
+  NETREQ=/tmp/hu-net.request
+fi
+
+# The misc node for the misc head read. Off the card flag this is the by-name link, exactly as before.
+# On the card flag it resolves the SD device whose whole-device block count equals CARD_BLOCKS, then the
+# partition of that device whose block count equals MISC_BLOCKS. Anything else - including the eMMC, whose
+# type is MMC and whose size differs - is refused.
+misc_node() {
+  if [ ! -f "$CARD_FLAG" ]; then
+    printf '%s\n' /dev/block/by-name/misc
+    return 0
+  fi
+  card=""
+  for d in /sys/block/mmcblk*; do
+    [ -d "$d" ] || continue
+    n=${d##*/}
+    t=$($SB/cat "$d/device/type" 2>/dev/null)
+    b=$($BB awk -v n="$n" '$4==n {print $3}' /proc/partitions 2>/dev/null)
+    [ "$t" = SD ] || continue
+    [ "$b" = "$CARD_BLOCKS" ] || continue
+    card=$n
+  done
+  [ -n "$card" ] || { say "misc: no SD device of $CARD_BLOCKS blocks found - nothing read"; return 1; }
+  pb=$($BB awk -v n="${card}p3" '$4==n {print $3}' /proc/partitions 2>/dev/null)
+  [ "$pb" = "$MISC_BLOCKS" ] || { say "misc: ${card}p3 blocks=${pb:-none}, not $MISC_BLOCKS - nothing read"; return 1; }
+  printf '%s\n' "/dev/block/${card}p3"
+  return 0
+}
+
 say() {
   # marker first, then the action; both channels, both non-blocking, then sync so anything that can
   # reach the device actually reaches it (recovery detaches partitions lazily at reboot).
@@ -99,6 +139,12 @@ eth_stats() {
 }
 
 cache_ready() {
+  if [ -f "$CARD_FLAG" ]; then
+    # Card boot (**D98**): no partition is mounted by this module. /tmp already exists in the ramdisk, so
+    # the marker directory is ready without opening any ext4 partition read-write.
+    $SB/mkdir -p "$CACHE" 2>/dev/null
+    return 0
+  fi
   i=0
   while [ "$i" -lt 5 ]; do
     $SB/grep -q " /cache " /proc/mounts 2>/dev/null && return 0

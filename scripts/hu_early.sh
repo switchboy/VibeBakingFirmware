@@ -9,7 +9,7 @@ say "early begin up=$up"
 # 1. pstore first, before this boot's own console text overwrites the ramoops buffer (the buffer
 #    mixes boots, so it is copied raw rather than interpreted). No nested quoting: the basename is
 #    expanded before the guarded string is built.
-PDIR=/cache/pstore-$up
+PDIR=$CACHE/pstore-$up
 $SB/mkdir -p "$PDIR" 2>/dev/null
 $BB mount -t pstore nodev /sys/fs/pstore 2>/dev/null
 n=0
@@ -23,9 +23,15 @@ $BB sync 2>/dev/null
 say "early pstore copied files=$n dir=$PDIR"
 
 # 2. misc head, read-only, 2048 B. No digest of the block device (rule: no on-device sha of
-#    anything large; head -c on a block device is measured to work).
-guarded 15 "$BB head -c 2048 /dev/block/by-name/misc > /cache/misc-head.bin"
-say "early misc head size=$($SB/stat -c %s /cache/misc-head.bin 2>/dev/null)"
+#    anything large; head -c on a block device is measured to work). On the card flag the node is the
+#    card's own misc, resolved by size and type (**D98**), not by-name.
+mnode=$(misc_node 2>/dev/null)
+if [ -z "$mnode" ]; then
+  say "early: no misc node resolved - skipping the misc head"
+else
+  guarded 15 "$BB head -c 2048 $mnode > $CACHE/misc-head.bin"
+  say "early misc node=$mnode head size=$($SB/stat -c %s $CACHE/misc-head.bin 2>/dev/null)"
+fi
 $BB sync 2>/dev/null
 say "early end"
 exit 0

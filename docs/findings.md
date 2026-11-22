@@ -4998,3 +4998,33 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   each chunk checked against its expected size, digested on the workstation, and bounded by a 300 s timeout;
   the node's size and type are re-checked before every chunk. A verification pass re-reads every chunk and
   compares digests before the assembled image is trusted, and per-chunk rate is logged rather than assumed.
+* **Transport measurements, taken on a running Android with the card in** (`toybox dd` timings and
+  `dd ... of=/dev/null` on-device): reading the raw card on-device into `/dev/null` moved 268,435,456 B in
+  18.39 s = 14 MB/s, so the card itself reads at 14 MB/s; a fresh 64 MiB exec-out read from the card
+  (`bs=1M skip=600 count=64`) returned 67,108,864 B in 6 s = 11.18 MB/s with rc 0; a 64 MiB exec-out read
+  of `/dev/zero` returned 62,010,848 B of the 67,108,864 B requested in 60 s and exited rc 0. The chunked
+  1 GiB pass measured 559,392,735 B in 300 s = 1.86 MB/s before hitting its timeout.
+* **Capture in use: base64 chunks of 33,554,432 B** (`bs=1M count=32`, `dd | base64` over exec-out,
+  decoded on the workstation), the size proven reliable in the iteration-1 readbacks. 237 chunks
+  (236 full plus a 29,360,128 B remainder), each re-checking the node by size and type, each decoded to its
+  expected byte count and digested, then a second pass re-reads every chunk and the assembled image is
+  compared against the re-read digest before anything is trusted.
+* **Card-boot mode of the net module is built and gated offline (`scripts/smoke_card_module.sh` `0b49ba06255c…`).** The card
+  build bakes `/sbin/hu-card-boot.flag` into the card's own ramdisk; with that flag present the module keeps
+  its markers and log in RAM (`CACHE`, `LOG`, `NETREQ` point at `/tmp`), resolves the misc head from the
+  card's own node by size and type (`/proc/partitions` blocks plus `/sys/block/<n>/device/type`: SD at
+  7,761,920 blocks, partition 3 at 4,096 blocks), and never opens a partition. Measured in the offline gate:
+  RAM paths confirmed; misc resolved to the fake card node; a wrong-size SD and a wrong-size partition 3 were
+  both refused with rc 1 and stated why; the misc head read 2,048 B from the card node and did not carry the
+  planted eMMC marker; the pstore copy landed in RAM; `hu-card.sh` refused with rc 0 and the fake mounted card
+  stayed byte-identical; `hu-state.sh` refused its card copy and the snapshot stayed in RAM; `hu-net.sh` armed
+  without any nonce file (`nonce=card-boot`) with the window default 360 ticks of 10 s = 30 min, while the
+  eMMC path keeps its 120-tick 20 min default; no `mount -t ext4` was invoked; the card misc node and the
+  eMMC-shaped node were byte-identical after the whole run. failures=0, exit status 0.
+* **The builder's card mode is `HU_CARD_BUILD=1`** in `scripts/patch_recovery_netmodule.sh`: the appended rc is
+  generated from the capture's own stock `init.recovery.rk30board.rc` plus `scripts/hu_net_module_block_card.rc`
+  (state snapshots to `/tmp`, `hu_card` defined but not started, `hu_install` absent), the flag is baked, and the
+  gate now expects `hu_card` started 0 times in the card build and refuses `hu_install` in it. The existing
+  gates stay green with the flag absent: `smoke_recovery_netmodule.sh` 153 assertions pass (its early-service
+  expectation now reads the node-aware line `early misc node=... head size=2048`), `smoke_recovery_evidence.sh`
+  and `smoke_recovery_installer.sh` pass, `smoke_hu_wrap.sh` passes with 0 failures, pytest 19 passed.
