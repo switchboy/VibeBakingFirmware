@@ -4988,3 +4988,13 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   at `6c3d06b0`, an eMMC-shaped target was refused with rc 1 and stayed byte-identical, and a missing target
   was refused with rc 1. `tools/sd_card_layout.py` `773d714eb2fa…` reads the GPT out of the captured card
   image and checks each partition span against the size the device reported.
+* **The single-stream card pull stalled after 241,047,471 B of 7,948,206,080 B.** The file's mtime stayed at
+  epoch `1795377882` while the workstation's `adb exec-out` process ran 46 min; both socket tables showed
+  tx/rx queues of 0, `ss` showed the connection ESTAB with 0/0, ping answered, `adb devices` reported state
+  `device`, and the card node still read type SD size 7,948,206,080 B. The partial stream is kept as
+  `a14-work/sdcard/stall-partial-241MB.bin` 241,047,471 B sha256 `a2eaa567cf17…`; the capture script aborted
+  on the size mismatch, so nothing was trusted from it.
+* **Chunked capture in use instead.** The card is read in 1 GiB chunks (`bs=1M skip=<i*1024> count=1024`),
+  each chunk checked against its expected size, digested on the workstation, and bounded by a 300 s timeout;
+  the node's size and type are re-checked before every chunk. A verification pass re-reads every chunk and
+  compares digests before the assembled image is trusted, and per-chunk rate is logged rather than assumed.
