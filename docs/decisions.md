@@ -2497,3 +2497,28 @@ carrier-first order)**
   (partition 8 `b2821cce34ae…`, partition 7 `b1378cd79497…`), a recovery boot answered over TCP with the net
   module armed, and u-boot added `b.mode=recovery` (**D90** holds). What it did **not** prove: the wrapper's
   arm path on the real `misc` and its watchdog reboot - neither ever answered after the reboot was issued.
+
+**D98 - the SD-boot card is the recovery carrier; eMMC partition 8 leaves the loop (Nov 22, late, OWNER)**
+* **Measured reason.** The deathgrip does not reach any recovery. The owner got out of the soft-brick only
+  with the SD-boot card: its stock recovery ran the OEM `update.zip`. So the card is the environment that
+  can boot after a dead partition-7 image, and the patched recovery must live on the card's own partition 8.
+* **Scope change.** eMMC partition 8 is no longer used by the loop. eMMC partition 7 stays gated by the
+  ladder (L0 -> L1 -> L2 -> L3 of the wrapper), entered through a card boot. Nothing in the loop writes eMMC
+  through a `by-name` link from a card boot: the eMMC is resolved by size (62,813,896,704 B) and verified
+  first (**D76**'s size-resolution rule).
+* **Owner's operating rule.** The owner inserts the card into the running unit. The unit is not rebooted or
+  power-cycled with the card in until the card's patched recovery is verified. Confirmation from the owner is
+  required before any read or write that depends on the card being present.
+* **Build rule for the card.** Ramdisk-only splice into the card's own partition 8: kernel, `second`, `dtbo`
+  and `system/bin/recovery` byte-identical to the card capture; additions only inside the ramdisk; header
+  changes confined to `ramdisk_size` plus any offsets the builder must justify. The stock menu and its
+  `update.zip` install path must still work, so the recovery binary and the card's own init/rc lines stay
+  verbatim. The builder's gates are re-parameterised for the card capture instead of the eMMC stock hashes.
+* **Net module on the card.** v6 logic with these facts resolved rather than assumed: what `/cache` is in a
+  card boot, where the nonce lives, and no write to any block device by the module (read-only misc head only).
+  Proposed for owner approval: arm WITHOUT a nonce on the card build (the owner inserts the card
+  deliberately), with a 30 minute window. Addresses unchanged: `192.168.1.127/24`, gateway `192.168.1.1`,
+  adbd 5555, telnetd 2323. The auto-restore path stays dormant.
+* **Re-arm step.** Recovery clears the BCB when it boots, so each card use needs a separate re-arm: the exact
+  2048 B BCB for the card's misc - `boot-recovery\0` at 0, `recovery\n` at 64, zero padding, no arguments and
+  no `--wipe_all` - written as its own step with node, offsets and readback.

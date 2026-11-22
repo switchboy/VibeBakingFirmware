@@ -4950,3 +4950,41 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
 * **Nothing was written.** Only bounded reads and property reads. The wrapper candidate `b1378cd79497…` and
   the v6 recovery `b2821cce34ae…` are no longer on the unit; both remain staged offline on the workstation
   and mirrored in cold storage (**D96**).
+
+## Nov 22 (late) - the SD-boot card becomes the recovery carrier; STEP 0 read-only measurements
+
+* **Owner decision, superseding the deathgrip test (**D98**).** The deathgrip does not reach any recovery.
+  The owner got out of the soft-brick only with the SD-boot card - its stock recovery ran the OEM
+  `update.zip` - so the SD-boot card is now the networked recovery carrier and its own partition 8 is the
+  recovery that gets patched. eMMC partition 8 is out of the loop; eMMC partition 7 stays gated by the
+  ladder later.
+* **Owner report of the boot sequence, verbatim:** "Card inserted and reboot either power cycle reset
+  button or 10 sec home+press on volume knob". Nothing about this sequence is measured; it is recorded as
+  reported.
+* **Device identification by size and type** (measured with `cat /sys/block/mmcblk*/device/type` and
+  `blockdev --getsize64`, on a running Android 10 with the card in): `mmcblk0` type=SD size=31,266,439,168 B,
+  mounted read-write by Android as `/mnt/media_rw/363A-7751`; `mmcblk1` type=SD size=7,948,206,080 B, which
+  is the SD-boot card, and mmcblk1 is not mounted by Android; `mmcblk2` type=MMC size=62,813,896,704 B, the
+  eMMC. Nodes are identified by size and type, never by number alone.
+* **`/dev/block/by-name/*` in Android with the card present** still points at mmcblk2 partitions only:
+  boot -> `mmcblk2p7`, recovery -> `mmcblk2p8`, misc -> `mmcblk2p3`, cache -> `mmcblk2p11`,
+  super -> `mmcblk2p14`, userdata -> `mmcblk2p15`. No card-side by-name links exist while Android runs.
+* **Card partition sizes measured on the device** (`blockdev --getsize64`): p1 4,194,304, p2 4,194,304,
+  p3 4,194,304, p4 4,194,304, p5 4,194,304, p6 1,048,576, p7 33,554,432, p8 100,663,296, p9 117,440,512,
+  p10 4,194,304, p11 402,653,184, p12 16,777,216, p13 524,288, p14 3,263,168,512, p15 3,978,804,736.
+* **Rollback position:** no spare blank card of the same size is available, so the verified workstation
+  image of the whole card is the rollback. The capture is pull 1 stored plus pull 2 re-read and hashed; the
+  two digests must match before anything is written.
+* **The re-arm step exists as `scripts/arm_card_misc.sh` `026f22a31da8…`.** It resolves the SD card by size
+  7,948,206,080 B and type SD, takes partition 3 sized 4,194,304 B, refuses any `mmcblk2` target by
+  construction, builds the 2048 B blob whose digest is the registered `ceaae1a6314a…`
+  (`boot-recovery\0` at 0, `recovery\n` at 64, zero padding, no arguments), writes it with
+  `dd conv=notrunc bs=2048 count=1`, then reads back 2048 B and compares digests. `HU_MISC_FILE` plus
+  `HU_OFFLINE=1` runs the same logic against a regular file, and a file target must exist and be
+  partition-sized or the script writes nothing.
+* **Offline gate `scripts/smoke_card_rearm.sh` `c43bd57fedea…`: five scenarios pass, failures=0.** Against a
+  zeroed 4,194,304 B file it re-armed with rc 0, the head digest equalled the registered blob digest, offsets
+  13..63 and 73..2047 stayed all zero, the byte at 2048 was untouched, a second arm left the whole-file digest
+  at `6c3d06b0`, an eMMC-shaped target was refused with rc 1 and stayed byte-identical, and a missing target
+  was refused with rc 1. `tools/sd_card_layout.py` `773d714eb2fa…` reads the GPT out of the captured card
+  image and checks each partition span against the size the device reported.
