@@ -5028,3 +5028,26 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   gates stay green with the flag absent: `smoke_recovery_netmodule.sh` 153 assertions pass (its early-service
   expectation now reads the node-aware line `early misc node=... head size=2048`), `smoke_recovery_evidence.sh`
   and `smoke_recovery_installer.sh` pass, `smoke_hu_wrap.sh` passes with 0 failures, pytest 19 passed.
+* **The card's partition table is vendor-written and self-inconsistent.** From the first 2 KiB of the capture
+  stream: the header signature is `EFI PART`, revision 65536, header_size 92, entry_count claimed 0,
+  entry_size claimed 15,523,839 (not 128), entry CRC 0, `first_usable_lba` 34, `last_usable_lba` 15,523,806,
+  and LBA0 is all zeros (no protective MBR). The records themselves are well formed at a 128 B stride with the
+  name field at record offset 56, but the start/end LBA fields sit at record offset 32/40, not the standard 8/16.
+  Read from those offsets the records tile the disk: uboot 16384..24575, trust 24576..32767, misc 32768..40959,
+  dtb 40960..49151, dtbo 49152..57343, vbmeta 57344..59391, boot 59392..124927, recovery 124928..321535,
+  backup 321536..550911, security 550912..559103, cache 559104..1345535, metadata 1345536..1378303,
+  frp 1378304..1379327, super 1379328..7752703, userdata 7752704..15523806. Converted to bytes those spans
+  equal the sizes the unit reported for p1..p8 (`blockdev --getsize64`), so the layout is consistent with the
+  device even though the header's own counts are not. 8 MiB between `first_usable_lba` 34 and the first
+  partition at LBA 16384 holds no partition record.
+* **`tools/sd_card_layout.py` `41f60ea834e8…` and `tools/card_image_analysis.py` `aab15720a666…` read that layout.** The layout tool tries the
+  candidate record offsets and picks the one that yields monotonic, non-overlapping spans bounded by the
+  header's declared disk size; the analysis tool shares the same reader and then reads the card's own boot and
+  recovery contents. Measured on the partial stream's complete p7 and p8 spans: card boot (p7) header says
+  kernel 25,421,832 B, ramdisk gz 803,440 B, second 903,168 B, DTB at 26,232,832 size 130,833 B, partition
+  digest `1b47dbc48aee…`; card recovery (p8) header says kernel 25,421,832 B, ramdisk gz 12,515,795 B,
+  second 903,168 B, partition digest `04ed02a2713c…`. The kernel blob is the same in both:
+  `a11c2667f843…`, banner `Linux version 4.19.111+ … Linaro GCC 6.3`, and it carries `ax88179_178a` strings
+  (`ax88179_178a.c` among them). The p8 ramdisk listing and its `init.recovery.rk30board.rc`,
+  `recovery.fstab`, `prop.default` and `system/bin/recovery` digests come from the verified image, not from
+  this partial stream.
