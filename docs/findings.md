@@ -4871,3 +4871,82 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   digest on the NAS side, nothing was moved or deleted, and the tree's `out/` stays inside `lineage21s`.
   The paths, byte totals and verification counts, and the warning that the pool's older `hu-stock-backup`
   is a Nov 11 backup rather than the iteration-1 rollback, are recorded in docs/housekeeping.md.
+
+## Nov 22 (late) - Phase B leg 1: partition 8 then partition 7 written; the wrapper's first boot is in flight
+
+* **Baseline before any write** (read-only pulls, hashed on the workstation): partition 7 `b449aee98c01…`
+  33,554,432 B, partition 8 `1fdf5ea77fc6…` 100,663,296 B, `misc` `909bdd979111…` 4,194,304 B with its head
+  all zeros, `androidboot.mode=normal`, `sys.boot_completed=1`, Android 10 over TCP 5555. The cache partition
+  measures 402,653,184 B; Android mounts `/cache` with 189 MB free.
+* **Staged in `/cache` from Android**, each verified on-device with `toybox sha256sum`: candidate
+  `hu-candidate-boot.bin` `b1378cd79497…` (33,554,432 B), rollback `hu-rollback-boot.bin` `b449aee98c01…`,
+  and `hu-net.request` carrying nonce `iter1-nonce-a`. No `hu-restore.request` was created, so the recovery
+  service's auto-restore path stays dormant. The v6 recovery image was also pushed to
+  `/data/local/tmp/rec/` with its digest file for the flash script.
+* **Flash 1 - partition 8 only, from Android** with `scripts/flash_recovery_from_adb_root.sh`: staged digest
+  `b2821cce34ae…`, wrote 39,092,224 B, the script's readback reported ok. Recovery was entered immediately
+  after (`setprop sys.powerctl reboot,recovery`, epoch `1795374906`); Android was never booted in between,
+  which is the D82 staging rule.
+* **Recovery answered on TCP 5555 within seconds** and `adb devices` reported state `recovery`.
+  `/proc/cmdline` carries `b.mode=recovery` alongside `androidboot.mode=normal` (**D90** holds). The v6 net
+  module armed on the nonce: the marker `net-done-iter1-nonce-a.txt` was written, `eth0` took
+  `192.168.1.127` with carrier=1, adbd's listener shows `0x15B3` state `0A` in `/proc/net/tcp6`, and
+  telnetd listens on 2323 (`0x0913`).
+* **Measured: entering recovery clears the BCB.** The misc head read inside that recovery boot is all zeros
+  (`e5a00aa9991a…` over 2048 B) although the same boot's cmdline shows `b.mode=recovery`. So the armed
+  message is consumed by the recovery boot itself: a reboot out of recovery either re-arms `misc` or boots
+  partition 7 normally.
+* **Measured: the v6 recovery services do not mount `/cache`.** `/proc/mounts` had no `/cache` entry, yet
+  `hu-net.sh` and `hu-state.sh` wrote their markers and snapshots - `cache_ready` passes on the ramdisk
+  directory, so those files live in RAM and die with the boot. Pulling them over adb while recovery runs is
+  what makes them durable; all four were pulled: `hu-mark.log` 7053 B `dc3769d21127…`,
+  `state-recovery-5.txt` 6438 B `4a6c2ce2f5ae…`, `state-recovery-30.txt` 6291 B `64cb0e563381…`,
+  `misc-head.bin` 2048 B `e5a00aa9991a…`. Mounting the partition by hand works and costs nothing:
+  `/sbin/busybox mount -t ext4 /dev/block/by-name/cache /cache` returns rc 0 and the staged files become
+  readable there with their digests.
+* **Measured: a card is mounted at `/mnt/hucard` by `hu-card.sh`** and received the snapshots
+  `state-recovery-5.txt` 6438 B, `state-recovery-30.txt` 6291 B and `state-recovery-120.txt` 6213 B. The
+  handoff says both MMC cards are out, so this contradicts that note; which card is in the slot has not been
+  identified yet and must be checked before treating the card copies as durable evidence.
+* **Flash 2 - partition 7 only, from recovery with partition 8 frozen**:
+  `/system/bin/dd if=/cache/hu-candidate-boot.bin of=/dev/block/by-name/boot bs=4096 conv=fsync` returned
+  `8192+0 records out`, rc 0. The workstation readback of all 33,554,432 B hashes to `b1378cd79497…`, equal
+  to the staged candidate. Partition 8 read back over its image span (39,092,224 B) hashes to
+  `b2821cce34ae…`, unchanged. The misc head is still all zeros after this write.
+* **The wrapper's first boot is pending.** `setprop sys.powerctl reboot` was issued at epoch `1795375253`.
+  At 130 s later: ping lost with no ARP entry for `192.168.1.127`, TCP 5555 closed, `adb devices` shows only
+  the stale `offline` entry, and the owner reports button backlighting with a black screen. The wrapper's
+  watchdog (~300 s, re-reads the BCB through its open fd) has not been observed yet; the monitor runs on the
+  workstation. Nothing was written after the reboot was issued.
+* **No answer within the monitor window.** The monitor ran from 130 s to 390 s after the reboot was issued
+  and saw nothing but a stale `offline` adb entry until it disappeared; at 712 s ping still lost with no
+  neighbour entry for `192.168.1.127`, TCP 5555 and 2323 (recovery's telnetd port) were both closed and
+  `adb devices` listed no device. The owner reports only button backlighting and a black screen. So neither
+  Android nor a networked recovery boot answered: the wrapper's watchdog reboot has not been observed, and
+  no environment exists right now that can read the dead boot's console. Nothing was written after the
+  reboot was issued; partition 7 holds `b1378cd79497…` and partition 8 holds `b2821cce34ae…`.
+* **The owner stopped the attempt and took physical control** (reported Nov 22, late): they tried to boot
+  from the stock recovery aiming to keep the head unit's data intact, that was not successful, the recovery
+  menu's `reboot to bootloader` option keeps the bricked state, and they are applying the `update.zip` route
+  (**D97**). Nothing was written from the workstation after the reboot was issued, and the workstation's adb
+  transport stayed dead throughout.
+
+## Nov 22 (late) - the owner's install brought the unit back; checked read-only, no re-clone
+
+* **Restored, with userdata intact** (owner report). Measured from the workstation at epoch `1795376757`+:
+  ping OK (rtt 0.580/0.838/1.097 ms), ARP `REACHABLE` for `00:0a:cd:27:a5:b2`, TCP 5555 open,
+  `adb devices` state `device`, `adb root` works, Android 10 `rk3399-userdebug 10 QQ2A.200305.004.A1
+  eng.hct2.20250401.152740 release-keys`, `sys.boot_completed=1`, `androidboot.mode=normal`.
+* **Partition state checked with bounded 4 KiB head digests, not by re-cloning partitions** (owner
+  instruction: do not waste space or time re-cloning the HU's current state). Partition 7 head
+  `fac15a4b138e…` equals the head of the pre-restore stock capture; partition 8 head `b06dc33648a3…` equals
+  the head of the pre-restore stock capture; `misc` head `0f2ec43e7a5c…` equals the baseline capture and its
+  first 64 B are all zeros. Head equality over 4 KiB is not full-partition equality; it says the images are
+  back on the stock heads. Sizes unchanged: boot 33,554,432 B, recovery 100,663,296 B, misc 4,194,304 B,
+  cache 402,653,184 B, super 3,263,168,512 B. `ro.boottime.flash_recovery` read 3754681376 ns (3.76 s), so
+  partition 8's self-heal ran (**D82**).
+* **`/data` survived the install:** `/dev/block/mmcblk2p15 54G 10G 44G 19% /data`, and `/data` lists
+  `adb anr apex app app-asec app-ephemeral`.
+* **Nothing was written.** Only bounded reads and property reads. The wrapper candidate `b1378cd79497…` and
+  the v6 recovery `b2821cce34ae…` are no longer on the unit; both remain staged offline on the workstation
+  and mirrored in cold storage (**D96**).

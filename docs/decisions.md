@@ -2481,3 +2481,19 @@ carrier-first order)**
   rollback but is the Nov 11 backup: its `boot.bin` and `super.bin` are not partition 7's stock digest
   (**D76**) or the refreshed super backup. Rollback bases stay on the workstation; the pool copy is a
   mirror, not the thing to restore from.
+
+**D97 - iteration 1 is stopped by the owner; the restore route is an OEM `update.zip` install (Nov 22, late)**
+* **Owner's report, recorded as reported.** The owner took physical control at the unit. They first tried to
+  boot from the stock recovery to keep the head unit's data as intact as possible; that was not successful,
+  and the recovery menu's `reboot to bootloader` option leaves the bricked state. Their decision: apply the
+  `update.zip` route. The install is running on the owner's side.
+* **What the agent must not do while that runs.** No adb session, no write of any kind from the workstation:
+  the route is the unit's own recovery reading a card. The workstation's adb transport is already dead
+  (no ping, no neighbour entry for `192.168.1.127`, TCP 5555 and 2323 closed, `adb devices` lists nothing).
+* **What counts afterwards.** The partition digests recorded above are the state *before* the install. After
+  the install, partition 7, partition 8, `misc` and `super` must be re-measured read-only before any further
+  experiment, and a fresh rollback capture is taken from whatever boots.
+* **What iteration 1 proved and did not prove.** Partition writes and readbacks were verified byte-exact
+  (partition 8 `b2821cce34ae…`, partition 7 `b1378cd79497…`), a recovery boot answered over TCP with the net
+  module armed, and u-boot added `b.mode=recovery` (**D90** holds). What it did **not** prove: the wrapper's
+  arm path on the real `misc` and its watchdog reboot - neither ever answered after the reboot was issued.

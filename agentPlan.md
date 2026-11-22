@@ -552,3 +552,17 @@ dongle plugged in **before** power-up, read `-HUPATCH` in the menu header and th
     images and the tree's finished pass are now mirrored in cold storage on the NAS (**D96**): the copies are
     additive, nothing was moved or deleted, and the flash loop still reads its inputs locally
     (docs/housekeeping.md).
+ 31. **Nov 22 (late): iteration 1 closed - the wrapper's first boot never answered, and the owner restored
+     the unit with an OEM `update.zip` without wiping `/data` (**D97**).** Partition 8 was written from
+     Android (`b2821cce34ae…` read back ok) and partition 7 was written from recovery with partition 8 frozen
+     (`b1378cd79497…` read back byte-exact on the workstation), with `misc` untouched by both writes. The
+     reboot issued at epoch `1795375253` produced no answer at all: at 712 s ping lost, no neighbour entry,
+     TCP 5555 and 2323 closed, `adb devices` empty, and the owner saw button backlighting with a black
+     screen. So the wrapper's arm on the real `misc` and its watchdog reboot stay unmeasured, and the dead
+     boot's console was never read. Measured during the leg: entering recovery clears the BCB, the v6
+     recovery services do not mount `/cache` (markers land in RAM), a hand mount returns rc 0, and
+     `hu-card.sh` mounted a card at `/mnt/hucard` which is not yet identified. The owner's install brought
+     back Android 10 with `/data` intact; partition heads equal the pre-restore stock captures
+     (`fac15a4b138e…`, `b06dc33648a3…`, `0f2ec43e7a5c…`) and `flash_recovery` ran at 3.76 s (**D82**).
+     Nothing was cloned afterwards, on the owner's instruction. Awaiting the owner's instructions; the next
+     write needs an explicit go.
