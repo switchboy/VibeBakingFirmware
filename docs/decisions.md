@@ -2384,3 +2384,9 @@ carrier-first order)**
   end does. DHCP stays diagnostic-only.
 * **Hot-plug is covered by design.** The node wait is bounded by the nonce window and logs every
   10 s, so plugging the dongle in after the menu is up creates the node and the module brings it up.
+
+**D89b - v6 is the tcp6 listener fix only (Nov 22, DECIDED by the owner)**
+* **Why one variable.** Build v5 proved adb-in-recovery both ways, and its log said `NO TCP
+  LISTENER` while the workstation was already connected. The cause is the check, not the link: adbd
+  binds 5555 on IPv6, so the entry lives in `/proc/net/tcp6`. Only the listener check changes; the
+  bring-up order (D89), addressing (D88) and adbd restart (D87) stay as measured.

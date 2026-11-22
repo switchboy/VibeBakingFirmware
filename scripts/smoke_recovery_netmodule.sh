@@ -167,13 +167,13 @@ printf '%s=%s\n' "\$1" "\$2" >> "$S/fake-props"
 # init.rc has no trigger on service.adb.tcp.port, so setting the port on a RUNNING adbd binds nothing.
 # A TCP listener (0x15B3 = 5555, state 0A) only appears when adbd starts with the port already set.
 if [ "\$1" = "ctl.stop" ] && [ "\$2" = "adbd" ]; then
-  : > "$S/fake-tcp"
+  : > "$S/fake-tcp"; : > "$S/fake-tcp6"
   printf 'init.svc.adbd=stopped\n' >> "$S/fake-props"
 fi
 if [ "\$1" = "ctl.start" ] && [ "\$2" = "adbd" ]; then
   printf 'init.svc.adbd=running\n' >> "$S/fake-props"
   if grep -q '^service.adb.tcp.port=' "$S/fake-props" 2>/dev/null && [ ! -f "$S/no-listener" ]; then
-    printf '  0: 00000000:15B3 00000000:0000 0A 0000000000000000 0000000000000000 00000001 0 0 1 3 0\n' >> "$S/fake-tcp"
+    printf '   0: 00000000000000000000000000000000:15B3 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 25296 1 0000000000000000 100 0 0 10 0\n' >> "$S/fake-tcp6"
   fi
 fi
 exit 0
@@ -192,7 +192,7 @@ printf '1.23 4.56\n' > "$S/fake-uptime"
 : > "$S/fake-kmsg"
 printf 'Iface\tDestination\tGateway\neth0\t0001A8C0\t00000000\n' > "$S/fake-route"
 printf 'IP address       HW type     Flags       HW address            Mask     Device\n192.168.1.1    0x1         0x2         aa:bb:cc:dd:ee:ff     *        eth0\n' > "$S/fake-arp"
-: > "$S/fake-tcp"
+: > "$S/fake-tcp"; : > "$S/fake-tcp6"
 dd if=/dev/zero of="$S/by-name/misc" bs=1 count=4096 conv=fsync >/dev/null 2>&1
 printf 'boot-recovery\x00' > "$S/by-name/misc.head"
 cat "$S/by-name/misc.head" > "$S/by-name/misc"
@@ -227,6 +227,7 @@ gen() {
       -e "s|/sys/fs/pstore|$S/fakepstore|g" \
       -e "s|/proc/mounts|$S/fake-mounts|g" \
       -e "s|/proc/uptime|$S/fake-uptime|g" \
+      -e "s|/proc/net/tcp6|$S/fake-tcp6|g" \
       -e "s|/proc/net/tcp|$S/fake-tcp|g" \
       -e "s|/proc/net/arp|$S/fake-arp|g" \
       -e "s|/proc/net/route|$S/fake-route|g" \
@@ -253,6 +254,7 @@ run() {
 reset_state() {
   rm -f "$S/state.net" "$S/state.reboot" "$S/telnetd" "$S/lease" "$S/alias" "$S/dhcp-ok" "$S/no-pport" \
         "$S/no-listener" "$S/no-carrier" "$S/up-fail" "$S/up-calls" "$S/fake-props" "$S/fake-tcp" \
+        "$S/fake-tcp6" \
         "$S/cache/hu-mark.log" "$S/cache/net-done-"*.txt \
         "$S/cache/hu-net.stop" "$S/cache/hu-net.request" "$S/cache/misc-head.bin" \
         "$S/cache/state-recovery-"*.txt "$S/cache/pstore-"*/ 2>/dev/null
@@ -260,7 +262,7 @@ reset_state() {
   rm -rf "$S/fakenet" "$S/hucard"; mkdir -p "$S/fakenet" "$S/hucard"
   printf 'fake /dev/block/by-name/cache fake rw 0 0\n' > "$S/fake-mounts"
   printf 'IP address       HW type     Flags       HW address            Mask     Device\n192.168.1.1    0x1         0x2         aa:bb:cc:dd:ee:ff     *        eth0\n' > "$S/fake-arp"
-  : > "$S/fake-tcp"
+  : > "$S/fake-tcp"; : > "$S/fake-tcp6"
 }
 stage_net() { printf "${1:-nonce-1}\n" > "$S/cache/hu-net.request"; }
 # The node exists but the interface is CLOSED, exactly as the unit reports eth0 before the module
@@ -363,7 +365,7 @@ sa=$(grep -n '^ctl.start=adbd' "$S/fake-props" | cut -d: -f1)
 [ -n "$st" ] && [ -n "$pt" ] && [ -n "$sa" ] && [ "$st" -lt "$pt" ] && [ "$pt" -lt "$sa" ] \
   && ok "adbd order is stop -> port -> start (lines $st/$pt/$sa)" || no "adbd order wrong: $st/$pt/$sa"
 expect "adbd svc=running"
-expect "net: adbd listen line=  0: 00000000:15B3"
+expect "fake-tcp6:   0: 00000000000000000000000000000000:15B3"
 expect "elapsed from carrier"
 expect "workstation reaches 192.168.1.127"
 expect "telnetd on 2323"
@@ -384,7 +386,7 @@ reset_state; stage_net nonce-6; iface_present
 HOLD=1; DHCP=4
 run hu-net.sh
 expect "net: address=192.168.1.127 alias_addr=192.168.77.2"
-expect "net: adbd listen line=  0: 00000000:15B3"
+expect "fake-tcp6:   0: 00000000000000000000000000000000:15B3"
 expect "l2 after dhcp"
 expect "workstation reaches 192.168.1.127"
 grep -q 'dhcp offer observed' "$S/cache/hu-mark.log" && no "a lease was claimed with no offer" || ok "no lease claimed"
@@ -407,7 +409,7 @@ HOLD=1; DHCP=4
 run hu-net.sh
 expect "telnetd on default 23"
 expect "p rejected by this busybox"
-expect "net: adbd listen line=  0: 00000000:15B3"
+expect "fake-tcp6:   0: 00000000000000000000000000000000:15B3"
 [ -f "$S/telnetd" ] && ok "telnetd marker" || no "no telnetd"
 
 printf '=== 8. UP succeeded but carrier never arrives: the critical path still runs ===\n'
@@ -419,7 +421,7 @@ expect "net: static rc=0"
 expect "net: route rc=0"
 expect "ctl.stop adbd issued"
 expect "ctl.start adbd issued"
-expect "net: adbd listen line=  0: 00000000:15B3"
+expect "fake-tcp6:   0: 00000000000000000000000000000000:15B3"
 expect "workstation reaches 192.168.1.127"
 expect "carrier=0"
 expect "no carrier on eth0 after"
@@ -441,7 +443,7 @@ expect "waiting for the iface node eth0"
 expect "iface eth0 node present"
 expect "ifconfig eth0 up issued, flags=1 (UP)"
 expect "net: static rc=0"
-expect "net: adbd listen line=  0: 00000000:15B3"
+expect "fake-tcp6:   0: 00000000000000000000000000000000:15B3"
 expect "workstation reaches 192.168.1.127"
 n_wait=$(grep -n -- 'waiting for the iface node eth0' "$S/cache/hu-mark.log" | head -1 | cut -d: -f1)
 n_present=$(grep -n -- 'iface eth0 node present' "$S/cache/hu-mark.log" | head -1 | cut -d: -f1)
@@ -461,7 +463,7 @@ expect "ifconfig eth0 up issued, flags=1 (UP)"
 expect "not UP yet"
 expect "retrying in 2 s"
 expect "net: static rc=0"
-expect "net: adbd listen line=  0: 00000000:15B3"
+expect "fake-tcp6:   0: 00000000000000000000000000000000:15B3"
 expect "workstation reaches 192.168.1.127"
 [ -f "$S/cache/net-done-nonce-8c.txt" ] && ok "nonce consumed after the retried open" || no "marker missing"
 [ -f "$S/state.reboot" ] && no "rebooted" || ok "no reboot"
@@ -475,7 +477,7 @@ expect "continuing anyway"
 expect "never reported UP"
 expect "ctl.stop adbd issued"
 expect "ctl.start adbd issued"
-expect "net: adbd listen line=  0: 00000000:15B3"
+expect "fake-tcp6:   0: 00000000000000000000000000000000:15B3"
 expect "NOT stopping, window stays open"
 [ -f "$S/state.reboot" ] && no "rebooted" || ok "no reboot, no early stop"
 
@@ -563,6 +565,10 @@ n_hold=$(grep -n -- 'hold=${HOLD_ITERS:-120}' "$S/net.body" | head -1 | cut -d: 
 sed -n "$((n_watch + 1)),$((n_hold - 1))p" "$S/net.body" | grep -q 'exit' \
   && no "the carrier watch can stop the module" || ok "carrier watch is diagnostics only - no exit path"
 grep -q 'iface_up_state' "$S/net.body" && ok "the open is verified by sysfs flags" || no "no flags check in the net body"
+# The v5 boot printed NO TCP LISTENER although adb was already connected: adbd binds 5555 on IPv6.
+# The listener check must read both tables, or the module's own success verdict is a false negative.
+grep -q '/proc/net/tcp /proc/net/tcp6' "$S/net.body" \
+  && ok "the listener check reads ipv4 AND ipv6 tables" || no "listener check reads only /proc/net/tcp"
 sed '/^[[:space:]]*#/d' "$REPO/scripts/hu_udhcpc_script.sh" > "$S/dhcp.body" 2>/dev/null
 grep -q 'ifconfig\|route add' "$S/dhcp.body" && no "the dhcp script configures an interface" || ok "dhcp script is diagnostic only"
 sed '/^[[:space:]]*#/d' "$REPO/scripts/hu_state.sh" > "$S/state.body" 2>/dev/null

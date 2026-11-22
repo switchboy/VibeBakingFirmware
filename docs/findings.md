@@ -4513,3 +4513,46 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   nonce `nov22-netmod5-1795302845-40` back in `/cache/hu-net.request` with no `net-done-*` marker
   (the marker written inside recovery does not survive the reboot - D86 - which is why the card copy
   and the pulled copies, not `/cache`, are the evidence of record).
+
+* **Build v6 - the listener check reads both TCP tables (Nov 22, built - not written).** One change,
+  per the owner's direction: `hu-net.sh` now greps `/proc/net/tcp /proc/net/tcp6` for `15B3` state
+  `0A` and keeps the filename in the recorded line, because build v5's boot printed
+  `NO TCP LISTENER` while the workstation was already connected - adbd binds 5555 on IPv6
+  (`/proc/net/tcp6: 0: …:15B3 … 0A` plus an ESTABLISHED entry from the workstation).
+  `hu-h-common.sh` is byte-unchanged from v5 (`18f941443d02cac9`); `hu-net.sh` is
+  `fc9c169cae16bad6`; the other five scripts, the appended rc (`b57d152d9634efd1`) and `prop.default`
+  (`92dbf6d62fb0b5b5`) are unchanged. Built image 39,092,224 B, sha256
+  `b2821cce34ae352a370cc5ccd0eba2a4698ae9de4da5a350b397c8f06195bb39`, write span
+  `bs=512 count=76352` = `bs=2048 count=19088`; kernel/second/dtbo blobs again `cmp`-identical to the
+  capture. Offline gate 19 scenarios rc 0 (152 assertions): the fake `ctl.start adbd` now puts the
+  listener in the tcp6 table only, matching the unit, and the source-side assertion
+  `the listener check reads ipv4 AND ipv6 tables` guards the regression. Dialect gate `mksh R40 -n`
+  rc 0 on all seven scripts.
+* **The A14 payload cannot rewrite partition 8 on an Android boot (Nov 22, read-only debugfs).** The
+  staged vendor (`a14-work/tmp/v_vendor.img`, the vendor extent of `raw-super.img` `d81f913a…`) ships
+  `/etc/init/vendor_flash_recovery.rc` (Inode 605, 226 B):
+  `service vendor_flash_recovery /vendor/bin/install-recovery.sh` / `class main` / `oneshot` /
+  `user root` / `disabled`, started only `on property:persist.vendor.recovery_update=true`. Its
+  executable is NOT staged - `/bin` contains `applypatch` but no `install-recovery.sh`, and there is
+  no `/recovery-from-boot.p` in the root - and the property is not set, so the service cannot run and
+  cannot touch `EMMC:/dev/block/by-name/recovery`. The payload's `/etc/init/hw/init.rc` has no
+  `flash_recovery`/`install-recovery` stanza and `/system/bin` has no `install-recovery.sh`
+  (`a14-work/a14chk/system-slice.img`, read-only). `boot-a10k-a14rd.img` contains zero hits for
+  those names. The partition-8 rewriter we keep seeing is therefore the STOCK Android 10 firmware's
+  `/init.rc:854 service flash_recovery /system/bin/install-recovery.sh` - which disappears from the
+  boot chain the moment partition 7 holds the A14 boot image. Live `misc` head read in Android today:
+  the first 2048 B are all `\0` (the factory `boot-recovery/recovery/--wipe_all` text recorded Nov 4
+  is no longer in the head region).
+* **Gate inventory for the loop (Nov 22, from the repo, no new tooling).** Offline gates that exist:
+  `scripts/verify_artifacts.sh <lineage-tree>` (vendor staging, vendor diff, `scripts/check_super.py`,
+  recovery installability, VINTF via the dist `check_vintf` logs, boot header, and the D47 coupling
+  gate `tools/payload_coupling_check.py`); `tools/vendor_link_closure.py` (link-closure);
+  `tools/identity_gate.py` (byte-identical repack + payload fidelity + lpdump super diff, standalone);
+  the recovery-module logic gates `scripts/smoke_recovery_installer.sh`,
+  `scripts/smoke_recovery_evidence.sh`, `scripts/smoke_recovery_netmodule.sh`. Gaps stated honestly:
+  there is **no standalone fstab gate** (the first-stage fstab is a sub-check inside the coupling
+  gate, D34) and **no dedicated offline vintf/fragment-closure tool** (it is indirect: dist logs +
+  coupling's target-level check, skipped when `SKIP_DIST=1`). The dialect gate is UNIT-side, not
+  offline (`mksh -n` with the ramdisk's own `/sbin/sh`, D82) - and it can now run **inside recovery**
+  over adb, because recovery ships that shell, so a failed boot does not need Android to syntax-check
+  a candidate script.

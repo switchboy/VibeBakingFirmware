@@ -130,10 +130,13 @@ say "net: ctl.start adbd issued"
 
 # 5. Verify the listener before claiming success. 5555 decimal is 0x15B3; LISTEN is state 0A.
 #    This binds whether or not the cable is carrying traffic, so it is not gated on carrier.
+#    Measured Nov 22: adbd binds the TCP port on IPv6, so the entry is in /proc/net/tcp6 (the v5 boot
+#    printed NO TCP LISTENER while the workstation was already connected through 5555). Both tables
+#    are read now, and the filename is kept in the recorded line so the log says which table answered.
 listen_line=none
 j=0
 while [ "$j" -lt 6 ]; do
-  line=$($SB/grep -a -i '15B3' /proc/net/tcp 2>/dev/null | $SB/grep -a -i ' 0A ' | $SB/head -1)
+  line=$($SB/grep -a -i '15B3' /proc/net/tcp /proc/net/tcp6 2>/dev/null | $SB/grep -a -i ' 0A ' | $SB/head -1)
   if [ -n "$line" ]; then listen_line="$line"; break; fi
   $BB sleep 1
   j=$((j + 1))
