@@ -2719,3 +2719,15 @@ software reboot (Nov 23, EXECUTED)**
   before the region, nothing between the region and p1, and nothing at all when a measured p1 start overlaps
   the region.
 
+**D106 corrected (Nov 23, evening) - an armed card BCB does send a reset to the card's recovery**
+* **What was wrong.** D106 concluded from attempts 3-5 that u-boot ignores the card's BCB, because a reset
+  with the BCB armed came back as Android 10 from the eMMC. The owner has since said that on those attempts
+  the card was pulled at the moment of the reset and reinserted during Android 10's boot animation - so the
+  card was not in the slot when the unit restarted, and the eMMC boot says nothing about the BCB.
+* **What was measured instead.** After the step-0 control (attempt 6) the owner reset the unit with the card
+  left in and the BCB armed: it came up as the card's recovery (`storagemedia=sd`, `b.mode=recovery`, build
+  `eng.hct2.20201012`), answering adb on 5555 at about 30 s.
+* **Consequence.** The loop no longer needs Android 10: card in, BCB armed, reset -> networked card recovery,
+  which can read the card log and write the next card image from `/tmp` (D104). D106's other half stands: the
+  log is read from the card itself, because a reset is cold (D105) and pstore never survives it.
+

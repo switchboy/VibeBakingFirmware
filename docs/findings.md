@@ -5411,4 +5411,13 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `t`, `w`, `l`, `c` with no block I/O) stays in the source and is compiled out of the control. Control
   wrapper `ad501c668c00…` (14,680 B), card p7 image `b5ad5d58a56f…`; normal wrapper `9a9a97c0de27…`
   (16,176 B). `scripts/smoke_hu_card_arm.sh` runs nineteen scenarios, 69 checks, `summary: failures=0`.
+* **Attempt 6 - the step-0 control: without Android 14's init, nothing hangs.** Card p7 `b5ad5d58a56f…`
+  written and verified, BCB cleared, `adb reboot` at 19:24:44; the owner reset with the card left in and the
+  unit came up in the card's recovery (D106 corrected). The card held `HULOG2 tick=120 up_ms=122108
+  bytes=67989 state=done`: the recorder ran every one of its 120 ticks, and the kmsg on the card runs from
+  time zero through the wrapper's `CONTROL build - not executing init.real, idling` to ordinary driver lines
+  at 62 s. So the kernel, the card, the dwmmc path and the wrapper are healthy for two minutes, and attempt 5's
+  heartbeat stopping one second after `execing init.real` is caused by Android 14's first-stage init.
+  The previous-boot copy also worked: 6..7 MiB held `HUPREV1 bytes=333545 records=2`, Android 10's shutdown
+  console from the warm `adb reboot` - the mount type `pstore` is right.
 
