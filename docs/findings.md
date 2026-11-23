@@ -5218,3 +5218,19 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   * Declared ramdisk size 12,515,437 B; only header bytes 16..17 change; everything from 37,943,296 onward is
     byte-identical to the capture, so the kernel, second bootloader, dtbo and vendor tail are untouched.
   * The card's misc stayed armed through this write: its first 2048 B reads `ceaae1a6314a…` before and after.
+
+* **Second card boot: the evidence channel works after the fixes (Nov 23).** The boot again carried
+  `storagemedia=sd`, `sys.boot_completed` was empty and one `recovery` process was running. The module's
+  bounded wait paid off: at t=1 s `evidence: mounting /dev/block/mmcblk0 failed - copies stay in RAM`, then
+  at t=10 s `card begin (card-boot mode, destination /mnt/external_sd)` once the stock recovery had mounted
+  the second card's partition, and `state copied to card rc=0` followed. Pulled back from the second card
+  into `/run/media/Daan/Opslagmonster/a14-work/card-boot-nov23-second-card/`: `hu-mark.log` `97ec7de41076…`
+  (7,961 B), `misc-head.bin` `ceaae1a6314a…` (2,048 B), `state-recovery-5.txt` `13a440266799…`,
+  `state-recovery-30.txt` `2f2916d592ca…` and `state-recovery-120.txt` `45b054512f7b…`. Copies are additive;
+  nothing else on that card was touched, and the boot card and eMMC were never written by the module.
+  * Two measured differences from the first card boot: this boot's log timestamps start at epoch
+    1514808001 (2018-01-01) while the first boot's started at 1795430134, and the 120 s snapshot is 3,810 B
+    here versus 6,240 B there. Candidate for the clock difference: the RTC is only populated in some boots;
+    the discriminating measurement is comparing each log's epoch base against `/proc/uptime` at the same
+    ticks. The smaller snapshot is content-dependent, and `/sys/fs/pstore` was empty again.
+  * The card's misc stayed armed after this boot too: its first 2048 B still reads `ceaae1a6314a…`.
