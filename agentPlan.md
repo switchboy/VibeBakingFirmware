@@ -617,3 +617,20 @@ dongle plugged in **before** power-up, read `-HUPATCH` in the menu header and th
     corrected module copies hu-mark.log, misc-head.bin and all three state snapshots onto the second card via
     its partition-node mount, additive. Nothing is pending on the card: the next step is the STEP 4 ladder on
     eMMC p7 through card recovery, one level per flash, each needing the owner's GO.
+
+35. **Nov 23: the Android 14 attempt moves onto the SD-boot card, and the eMMC leaves the write path
+    entirely (D101/D102).** The card carries the eMMC's whole layout - p7 33,554,432 B boot, p14
+    3,263,168,512 B holding a real liblp super - and the only reason by-name pointed at the eMMC from a card
+    boot is one 14-byte string in the card's own dtbo (`bootargs_ext` =
+    `androidboot.boot_devices=fe330000.sdhci` at byte 213). Pointed at `fe320000.dwmmc`, the controller the
+    card itself sits on, a card boot runs entirely from the card: boot p7, system p14, /data p15, misc p3.
+    The rollback becomes physical - remove the card and the untouched stock Android 10 boots from the eMMC -
+    and the card stays writable from a running Android 10 boot by hot-plug, so nothing can strand us. The
+    `hu_wrap` watchdog is dropped: the card is the escape it was meant to be. Writing the shape A super
+    exposed three stuck-at-zero bits in the card's p14 span (single bytes at 1,551,079,141 / 2,274,683,038 /
+    2,347,726,420, hitting librkisp.so, SystemUI.odex and the launcher APK), so
+    `tools/repack_super_place.py` re-places the five extents into the container's 811 MiB of slack with the
+    damaged offsets left in zero-filled gaps - filesystems copied byte-for-byte, all four liblp metadata
+    copies resealed and re-verified. Writes go through `scripts/flash_card_a14.sh`, one span per run, each
+    gated on the partition's pre-write digest and verified by a whole-partition sha256 on the device.
+
