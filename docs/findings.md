@@ -5077,3 +5077,11 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   are not zero - there is an `AB0` marker at 2049 followed by binary content, 412,385 separate non-zero runs in
   the partition. The re-arm step writes only the first 2048 B and leaves 2048..4,194,303 untouched; its blob is the
   registered `ceaae1a6314a…` BCB WITHOUT arguments, which differs from the card's current `--wipe_all` stage line.
+* **Card-boot mode is approved (**D99**, owner: nonce-less arm, 30 min window, second card as the evidence channel) and the offline gate is green.** `scripts/smoke_card_module.sh` now reports failures=0 with exit status 0: an existing second-card mount is used without issuing a mount; a mount whose source is the boot card is refused and the second card is mounted instead at /mnt/hucard; the boot card's whole-device node and its misc node stayed byte-identical through the whole run; no eMMC node was mounted and no ext4 mount was invoked; the state snapshot and the log copy landed on the second card. The eMMC-side gates are unchanged and still pass: smoke_recovery_netmodule.sh, smoke_recovery_evidence.sh, smoke_recovery_installer.sh, smoke_card_rearm.sh and smoke_hu_wrap.sh all exit 0, pytest 19 passed. Module digests after the two fixes:
+  scripts/hu_h_common.sh `a53640d56840…`
+  scripts/hu_state.sh `a29c37e4a45d…`
+  scripts/hu_card.sh `613494c28a0b…`
+  scripts/hu_net.sh `da6acfae3910…`
+  scripts/hu_early.sh `6450ebb0385a…`
+  scripts/hu_net_module_block_card.rc `6b7c1d2be09a…`
+  scripts/patch_recovery_netmodule.sh `1581b4ad7332…`

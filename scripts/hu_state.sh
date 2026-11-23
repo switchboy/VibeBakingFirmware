@@ -32,14 +32,19 @@ say "state end out=$out size=${size:-none} up=$up"
 
 # The card is the durable channel. hu-card.sh keeps its own mount alive until the 120 s snapshot
 # exists, so either mount point is a valid destination; copies are additive and never touch an
-# install package. In card-boot mode (**D98**) the boot card IS this device, so copying there would be
-# a module writing a block device - refused, and the snapshot stays in RAM.
+# install package. In card-boot mode (**D99**) the destination is the SECOND card only (**D99**, owner
+# approved), resolved by size and type; the boot card and the eMMC are never destinations.
+# The destination is chosen FIRST, then one shared copy block runs - the earlier revision put the copy
+# inside the non-card branch, so a card boot resolved a destination and then never copied (measured in
+# scripts/smoke_card_module.sh: the state copy line never appeared).
 dst=none
 if [ -f "$CARD_FLAG" ]; then
-  say "state card copy: card-boot mode - refusing to write to a block device, snapshot stays in RAM ($out)"
+  dst=$(evidence_target 2>/dev/null)
+  [ -n "$dst" ] || dst=none
 else
-if [ -d /mnt/hucard ]; then dst=/mnt/hucard
-elif $SB/grep -q " /mnt/external_sd " /proc/mounts 2>/dev/null; then dst=/mnt/external_sd
+  if [ -d /mnt/hucard ]; then dst=/mnt/hucard
+  elif $SB/grep -q " /mnt/external_sd " /proc/mounts 2>/dev/null; then dst=/mnt/external_sd
+  fi
 fi
 if [ "$dst" != none ]; then
   b=${out##*/}
@@ -47,7 +52,6 @@ if [ "$dst" != none ]; then
   $BB sync 2>/dev/null
   say "state card copy out=$b dst=$dst"
 else
-  say "state card copy: no card mounted - snapshot only in /cache (best effort)"
-fi
+  say "state card copy: no eligible card - snapshot only in $CACHE (best effort)"
 fi
 exit 0

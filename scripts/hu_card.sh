@@ -6,31 +6,45 @@
 # the live page cache, so it captures what /cache would otherwise lose. Copies are additive and never
 # touch an install package.
 . /sbin/hu-h-common.sh
-# Card-boot mode (**D98**): in a card boot the boot card is this very device, so mounting or copying
-# onto it would be the module writing a block device - refused here, and the service is not started in
-# the card build's appended rc either.
-if [ -f "$CARD_FLAG" ]; then
-  say "card: card-boot mode - the boot card is this device; refusing to mount or write anything"
-  exit 0
-fi
 cache_ready || { say "card: cache not mounted, giving up"; exit 1; }
 say "card begin"
 
 copy_all() {
   dst=$1
-  guarded 20 "$SB/cp /cache/hu-mark.log \"$dst/hu-mark.log\""
-  for f in /cache/state-recovery-*.txt; do
+  guarded 20 "$SB/cp \"$LOG\" \"$dst/hu-mark.log\""
+  for f in $CACHE/state-recovery-*.txt; do
     [ -f "$f" ] || continue
     b=${f##*/}
     guarded 15 "$SB/cp \"$f\" \"$dst/$b\""
   done
-  guarded 10 "$SB/cp /cache/misc-head.bin \"$dst/misc-head.bin\""
+  guarded 10 "$SB/cp $CACHE/misc-head.bin \"$dst/misc-head.bin\""
   # the nonce request is copied only when it exists, so an unarmed boot copies nothing extra
-  [ -f /cache/hu-net.request ] && guarded 10 "$SB/cp /cache/hu-net.request \"$dst/hu-net.request\""
+  [ -f "$CACHE/hu-net.request" ] && guarded 10 "$SB/cp \"$CACHE/hu-net.request\" \"$dst/hu-net.request\""
   $BB sync 2>/dev/null
   say "card copied to $dst: $($SB/ls $dst 2>/dev/null | $SB/tr '\n' ' ')"
 }
 
+# Card-boot mode (**D99**, owner-approved): the durable channel is the SECOND card, never the boot card
+# and never the eMMC. The destination is resolved by size and type; if no second card is present the
+# copies stay in RAM and nothing is written anywhere.
+if [ -f "$CARD_FLAG" ]; then
+  dst=$(evidence_target 2>/dev/null)
+  if [ -z "$dst" ]; then
+    say "card: card-boot mode - no second card available, copies stay in RAM ($CACHE)"
+    exit 0
+  fi
+  say "card begin (card-boot mode, destination $dst)"
+  ticks=${CARD_ITERS:-24}
+  i=0
+  while [ "$i" -lt "$ticks" ]; do
+    copy_all "$dst"
+    i=$((i + 1))
+    [ -f "$CACHE/hu-net.stop" ] && { say "card: stop flag seen, exiting at tick $i"; exit 0; }
+    $BB sleep 5
+  done
+  say "card: copies complete to $dst ($ticks ticks)"
+  exit 0
+fi
 # If the recovery UI already mounted the card, copy into that mount without touching the mount table.
 if $SB/grep -q " /mnt/external_sd " /proc/mounts 2>/dev/null; then
   if $SB/cp /cache/hu-mark.log /mnt/external_sd/hu-mark.log 2>/dev/null; then

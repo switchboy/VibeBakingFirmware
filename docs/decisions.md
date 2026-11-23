@@ -2522,18 +2522,29 @@ carrier-first order)**
 * **Re-arm step.** Recovery clears the BCB when it boots, so each card use needs a separate re-arm: the exact
   2048 B BCB for the card's misc - `boot-recovery\0` at 0, `recovery\n` at 64, zero padding, no arguments and
   no `--wipe_all` - written as its own step with node, offsets and readback.
-**D99 - the card build's net module runs in card-boot mode (**D98**, Nov 22 late, PROPOSED - pending owner approval)**
+**D99 - the card build's net module runs in card-boot mode (**D98**, Nov 22 late, APPROVED by the owner Nov 23)**
 * **What changes.** The card build bakes `/sbin/hu-card-boot.flag` into the card's own ramdisk. With that flag
   present the module's marker paths move to RAM (`CACHE`, `LOG`, `NETREQ` under `/tmp`), `cache_ready` returns
-  ready without mounting anything, the misc head is read from the card's own misc node resolved by size and type,
-  `hu-card.sh` refuses to run, and `hu-state.sh` refuses its card copy. That is what keeps the owner's rule true:
-  in a card boot the boot card *is* the device, so copying evidence onto it would be the module writing a block
-  device. No ext4 partition is opened read-write by the module in a card boot.
+  ready without mounting anything, and the misc head is read from the card's own misc node resolved by size and
+  type. No ext4 partition is opened read-write by the module in a card boot. The evidence channel the owner chose
+  is the SECOND card (`mmcblk0`, 31,266,439,168 B): `evidence_target()` uses an existing mount only when its source
+  device is SD-typed with exactly that block count, otherwise it mounts that device at `/mnt/hucard`, and every
+  copy is additive. The boot card (7,948,206,080 B) and the eMMC (type MMC) are refused as destinations, so the
+  owner's rule stays true: the module never writes the device it booted from, and never touches the eMMC.
 * **The nonce question is answered by refusing to depend on it.** What `/cache` is in a card boot is unmeasured,
   and staging a nonce there would need a write. The proposal is that the card boot itself is the arm: no nonce
   file, window 30 minutes (360 ticks of 10 s) instead of 20, because the owner inserts the card deliberately.
   The eMMC path keeps its nonce gate and its 20-minute default unchanged, so the offline gate still proves both.
 * **The appended rc comes out of the card, not from the eMMC copy.** `HU_CARD_BUILD=1` takes the capture's stock
   `init.recovery.rk30board.rc` verbatim and appends `scripts/hu_net_module_block_card.rc`: state snapshots to
-  `/tmp`, `hu_card` defined but not started, `hu_install` absent. The builder refuses the image if `hu_card` is
-  started in a card build or if `hu_install` appears in the appended block.
+  `/tmp`, `hu_install` absent, and `hu_card` STARTED - it is the approved evidence channel and it refuses the
+  boot card and the eMMC. The builder refuses the image if any service is defined or started other than exactly
+  once, or if `hu_install` appears in the appended block.
+
+* **Two defects the offline gate caught, both real (Nov 23).** `hu-state.sh` had its card copy block inside the
+  non-card branch, so a card boot resolved a destination and then copied nothing; the destination is now chosen
+  first and one shared copy block runs. And the sysfs device type was read through a path built at runtime
+  (`/sys/block/$n/device/type`), which the gate's sed cannot rewrite, so the second-card test silently saw no
+  device; the sysfs root is now the variable `SYSBLOCK=/sys/block` in `scripts/hu_h_common.sh`, rewritten as a
+  whole line by the gate. After both fixes `scripts/smoke_card_module.sh` reports failures=0, and the eMMC-side
+  gates still pass unchanged.

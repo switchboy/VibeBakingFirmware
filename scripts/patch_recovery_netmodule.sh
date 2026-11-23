@@ -162,7 +162,12 @@ card_build = sys.argv[3] == "1" if len(sys.argv) > 3 else False
 for svc in ("hu_early", "hu_hb", "hu_state5", "hu_state30", "hu_state120", "hu_net", "hu_card"):
     n = tail.count(b"service " + svc.encode())
     s = tail.count(b"start " + svc.encode())
-    want_start = 0 if (card_build and svc == "hu_card") else 1
+    # In the card build hu_card is started: it is the owner-approved second-card evidence
+    # channel (**D100**) and it refuses the boot card and the eMMC as destinations.
+    # Every service is started exactly once in both builds. In the card build hu_card is started too:
+    # it is the owner-approved second-card evidence channel (**D100**) and it refuses the boot card and
+    # the eMMC as destinations, so the only filesystem it ever writes is a vfat mount of the second SD.
+    want_start = 1
     print(f"service {svc}: defined {n}, started {s} (want {want_start})")
     if n != 1 or s != want_start:
         print("REFUSE: service not defined exactly once or not started as expected"); sys.exit(1)

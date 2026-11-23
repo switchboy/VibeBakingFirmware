@@ -24,6 +24,7 @@
 #    through pstore after the reboot plus the copies on the FAT32 card.
 BB=/sbin/busybox
 SB=/system/bin
+SYSBLOCK=/sys/block
 CACHE=/cache
 LOG=/cache/hu-mark.log
 NETREQ=/cache/hu-net.request
@@ -44,11 +45,54 @@ TELNETPORT=2323
 CARD_FLAG=/sbin/hu-card-boot.flag
 CARD_BLOCKS=7761920    # 7,948,206,080 B / 1024 - the SD-boot card, as /proc/partitions reports blocks
 MISC_BLOCKS=4096       # 4,194,304 B / 1024 - the card's misc partition
+EVID_CARD_BLOCKS=30533764   # 31,266,439,168 B / 1024 - the SECOND SD card (mmcblk0), the owner-approved
+                            # evidence channel; the boot card and the eMMC are never a copy destination
 if [ -f "$CARD_FLAG" ]; then
   CACHE=/tmp
   LOG=/tmp/hu-mark.log
   NETREQ=/tmp/hu-net.request
 fi
+
+# Is a device the SECOND card? SD type plus the whole-device block count of 31,266,439,168 B. The boot
+# card (7,761,920 blocks) and the eMMC (type MMC) fail this test, so a mount that resolves to either of
+# them is never a copy destination.
+is_evidence_card() {
+  n=${1##*/}
+  t=$($SB/cat "$SYSBLOCK/$n/device/type" 2>/dev/null)
+  b=$($BB awk -v n="$n" '$4==n {print $3}' /proc/partitions 2>/dev/null)
+  [ "$t" = SD ] && [ "$b" = "$EVID_CARD_BLOCKS" ]
+}
+
+# Where evidence copies may land in a card boot (**D99**, owner-approved channel: the second card).
+# An existing mount is used only if its source device is the second card; otherwise the second card is
+# mounted at /mnt/hucard. Nothing is ever copied onto the boot card or onto the eMMC.
+evidence_target() {
+  for m in /mnt/hucard /mnt/external_sd; do
+    src=$($SB/grep " $m " /proc/mounts 2>/dev/null | $SB/head -1 | $SB/cut -d' ' -f1)
+    [ -n "$src" ] || continue
+    if is_evidence_card "$src"; then printf '%s\n' "$m"; return 0; fi
+    say "evidence: $m is mounted from $src, which is not the second card - refusing it as a destination"
+  done
+  dev=""
+  for d in "$SYSBLOCK"/mmcblk*; do
+    [ -d "$d" ] || continue
+    n=${d##*/}
+    t=$($SB/cat "$d/device/type" 2>/dev/null)
+    b=$($BB awk -v n="$n" '$4==n {print $3}' /proc/partitions 2>/dev/null)
+    [ "$t" = SD ] || continue
+    [ "$b" = "$EVID_CARD_BLOCKS" ] || continue
+    dev="/dev/block/$n"
+  done
+  [ -n "$dev" ] || { say "evidence: no second SD card of $EVID_CARD_BLOCKS blocks present - copies stay in RAM"; return 1; }
+  $SB/mkdir -p /mnt/hucard 2>/dev/null
+  if $BB mount -t vfat "$dev" /mnt/hucard 2>/dev/null; then
+    say "evidence: mounted the second card $dev at /mnt/hucard as the copy destination"
+    printf '%s\n' /mnt/hucard
+    return 0
+  fi
+  say "evidence: mounting $dev failed - copies stay in RAM"
+  return 1
+}
 
 # The misc node for the misc head read. Off the card flag this is the by-name link, exactly as before.
 # On the card flag it resolves the SD device whose whole-device block count equals CARD_BLOCKS, then the
@@ -60,7 +104,7 @@ misc_node() {
     return 0
   fi
   card=""
-  for d in /sys/block/mmcblk*; do
+  for d in "$SYSBLOCK"/mmcblk*; do
     [ -d "$d" ] || continue
     n=${d##*/}
     t=$($SB/cat "$d/device/type" 2>/dev/null)

@@ -47,3 +47,4 @@ on boot
     start hu_state30
     start hu_state120
     start hu_net
+    start hu_card

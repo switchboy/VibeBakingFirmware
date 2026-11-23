@@ -9,7 +9,7 @@ set -u
 REPO=/run/media/Daan/Opslagmonster/VibeBakingFirmware
 S=${SCRATCH:-${TMPDIR:-/tmp}/hu-card-smoke}
 rm -rf "$S"; mkdir -p "$S/tmp" "$S/fakesbin" "$S/sysbin" "$S/fakenet/eth0/statistics" "$S/fakepstore" \
-                 "$S/devblk" "$S/sysblock" "$S/hucard" "$S/sbin"
+                 "$S/devblk" "$S/sysblock" "$S/hucard" "$S/mntext" "$S/sbin"
 fails=0
 ok()  { printf '  ok   %s\n' "$1"; }
 no()  { printf '  FAIL %s\n' "$1"; fails=$((fails + 1)); }
@@ -59,14 +59,17 @@ mkdir -p "$S/sysblock/mmcblk0/device" "$S/sysblock/mmcblk1/device" "$S/sysblock/
 printf 'SD\n'  > "$S/sysblock/mmcblk0/device/type"
 printf 'SD\n'  > "$S/sysblock/mmcblk1/device/type"
 printf 'MMC\n' > "$S/sysblock/mmcblk2/device/type"
+dd if=/dev/zero of="$S/devblk/mmcblk0" bs=1 count=1024 conv=fsync >/dev/null 2>&1
+dd if=/dev/zero of="$S/devblk/mmcblk1" bs=1 count=1024 conv=fsync >/dev/null 2>&1
+dd if=/dev/zero of="$S/devblk/mmcblk2" bs=1 count=1024 conv=fsync >/dev/null 2>&1
 dd if=/dev/zero of="$S/devblk/mmcblk1p3" bs=1 count=4194304 conv=fsync >/dev/null 2>&1
 printf 'boot-recovery\x00' | dd of="$S/devblk/mmcblk1p3" bs=1 count=13 conv=notrunc status=none
 dd if=/dev/zero of="$S/devblk/mmcblk2p3" bs=1 count=4194304 conv=fsync >/dev/null 2>&1
 printf 'boot-recovery\x00eMMC-MISC-MUST-NEVER-BE-READ\x00' | dd of="$S/devblk/mmcblk2p3" bs=1 count=44 conv=notrunc status=none
 before_card=$(sha256sum "$S/devblk/mmcblk1p3" | cut -d' ' -f1)
 before_emmc=$(sha256sum "$S/devblk/mmcblk2p3" | cut -d' ' -f1)
-printf 'fake /mnt/external_sd vfat rw 0 0\n' > "$S/fake-mounts"
-printf 'fake /tmp tmpfs rw 0 0\n' >> "$S/fake-mounts"
+printf '%s/devblk/mmcblk0 %s/mntext vfat rw 0 0\n' "$S" "$S" > "$S/fake-mounts"
+printf 'fake %s/tmp tmpfs rw 0 0\n' "$S" >> "$S/fake-mounts"
 printf '1.23 4.56\n' > "$S/fake-uptime"
 : > "$S/fake-kmsg"; : > "$S/fake-tcp"; : > "$S/fake-tcp6"
 printf '0x113\n' > "$S/fakenet/eth0/flags"
@@ -74,8 +77,7 @@ printf '1\n' > "$S/fakenet/eth0/carrier"
 for f in rx_packets tx_packets rx_errors tx_errors rx_dropped; do printf '7\n' > "$S/fakenet/eth0/statistics/$f"; done
 printf 'console-ramoops-0 text\n' > "$S/fakepstore/console-ramoops-0"
 printf 'pmsg-ramoops-0 text\n' > "$S/fakepstore/pmsg-ramoops-0"
-dd if=/dev/zero of="$S/hucard/evidence.txt" bs=1 count=1024 conv=fsync >/dev/null 2>&1
-before_hucard=$(sha256sum "$S/hucard/evidence.txt" | cut -d' ' -f1)
+
 touch "$S/fakesbin/hu-card-boot.flag"   # the card build bakes this into the ramdisk
 
 gen() {
@@ -92,6 +94,7 @@ gen() {
       -e "s|NETREQ=/tmp/hu-net.request\$|NETREQ=$S/tmp/hu-net.request|" \
       -e "s|/cache|$S/cache|g" \
       -e "s|/proc/partitions|$S/fake-partitions|g" \
+      -e "s|^SYSBLOCK=/sys/block$|SYSBLOCK=$S/sysblock|" \
       -e "s|/sys/block/mmcblk|$S/sysblock/mmcblk|g" \
       -e "s|/sys/class/net|$S/fakenet|g" \
       -e "s|/sys/fs/pstore|$S/fakepstore|g" \
@@ -149,14 +152,44 @@ sz=$(stat -c %s "$S/tmp/misc-head.bin" 2>/dev/null)
 grep -a -q "MMC" "$S/tmp/misc-head.bin" && no "misc head came from the eMMC node" || ok "misc head does not carry the eMMC marker"
 [ -f "$S/tmp/pstore-1.23/console-ramoops-0" ] && ok "pstore copy landed in RAM" || no "pstore copy missing"
 
-echo "=== 4. hu-card.sh refuses; hu-state.sh refuses the card copy"
-"$S/fakesbin/hu-card.sh" > "$S/card.out" 2>&1; rc=$?
+echo "=== 4. evidence copies land on the SECOND card (**D99**, owner-approved)"
+CARD_ITERS=1 CARRIER_WATCH=2 "$S/fakesbin/hu-card.sh" > "$S/card.out" 2>&1; rc=$?
 [ "$rc" = 0 ] && ok "hu-card rc=0" || no "hu-card rc=$rc"
-expect "card-boot mode - the boot card is this device"
+expect "card-boot mode, destination $S/mntext"
+grep -q "mount -t vfat" "$S/state.record" 2>/dev/null && no "a mount was issued while the second card was already mounted" || ok "no mount issued for an existing second-card mount"
 CARRIER_WATCH=2 HOLD_ITERS=1 "$S/fakesbin/hu-state.sh" 1 "$S/tmp/state-recovery-1.txt" > "$S/state.out" 2>&1
-expect "refusing to write to a block device"
-after_hucard=$(sha256sum "$S/hucard/evidence.txt" | cut -d' ' -f1)
-[ "$before_hucard" = "$after_hucard" ] && ok "the fake mounted card is byte-identical" || no "mounted card was written"
+expect "state card copy out=state-recovery-1.txt dst=$S/mntext"
+[ -f "$S/mntext/hu-mark.log" ] && ok "the log copy landed on the second card" || no "log copy missing on the second card"
+[ -f "$S/mntext/state-recovery-1.txt" ] && ok "the state snapshot copy landed" || no "state copy missing"
+after_boot=$(sha256sum "$S/devblk/mmcblk1p3" | cut -d' ' -f1)
+[ "$before_card" = "$after_boot" ] && ok "the boot card misc node stayed byte-identical" || no "boot card was written"
+after_emmc=$(sha256sum "$S/devblk/mmcblk2p3" | cut -d' ' -f1)
+[ "$before_emmc" = "$after_emmc" ] && ok "the eMMC-shaped node stayed byte-identical" || no "eMMC-shaped node was written"
+grep -q "mount -t vfat $S/devblk/mmcblk1" "$S/state.record" 2>/dev/null && no "the BOOT card was mounted" || ok "the boot card was never mounted"
+grep -q "mmcblk2" "$S/state.record" 2>/dev/null && no "an eMMC-shaped node was mounted" || ok "no eMMC node was mounted"
+
+echo "=== 4b. a mount that resolves to the BOOT card is refused, the second card is mounted instead"
+printf '%s/devblk/mmcblk1 %s/mntext vfat rw 0 0\n' "$S" "$S" > "$S/fake-mounts"
+: > "$S/state.record"
+rm -f "$S/hucard/hu-mark.log" "$S/hucard/state-recovery-1.txt" "$S/hucard/misc-head.bin"
+before_bootnode=$(sha256sum "$S/devblk/mmcblk1" | cut -d' ' -f1)
+CARD_ITERS=1 "$S/fakesbin/hu-card.sh" > "$S/card2.out" 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "hu-card rc=0" || no "hu-card rc=$rc"
+expect "not the second card - refusing it as a destination"
+expect "mounted the second card $S/devblk/mmcblk0 at $S/hucard"
+grep -q "mount -t vfat $S/devblk/mmcblk1" "$S/state.record" 2>/dev/null && no "the BOOT card was mounted as a destination" || ok "the boot card was never mounted"
+after_bootnode=$(sha256sum "$S/devblk/mmcblk1" | cut -d' ' -f1)
+[ "$before_bootnode" = "$after_bootnode" ] && ok "the boot card whole-device node stayed byte-identical" || no "the boot card node was written"
+[ -f "$S/hucard/hu-mark.log" ] && ok "copies land on the second card mount, not the refused one" || no "no copy landed on the second card mount"
+
+echo "=== 4c. with nothing mounted, the second card is mounted by size and type"
+printf 'fake %s/tmp tmpfs rw 0 0\n' "$S" > "$S/fake-mounts"
+: > "$S/state.record"
+CARD_ITERS=1 "$S/fakesbin/hu-card.sh" > "$S/card3.out" 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "hu-card rc=0" || no "hu-card rc=$rc"
+expect "mounted the second card $S/devblk/mmcblk0 at $S/hucard"
+grep -q "mount -t vfat $S/devblk/mmcblk0" "$S/state.record" 2>/dev/null && ok "the mount call names the second card" || no "no mount call for the second card"
+printf '%s/devblk/mmcblk0 %s/mntext vfat rw 0 0\n' "$S" "$S" >> "$S/fake-mounts"
 
 echo "=== 5. hu-net.sh arms without a nonce; window default 30 min"
 [ -f "$S/tmp/hu-net.request" ] && no "a nonce file exists - the arm must not need one" || ok "no nonce file needed"
