@@ -13,7 +13,7 @@
 #   before.sha256    two lines: "<sha> head" and "<sha> tail"  = what is on the card NOW
 #   after.sha256     two lines: "<sha> head" and "<sha> tail"  = the staged blobs
 #
-# The boot card is found by scanning $SYSROOT/block/mmcblk*/device/size (or .../size) and
+# The boot card is found by scanning $SYSROOT/block/mmcblk*/size (the block device's own size) and
 # requiring size == 15523840 sectors, exactly one match. Zero or more than one match is a
 # refusal; by-name symlinks are never used. The eMMC is the device whose size is
 # 122683392 - it is never written, only its first 4 KiB is hashed for the log.
@@ -129,10 +129,9 @@ resolve_boot_device() {
             continue
         fi
         name=${d##*/}
-        size=$(sysfs_read "$d/device/size")
-        if [ -z "$size" ]; then
-            size=$(sysfs_read "$d/size")
-        fi
+        # The block device's own size only. $d/device/size is NOT used: on the unit it made
+        # mmcblk2boot0/1 report the whole eMMC's size (seen in the Nov 23 dry run).
+        size=$(sysfs_read "$d/size")
         if [ -z "$size" ]; then
             note "note: $name has no readable size file, skipped"
             continue
@@ -183,9 +182,11 @@ print_partnames() {
     for p in 12 14; do
         pdir="$SYSROOT/block/$CARD_NAME/${CARD_NAME}p$p"
         if [ -d "$pdir" ]; then
-            pname=$(sysfs_read "$pdir/partname")
-            if [ -z "$pname" ]; then
-                pname=$(sysfs_read "$pdir/name")
+            pname=''
+            if [ -f "$pdir/uevent" ]; then
+                while IFS= read -r ue; do
+                    case "$ue" in PARTNAME=*) pname=${ue#PARTNAME=} ;; esac
+                done < "$pdir/uevent"
             fi
             if [ -n "$pname" ]; then
                 note "PARTNAME p$p: $pname"
