@@ -5207,3 +5207,14 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
     accepted on its parent, no mount issued) and 4e (a partition-node mount of the boot card is refused and
     the second card is mounted instead). `scripts/smoke_card_module.sh` reports failures=0 and the other
     five gates plus pytest stay green.
+
+* **Re-flash with the corrected module (Nov 23, owner GO): the card now carries `b32bff398f3b…`.**
+  * Cold copy first, additive: `/srv/50911774-19fb-46b6-bc9e-8cf81623d044/cold/vibe-baking/hu-card-p8-nov23-fixed/`
+    under `MIRROR.sha256` `751ad7c46659…`; `sha256sum -c` on the NAS returns rc 0 with 15 of 15 entries OK.
+  * Writes on the SD node resolved by size (7,948,206,080 B, type SD): the header page 0..2,047
+    `3ac2688c63c7…` and the ramdisk span 25,425,920..37,943,295 (12,517,376 B) `a3cd88ee6d5c…`, both with
+    `conv=notrunc`. The whole-partition readback of 100,663,296 B equals the record image, and 12,464,879
+    bytes differ from the capture - all of them inside those two spans.
+  * Declared ramdisk size 12,515,437 B; only header bytes 16..17 change; everything from 37,943,296 onward is
+    byte-identical to the capture, so the kernel, second bootloader, dtbo and vendor tail are untouched.
+  * The card's misc stayed armed through this write: its first 2048 B reads `ceaae1a6314a…` before and after.
