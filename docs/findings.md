@@ -5225,8 +5225,8 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   at t=10 s `card begin (card-boot mode, destination /mnt/external_sd)` once the stock recovery had mounted
   the second card's partition, and `state copied to card rc=0` followed. Pulled back from the second card
   into `/run/media/Daan/Opslagmonster/a14-work/card-boot-nov23-second-card/`: `hu-mark.log` `97ec7de41076…`
-  (7,961 B), `misc-head.bin` `ceaae1a6314a…` (2,048 B), `state-recovery-5.txt` `13a440266799…`,
-  `state-recovery-30.txt` `2f2916d592ca…` and `state-recovery-120.txt` `45b054512f7b…`. Copies are additive;
+  (7,961 B), `misc-head.bin` `ceaae1a6314a…` (2,048 B), `state-recovery-5.txt` `45b054512f7b…` (6,458 B),
+  `state-recovery-30.txt` `2f2916d592ca…` (6,732 B) and `state-recovery-120.txt` `13a440266799…` (6,373 B). Copies are additive;
   nothing else on that card was touched, and the boot card and eMMC were never written by the module.
   * Two measured differences from the first card boot: this boot's log timestamps start at epoch
     1514808001 (2018-01-01) while the first boot's started at 1795430134, and the 120 s snapshot is 3,810 B
@@ -5234,3 +5234,26 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
     the discriminating measurement is comparing each log's epoch base against `/proc/uptime` at the same
     ticks. The smaller snapshot is content-dependent, and `/sys/fs/pstore` was empty again.
   * The card's misc stayed armed after this boot too: its first 2048 B still reads `ceaae1a6314a…`.
+
+* **Measurement report for the second card boot (Nov 23, read-only only).** Pulls sit in
+  `/run/media/Daan/Opslagmonster/a14-work/card-boot-nov23-boot2/` with its own `MANIFEST.sha256`:
+  cmdline/mounts/partitions/uptime text `cac793911cfa…`, RAM `hu-mark.log` `3e3bb2f2e413…` (12,018 B),
+  `pstore-tmp-eth0.txt` `a21a6afb22b1…`, the card misc 4 KiB head `a91c9b257401…`, the whole card p8
+  `b32bff398f3b…`, the card p7 4 KiB head `5f1d9939bb0d…`, and the eMMC heads `fac15a4b138e…`,
+  `b06dc33648a3…` and `0f2ec43e7a5c…`.
+  * The card's p8 pulled after the boot equals the record image `b32bff398f3b…` (100,663,296 B, 33 s pull):
+    the recovery boot did not modify its own partition.
+  * Card misc: first 2048 B still the armed blob `ceaae1a6314a…`, and bytes 2048..4095 are byte-identical to
+    the capture, so nothing outside the 2048 B BCB region changed in either boot.
+  * The two card-copy digests were re-measured per file after the first pull mislabelled them: the 5 s
+    snapshot is `45b054512f7b…` and the 120 s snapshot is `13a440266799…`, the opposite of the earlier entry.
+  * The three state snapshots on the second card equal their RAM counterparts byte-for-byte
+    (`45b054512f7b…`, `2f2916d592ca…`, `13a440266799…`). The log copy `97ec7de41076…` is the 7,961 B snapshot
+    taken at copy time while the RAM log had grown to 12,018 B by the pull, so the card holds the log up to
+    the copy, not the whole boot.
+  * eth0 stayed at 192.168.1.127/24 with RX 3499 packets and 0 errors or dropped; TCP 5555 and TCP 2323 were
+    open from watcher tick 3 (~24 s after the boot) onward. `/sys/fs/pstore` was empty again.
+  * Clock difference measured: this boot's log starts at epoch 1514808001 and its own tick deltas match
+    `/proc/uptime`, while the first boot's log started at 1795430134. Candidate: the RTC is populated in
+    some boots only; the discriminating measurement is the log's epoch base against `/proc/uptime` at the
+    same ticks, which holds in both boots.

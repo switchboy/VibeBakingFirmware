@@ -609,3 +609,11 @@ dongle plugged in **before** power-up, read `-HUPATCH` in the menu header and th
     must not be rebooted with it inserted until the owner chooses. The second SD card (31,266,439,168 B) is
     currently absent from the unit, so the approved evidence channel needs it re-inserted before a card boot can
     copy anything.
+34. **Nov 23: card recovery over the network is proven end to end, and the evidence channel works.** Two card
+    boots answered on 192.168.1.127 with adbd on 5555 and telnetd on 2323 (~24 s after the boot), eth0 with
+    driver ax88179_178a, address unchanged after dhcp. The card's p8 stays byte-exact to the record image
+    b32bff398f3b across a boot, its misc keeps the armed blob ceaae1a6314a (the BCB is not cleared by these
+    recovery boots), bytes past 2048 of that partition never change, and the eMMC heads are unchanged. The
+    corrected module copies hu-mark.log, misc-head.bin and all three state snapshots onto the second card via
+    its partition-node mount, additive. Nothing is pending on the card: the next step is the STEP 4 ladder on
+    eMMC p7 through card recovery, one level per flash, each needing the owner's GO.
