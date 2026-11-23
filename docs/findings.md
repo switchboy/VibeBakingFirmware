@@ -5481,4 +5481,22 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
     boot that is progressing is not cut short.
   - Not changed and noted for later: the vendor image's own `/vendor/etc/fstab.rk30board` still names
     `by-name/metadata`; second stage's `mount_all` skips `/metadata` because first stage already mounted it.
+* **Attempt 8 - Android 14 runs: first stage passes, second stage reaches `/data` and the boot animation, then
+  `bpfloader` fails and init reboots.** GPT rename, card p7 `1f4713f9f092…` and BCB clear written and verified
+  in the card recovery (`write_card_gpt.sh` read both spans back, the kernel re-read the table and reported
+  p12 `sd_metadata`, p14 `sd_super`; eMMC heads unchanged). Card log: first-stage mount succeeds, second stage
+  runs `mount_all --early`, `fs_mgr_do_format` formats the card's userdata as f2fs (`make_f2fs` 1.16.0, 3794 MB)
+  and `/data` mounts at 36.4 s; the recorder and the crasher both stand down on `/data`. The boot then ended in
+  a software reboot, so pstore survived into the card recovery for the first time: `console-ramoops-0`
+  (338,545 B) and `pmsg-ramoops-0` (262,132 B). The console shows `bootanim` running for 84 s and `apexd` for
+  77 s, then at 121.19 s `NetBpfLoad` (Tethering APEX 350090000, `kver:413006f`) writing `0` to
+  `/proc/sys/kernel/unprivileged_bpf_disabled` -> EINVAL (not fatal) and failing to open
+  `/proc/sys/net/core/bpf_jit_enable` (No such file or directory) -> exit 1; the `bpfloader` service carries
+  `reboot_on_failure`, so init rebooted with `reboot,bpfloader-failed` at 123.95 s.
+* **Why: the kernel has eBPF but no JIT.** The embedded config has `CONFIG_BPF_SYSCALL=y`, `CONFIG_CGROUP_BPF=y`,
+  `CONFIG_NETFILTER_XT_MATCH_BPF=y`, `CONFIG_NET_CLS_BPF=y`, but `# CONFIG_BPF_JIT is not set`, so the sysctl
+  `net.core.bpf_jit_enable` does not exist. Programs can still run in the interpreter. Removing
+  `reboot_on_failure` alone is not enough: `/system/etc/init/netbpfload.rc` itself records that a bpfloader
+  failure leads to a netd crashloop and a system_server crashloop. The system image is plain ext4 (no
+  `shared_blocks`), 247,283 blocks, 750 free, so it can be edited in place.
 
