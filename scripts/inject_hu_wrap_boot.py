@@ -210,7 +210,16 @@ def main(argv):
     ap.add_argument('--work', default='/run/media/Daan/Opslagmonster/a14-work/tmp/hu-wrap-inject')
     ap.add_argument('--cmdline-append', default='')
     ap.add_argument('--partition-size', type=int, default=DEFAULT_PARTITION_SIZE)
+    ap.add_argument('--replace', action='append', default=[], metavar='NAME=FILE',
+                    help='replace the data of one existing regular-file ramdisk entry (e.g. '
+                         'first_stage_ramdisk/fstab.rk30board=new.fstab); mode, inode and owner are kept')
     a = ap.parse_args(argv[1:])
+    replacements = {}
+    for r in a.replace:
+        name, _, path = r.partition('=')
+        if not name or not path or name in ('init', 'init.real', TRAILER) or name in replacements:
+            raise SystemExit(f"--replace {r!r}: need NAME=FILE, one per entry, not init/init.real")
+        replacements[name] = open(path, 'rb').read()
 
     base = open(a.base, 'rb').read()
     wrapper = open(a.wrapper, 'rb').read()
@@ -232,6 +241,18 @@ def main(argv):
         print(f"note: base carries no RSCE header at or after its content end ({content_end:,} B); the tail is carried verbatim only")
 
     new_raw, entries, orig = swap_init(old_raw, wrapper)
+    for name, data in replacements.items():
+        hits = [e for e in entries if e['name'] == name]
+        if len(hits) != 1:
+            raise SystemExit(f"--replace: expected exactly one entry {name!r}, found {len(hits)}")
+        e = hits[0]
+        if e['mode'] & 0xF000 != 0x8000:
+            raise SystemExit(f"--replace: {name!r} is not a regular file (mode {oct(e['mode'])})")
+        print(f"replace  {name}: {e['size']:,} B sha256 {sha(e['data'])[:12]} -> {len(data):,} B sha256 {sha(data)[:12]}")
+        e['hdr'] = bytearray(e['hdr']); e['data'] = data; e['size'] = len(data)
+        hex_field(e["hdr"], F_SIZE, len(data))
+    if replacements:
+        new_raw = build_cpio(entries, parse_cpio(old_raw)[1])
     new_rd = gzip_deterministic(new_raw)
     rd_span_new = new_rd + b'\x00' * (roundup(len(new_rd)) - len(new_rd))
 
@@ -251,7 +272,11 @@ def main(argv):
         raise SystemExit("self-check failed: /init is not the wrapper bytes")
     if new_by_name['init']['mode'] != 0o100755:
         raise SystemExit(f"self-check failed: /init mode {oct(new_by_name['init']['mode'])}, expected 0o100755")
-    changed = {'init', 'init.real'}
+    changed = {'init', 'init.real'} | set(replacements)
+    for name, data in replacements.items():
+        if new_by_name[name]['data'] != data or new_by_name[name]['mode'] != old_by_name[name]['mode'] \
+           or new_by_name[name]['inode'] != old_by_name[name]['inode']:
+            raise SystemExit(f"self-check failed: replaced entry {name!r} does not carry the new bytes with its old mode/inode")
     for e in old_entries:
         if e['name'] in changed or e['name'] == TRAILER:
             continue

@@ -44,7 +44,7 @@
  * from the start (see start_watchdog), so this only bounds how long a hung boot is left hanging; 90 s is
  * well past the point where a healthy Android 14 boot mounts /data. */
 #ifndef HU_WDT_SECS
-#define HU_WDT_SECS 120   /* recorder ticks; it never crashes anything */
+#define HU_WDT_SECS 180   /* recorder seconds; it never crashes anything */
 #endif
 /* Seconds before the crasher fires. It does no block I/O at all (attempt 5 measured the recorder's card
  * heartbeat stopping one second after Android 14's init started, so card I/O may be what hangs); a healthy
@@ -53,7 +53,7 @@
 #define HU_TEST_CONTROL_SECS 4
 #endif
 #ifndef HU_CRASH_SECS
-#define HU_CRASH_SECS 45
+#define HU_CRASH_SECS 90
 #endif
 
 #define HU_BCB_LEN 2048

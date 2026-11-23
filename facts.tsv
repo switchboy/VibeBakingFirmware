@@ -507,3 +507,10 @@ A14-CARD-P7-CONTROL-IMG	sha	b5ad5d58a56f11d3b53ffa7c3144a1d5e15dca289b29f1ddc143
 HU-CARD-ARM-CRASHER-BIN	sha	9a9a97c0de276977d28e11ed9948b9cdca1164efcb6525c868cebdd14ba94937	bytes	2026-11-23	docs/findings.md	normal wrapper	docs/findings.md	recorder + crasher + previous-boot copy, 16,176 B, not flashed
 HU-CARD-ARM-FAST-BIN	sha	62d3e0f0f377cb006c2cf3d540540499df9572b2db96a4a162d3a0087aa20351	bytes	2026-11-23	docs/findings.md	Wrapper	docs/findings.md	100 ms recorder + crasher + previous-boot copy, 16,208 B
 A14-CARD-P7-FAST-IMG	sha	f6bea79586b8d4442f4e1f9aa84429cdeae8cba260f497c998af3c7eb2940ea4	bytes	2026-11-23	docs/findings.md	card p7 image	docs/findings.md	attempt 7: unmodified Android 14 with the 100 ms recorder
+CARD-GPT-HEAD-NEW	sha	5d61edbb916af6e3c54f4bcc70f0b8b5ec57d457ae780a614ca0011ac6e76a84	bytes	2026-11-23	docs/findings.md	New blobs: head	docs/findings.md	card sectors 0..33 with p12 sd_metadata and p14 sd_super
+CARD-GPT-TAIL-NEW	sha	12f048d4272b6ade405d58b5061143d68da57996d8a29625c918474228638a91	bytes	2026-11-23	docs/findings.md	tail	docs/findings.md	card sectors 15523807..15523839 with the renamed backup array
+CARD-GPT-HEAD-ORIG	sha	cb48df2139ae7ee9743635f2e5bb6f0491b9ea532f67cac68c440c0162f63c27	bytes	2026-11-23	docs/findings.md	head 0..33	docs/findings.md	original card sectors 0..33, rollback
+CARD-GPT-TAIL-ORIG	sha	75596805bbe774a84146798e6eaf0e78e643e31dfde65221bf0ec739bd594ba9	bytes	2026-11-23	docs/findings.md	tail 15523807	docs/findings.md	original card sectors 15523807..15523839, rollback
+A14-CARD-P7-SDNAMES-IMG	sha	1f4713f9f092df98a656b16adee7c10520e0f26edbbe8f264e603e99b501ec47	bytes	2026-11-23	docs/findings.md	Card p7	docs/findings.md	attempt 8 boot image, super_partition=sd_super + fstab sd_metadata
+A14-FSTAB-SDNAMES	sha	ca631046608a2416feb9b262c93a940304e82950e5403f66da3816db6ab0e1c1	bytes	2026-11-23	docs/findings.md	one line	docs/findings.md	ramdisk first-stage fstab with /metadata from by-name/sd_metadata
+HU-CARD-ARM-180-BIN	sha	c378cf7c7a369c6f30778a3f22807c8ce5a6ee21af623a39c4ba0176af8ddefa	bytes	2026-11-23	docs/findings.md	Wrapper	docs/findings.md	100 ms recorder 180 s, crasher 90 s, 16,208 B

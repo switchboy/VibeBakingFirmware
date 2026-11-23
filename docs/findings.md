@@ -5462,4 +5462,23 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `/metadata` line at the new name. liblp's `GetPhysicalPartitionDevicePath` maps the metadata's super block
   device to the super path init resolved, not to the literal name `super`, so the super image itself does not
   change. Second stage is unaffected: ueventd only makes `/dev/block/by-name/*` for boot devices.
+* **Attempt 8 built and checked, not yet written: unique card names for the two first-stage partitions.**
+  - Card GPT: p12 `metadata` -> `sd_metadata`, p14 `super` -> `sd_super`, by `tools/gpt_rename.py` from the
+    card's own sectors read back in recovery (head 0..33 `cb48df2139ae…`, tail 15523807..15523839
+    `75596805bbe7…`, both byte-identical to the Nov 23 capture). New blobs: head `5d61edbb916a…`, tail
+    `12f048d4272b…`. Only the two name fields (in both arrays) and the four CRC fields change; every range, the
+    other thirteen names and the protective MBR are identical; both headers' CRCs verify; `sgdisk -v` on a
+    sparse image of the card reports "No problems found" (its caution about p15's alignment is pre-existing).
+    `scripts/write_card_gpt.sh` writes the two spans on the device: card found by its exact 15,523,840-sector
+    size, refuses unless the card holds the recorded before-digests, reads both spans back after a cache drop,
+    hashes the eMMC head before and after and never writes it. Built by the local model, reviewed and checked
+    independently; pytest now 32 tests, including thirteen for the rename. Rollback: write back the captured
+    original head and tail.
+  - Card p7 `1f4713f9f092…`: unmodified Android 14 with `androidboot.super_partition=sd_super` on the cmdline
+    and the ramdisk's first-stage fstab pointing `/metadata` at `by-name/sd_metadata` (one line,
+    `ca631046608a…`, put in by the injector's new `--replace` option, which keeps the entry's mode and inode).
+    Wrapper `c378cf7c7a36…`: the 100 ms recorder now runs 180 s and the crasher fires at 90 s, so a slow first
+    boot that is progressing is not cut short.
+  - Not changed and noted for later: the vendor image's own `/vendor/etc/fstab.rk30board` still names
+    `by-name/metadata`; second stage's `mount_all` skips `/metadata` because first stage already mounted it.
 
