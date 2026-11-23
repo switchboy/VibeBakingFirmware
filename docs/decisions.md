@@ -2605,33 +2605,42 @@ owner GO)**
   reset. The owner's agreed recovery step is: remove the card, press reset, let stock Android 10 boot, and the
   previous boot's `console-ramoops` is read over adb. A cold power cut destroys it (**D90**).
 
-**D102 - the card has three stuck-at-zero bits in its super span, and the payload is re-placed around them
-(Nov 23, MEASURED)**
-* **How they were found.** The shape A super was written to card p14 and the whole partition read back:
-  `5b26b47c1654…` instead of the image's `d81f913aee91…`. Chunked at 100 MiB, exactly three chunks differed
-  (14, 21, 22); at 1 MiB, exactly three blocks (1479, 2169, 2238); inside those, exactly **one byte each**.
-  In all three the byte on the card is the image byte with one bit cleared - xor `0x40`, `0x40`, `0x10`.
-* **They are frozen, not transient.** Rewriting the three 100 MiB chunks reproduced the identical wrong
-  digests, and a targeted 512 B rewrite of one sector left it unchanged. Two independent reads with different
-  request sizes return the same bytes, and `dmesg` reports no mmc error. The card is an `SU08G` 7.40 GiB SDHC.
-* **The card's state is fully accounted for.** The image with exactly those three bits cleared hashes to
-  `5b26b47c1654…`, the digest the card read back, so 3,263,168,509 of 3,263,168,512 bytes were written
-  correctly and the damage is exactly three bits.
-* **What they hit.** Mapped through liblp and ext4: `vendor` block 131129 -> `/lib64/librkisp.so`,
-  `system_ext` block 60238 -> `/priv-app/SystemUI/oat/arm64/SystemUI.odex`, `system_ext` block 78071 ->
-  `/priv-app/TrebuchetQuickStep/TrebuchetQuickStep.apk`. All three are real code, so leaving them would make
-  a failed boot ambiguous.
-* **The fix is placement, not repair.** The container is 3,263,168,512 B and the five filesystems need
-  2,300 MiB, so 811 MiB is slack. `tools/repack_super_place.py` moves each partition's single linear extent -
-  the filesystem images are copied byte-for-byte, nothing is rebuilt - so the three damaged offsets fall
-  between extents, where the image is zero. A stuck-at-zero bit under a zero byte is invisible, so the
-  partition reads back byte-exact and whole-partition verification stays meaningful.
-* **What the tool changes and proves.** Only each extent's `target_data`; names, sizes, groups, attributes,
-  the geometry and the block-device descriptor are untouched. All four metadata copies (two slots, primary and
-  backup) are resealed - `tables_checksum` = SHA-256 of the tables, `header_checksum` = SHA-256 of the header
-  with its checksum field zeroed, both verified against the source first. It then re-reads its own output:
-  metadata verifies, every extent reads back at its new start, every filesystem is byte-identical to the
-  source with its own ext4 volume name, and every avoided offset is zero. New layout: `system` at 1 MiB,
-  `product` at 967, `odm` at 1403, `vendor` at 1480, `system_ext` at 2239. Image of record
-  `fc2bed8ff15f…`.
+**D102 - the three single-byte errors in the card's super were corrupt reads from the SECOND card, not
+frozen cells on the boot card (Nov 23, first conclusion WRONG, corrected the same day)**
+* **What was first concluded, and why it looked solid.** The shape A super was written to card p14 from a
+  copy staged on the second card and read back as `5b26b47c1654…` instead of `d81f913aee91…`. Narrowing gave
+  three 1 MiB blocks (1479, 2169, 2238), one differing byte each, each the image byte with a single bit
+  cleared (xor `0x40`, `0x40`, `0x10`). Rewriting those three 100 MiB chunks reproduced the identical wrong
+  digests and a targeted 512 B sector rewrite changed nothing, so the cells were called frozen.
+* **The measurement that overturned it.** The staged file's own digest is **not stable**: read twice with the
+  page cache dropped it gave `cfe08e1d3abd…` and then `e3f9ecea45de…`, and 12 of its 32 100 MiB chunks
+  differed from the local image. The second card returns different bytes on different reads. The earlier
+  "staged image verified" check ran immediately after the push with no cache drop, so it was served from the
+  page cache and never tested the card.
+* **The discriminating test.** Each of the three MiB blocks was staged in the unit's RAM (`/tmp`, tmpfs),
+  verified there against the workstation digest, written to card p14 from RAM, and read back: all three now
+  match. The retries had reproduced the same wrong bytes because the page cache kept serving the same
+  corrupted source pages, not because the destination was damaged.
+* **The boot card is healthy.** After those three RAM-sourced 1 MiB writes, the whole partition hashes
+  `d81f913aee91…` - byte-exact to the registered shape A super. No re-placement was needed and none is in
+  use; `tools/repack_super_place.py` and its output `fc2bed8ff15f…` stay in the tree because the tool is
+  correct and the technique is the right answer if a medium ever is damaged, but the card did not need it.
+* **The second card is no longer a data path.** It keeps working as the evidence channel (**D99**) - the
+  boot-2 copies pulled from it were byte-identical to their RAM originals - but nothing is staged on it for a
+  write again. Whether the fault is the card or the `fe310000.dwmmc` slot is unmeasured, and the owner should
+  know their media on it may be at risk.
 
+**D104 - every image write stages in the unit's RAM and is verified per chunk (Nov 23, DECIDED from two
+corruptions)**
+* **Why.** Two separate corruptions happened in one afternoon on the same path, and a single whole-image
+  digest at the end could neither locate nor repair either. RAM (`/tmp`, tmpfs, 1,966,516 KiB) has no stuck
+  cells and no filesystem in between.
+* **The rule.** Small spans (the dtbo at 4,194,304 B, a boot image at 33,554,432 B) are pushed straight to
+  `/tmp`, hashed there against the workstation digest, and only then written. Anything larger than RAM goes
+  through `scripts/write_card_chunked.sh`: one `CHUNK_MIB` slice at a time, staged in `/tmp`, hashed in RAM,
+  written with `conv=fsync,notrunc`, the partition region re-read with the cache dropped and hashed again,
+  with retries on either step and a final whole-partition digest. Chunks that never match are reported with
+  their byte ranges, which is the input a placement workaround needs.
+* **Page cache discipline.** Any readback that is meant to prove what a medium holds must be preceded by
+  `echo 3 > /proc/sys/vm/drop_caches`. A digest taken right after a write proves the transfer, not the
+  medium.

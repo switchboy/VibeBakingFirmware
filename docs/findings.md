@@ -5297,16 +5297,32 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `first_stage_ramdisk/fstab.rk30board` 4,190 B, `init` 3,644,288 B, `system/etc/ramdisk/build.prop` 860 B
   and the device nodes. Its header cmdline is 333 B and already carries `androidboot.veritymode=disabled`
   and `androidboot.selinux=permissive`.
-* **Write 1 - the super, and the three stuck bits it exposed (**D102**).** The shape A super
-  `d81f913aee91…` was staged on the second card and written to card p14; `dd` reported all 3,263,168,512 B
-  copied, and the whole-partition readback came back `5b26b47c1654…`. Three single bits are frozen at zero,
-  at super offsets 1,551,079,141, 2,274,683,038 and 2,347,726,420, hitting
-  `/vendor/lib64/librkisp.so`, `SystemUI.odex` and `TrebuchetQuickStep.apk`. The image with exactly those
-  three bits cleared hashes to `5b26b47c1654…`, which accounts for the card's content to the byte.
-* **The re-placed super.** `tools/repack_super_place.py` moved the five extents to 1 / 967 / 1403 / 1480 /
-  2239 MiB (`system`, `product`, `odm`, `vendor`, `system_ext`), leaving the three damaged offsets in
-  zero-filled gaps; the five filesystem images are byte-identical to the source and all four metadata copies
-  reseal and re-verify. Image of record `fc2bed8ff15f…`, 3,263,168,512 B.
+* **Write 1 - the super, and the corruption it exposed (**D102**).** The shape A super `d81f913aee91…` was
+  staged on the second card and written to card p14; `dd` reported all 3,263,168,512 B copied and the whole
+  partition read back `5b26b47c1654…` - three 1 MiB blocks (1479, 2169, 2238) differing by exactly one byte
+  each, each a single cleared bit. Mapped through liblp and ext4 they sat in `/vendor/lib64/librkisp.so`,
+  `/priv-app/SystemUI/oat/arm64/SystemUI.odex` and `/priv-app/TrebuchetQuickStep/TrebuchetQuickStep.apk`.
+  The image with exactly those three bits cleared hashes to `5b26b47c1654…`, so the destination held our
+  data to the byte except three bits.
+* **The source was the problem, not the destination.** The staged file on the second card hashes differently
+  on different reads once the page cache is dropped - `cfe08e1d3abd…`, then `e3f9ecea45de…`, with 12 of 32
+  chunks wrong. Staging each of the three MiB blocks in the unit's RAM instead, verifying it there and
+  writing it to card p14 from RAM, made all three read back correct, and the whole partition then hashes
+  `d81f913aee91…`, byte-exact to the registered super. So the boot card is healthy, the second card is not a
+  reliable data path, and every readback that is meant to prove what a medium holds needs
+  `drop_caches` first (**D104**).
+* **Writes 2, 3 and 4, all staged in RAM and verified by whole-partition readback.** Card p7 =
+  `fa8e4463573f…` (the shape A boot image plus the diagnostic cmdline; 95 bytes changed inside the header
+  cmdline field at 397..491, kernel, ramdisk, `second` and tail byte-identical to `e504655bd32c…`), card p5 =
+  `1de2005b2406…` (`bootargs_ext` now `androidboot.boot_devices=fe320000.dwmmc`), and the card's BCB cleared
+  to 2048 zero bytes `e5a00aa9991a…`, leaving the misc 4 KiB head `262bab4c55da…`. The pre-write digests were
+  the expected ones every time (`1b47dbc48aee…`, `adc64fd980bd…`, `ceaae1a6314a…`), and the eMMC's p3/p7/p8
+  heads were printed before and after each of the four writes and never changed.
+* **The diagnostic cmdline.** `ignore_loglevel printk.devkmsg=on panic=0 panic_on_oops=1
+  softlockup_panic=1 hung_task_panic=1`, appended to the image's own 333 B header cmdline for a total of
+  428 B inside the 512 B field. `printk.devkmsg=on` is the token **D72** measured taking init's console
+  lines from 65 to 819; the three panic tokens convert a silent hang into a panic with a stack trace, and
+  `panic=0` keeps the unit from looping while no auto-recovery path exists yet.
 * **Two defects fixed in the write path before it was used again**, both found by review rather than by the
   unit: `bcb-clear` wrote the 2048 B Boot Control Block with no pre-write digest gate (it now refuses unless
   the BCB is our armed blob `ceaae1a6314a…` or already all zeros `e5a00aa9991a…`), and an unreadable
