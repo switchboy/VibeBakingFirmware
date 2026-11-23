@@ -54,7 +54,7 @@ chmod 755 "$S/sysbin/setprop" "$S/sysbin/getprop"
 # /proc/partitions reports blocks in 1024-byte units: the SD-boot card is 7,948,206,080 B = 7,761,920
 # blocks, its misc p3 is 4,194,304 B = 4096 blocks; the eMMC is 62,813,896,704 B = 61,341,096 blocks
 # and its type is MMC. Two extra SD-shaped traps: a wrong-size SD, and a card whose p3 size differs.
-printf 'Major Minor Blocks Name\n179 0 30533764 mmcblk0\n179 128 7761920 mmcblk1\n179 131 4096 mmcblk1p3\n179 143 3885568 mmcblk1p15\n179 138 117440 mmcblk1p11\n236 0 61341096 mmcblk2\n236 3 4096 mmcblk2p3\n' > "$S/fake-partitions"
+printf 'Major Minor Blocks Name\n179 0 30533632 mmcblk0\n179 1 30529536 mmcblk0p1\n179 128 7761920 mmcblk1\n179 131 4096 mmcblk1p3\n179 143 3885568 mmcblk1p15\n179 138 117440 mmcblk1p11\n236 0 61341096 mmcblk2\n236 3 4096 mmcblk2p3\n' > "$S/fake-partitions"
 mkdir -p "$S/sysblock/mmcblk0/device" "$S/sysblock/mmcblk1/device" "$S/sysblock/mmcblk2/device"
 printf 'SD\n'  > "$S/sysblock/mmcblk0/device/type"
 printf 'SD\n'  > "$S/sysblock/mmcblk1/device/type"
@@ -62,6 +62,7 @@ printf 'MMC\n' > "$S/sysblock/mmcblk2/device/type"
 dd if=/dev/zero of="$S/devblk/mmcblk0" bs=1 count=1024 conv=fsync >/dev/null 2>&1
 dd if=/dev/zero of="$S/devblk/mmcblk1" bs=1 count=1024 conv=fsync >/dev/null 2>&1
 dd if=/dev/zero of="$S/devblk/mmcblk2" bs=1 count=1024 conv=fsync >/dev/null 2>&1
+dd if=/dev/zero of="$S/devblk/mmcblk0p1" bs=1 count=1024 conv=fsync >/dev/null 2>&1
 dd if=/dev/zero of="$S/devblk/mmcblk1p3" bs=1 count=4194304 conv=fsync >/dev/null 2>&1
 printf 'boot-recovery\x00' | dd of="$S/devblk/mmcblk1p3" bs=1 count=13 conv=notrunc status=none
 dd if=/dev/zero of="$S/devblk/mmcblk2p3" bs=1 count=4194304 conv=fsync >/dev/null 2>&1
@@ -190,6 +191,33 @@ CARD_ITERS=1 "$S/fakesbin/hu-card.sh" > "$S/card3.out" 2>&1; rc=$?
 expect "mounted the second card $S/devblk/mmcblk0 at $S/hucard"
 grep -q "mount -t vfat $S/devblk/mmcblk0" "$S/state.record" 2>/dev/null && ok "the mount call names the second card" || no "no mount call for the second card"
 printf '%s/devblk/mmcblk0 %s/mntext vfat rw 0 0\n' "$S" "$S" >> "$S/fake-mounts"
+
+echo "=== 4d. a PARTITION-node mount is checked on its parent device (measured Nov 23 in the real card
+boot: stock recovery mounts /mnt/external_sd from mmcblk0p1, and sysfs type lives only on mmcblk0)"
+printf '%s/devblk/mmcblk0p1 %s/mntext vfat rw 0 0\n' "$S" "$S" > "$S/fake-mounts"
+: > "$S/state.record"; rm -f "$S/mntext/hu-mark.log" "$S/mntext/state-recovery-1.txt" "$S/mntext/misc-head.bin"
+before_m0p1=$(sha256sum "$S/devblk/mmcblk0p1" | cut -d' ' -f1)
+before_c=$(sha256sum "$S/devblk/mmcblk1p3" | cut -d' ' -f1)
+CARD_ITERS=1 "$S/fakesbin/hu-card.sh" > "$S/card4d.out" 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "hu-card rc=0 with the partition-node mount" || no "hu-card rc=$rc"
+expect "card-boot mode, destination $S/mntext"
+grep -q "mount -t vfat" "$S/state.record" 2>/dev/null && no "a mount was issued for an existing mount" || ok "no mount issued"
+[ -f "$S/mntext/hu-mark.log" ] && ok "copies land on the partition-node mount of the second card" || no "no copy landed"
+after_m0p1=$(sha256sum "$S/devblk/mmcblk0p1" | cut -d' ' -f1)
+[ "$before_m0p1" = "$after_m0p1" ] && ok "the second card partition node stayed byte-identical (only its mount point is written)" || no "partition node was written directly"
+
+echo "=== 4e. a partition-node mount of the BOOT card is refused"
+printf '%s/devblk/mmcblk1p3 %s/mntext vfat rw 0 0\n' "$S" "$S" > "$S/fake-mounts"
+: > "$S/state.record"; rm -f "$S/mntext/hu-mark.log"
+CARD_ITERS=1 "$S/fakesbin/hu-card.sh" > "$S/card4e.out" 2>&1; rc=$?
+[ "$rc" = 0 ] && ok "hu-card rc=0 while refusing the boot card" || no "hu-card rc=$rc"
+expect "not the second card - refusing it as a destination"
+expect "mounted the second card $S/devblk/mmcblk0 at $S/hucard"
+grep -q "mount -t vfat $S/devblk/mmcblk1p3" "$S/state.record" 2>/dev/null && no "the boot card partition was mounted as a destination" || ok "the boot card partition was never mounted"
+[ -f "$S/hucard/hu-mark.log" ] && ok "copies land on the second card mount, not the refused boot-card mount" || no "no copy landed on the second card"
+after_c=$(sha256sum "$S/devblk/mmcblk1p3" | cut -d' ' -f1)
+[ "$before_c" = "$after_c" ] && ok "the boot card misc node stayed byte-identical" || no "boot card node was written"
+printf '%s/devblk/mmcblk0 %s/mntext vfat rw 0 0\n' "$S" "$S" > "$S/fake-mounts"
 
 echo "=== 5. hu-net.sh arms without a nonce; window default 30 min"
 [ -f "$S/tmp/hu-net.request" ] && no "a nonce file exists - the arm must not need one" || ok "no nonce file needed"

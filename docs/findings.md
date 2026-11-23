@@ -5162,3 +5162,48 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
     that card put back in before a card boot can copy anything.
   * Pull timing: 100,663,296 B of card p8 in 24 chunks of 4,194,304 B took 32 s before the write and 33 s
     after.
+
+* **STEP 3: the deliberate card boot ran (Nov 23, performed by the owner) and the patched recovery answered.**
+  Evidence of record is the workstation pulls in `/run/media/Daan/Opslagmonster/a14-work/card-boot-nov23/`:
+  `hu-mark.log` `b4e70ce0f16b…`, `state-recovery-120.txt` `62e590e5c5d8…`, and
+  `cmdline-mounts-partitions.txt` `13b3b5c7df77…`.
+  * Boot identity: `/proc/cmdline` carried `storagemedia=sd` and `b.mode=recovery` while
+    `androidboot.mode=normal` (true of every boot, **D90**); `ro.bootimage.build.fingerprint` ends
+    `-HUPATCH`; `/sbin/hu-card-boot.flag`, `hu-card.sh`, `hu-net.sh` and `busybox` are present;
+    `sys.boot_completed` is empty; `ps -A` shows `init` plus one `recovery` process (pid 133) and no
+    framework services. This is the card's recovery boot from the patched p8.
+  * Network: `eth0` appeared with driver `ax88179_178a` - that answers the built-in-versus-module question,
+    the driver registers eth0 during a card boot - HWaddr `00:0a:cd:27:a5:b2`, address 192.168.1.127/24,
+    alias eth0:1=192.168.77.2, carrier up from t=0 (`net: iface eth0 node present at up=2.19`), address
+    unchanged after dhcp (`net: address after dhcp=192.168.1.127`). TCP 5555 and TCP 2323 were open from
+    watcher tick 1 through tick 276 (~23 min). The heartbeat logged `window complete (240 ticks)` at
+    up=1200.81.
+  * Card-boot mode ran as designed: `net: card-boot mode - arming without a nonce; window 30 min`,
+    `net begin nonce=card-boot`, snapshots in `/tmp` (`state-recovery-5/30/120.txt`), and
+    `early pstore copied files=0` - `/sys/fs/pstore` is empty after a cold power cut (**D90**).
+  * The card's misc was NOT cleared by this boot: its first 2048 B still read `ceaae1a6314a…` at up=1210
+    and again after ~20 min (`misc-after-boot.bin`). **D90**'s "entering recovery clears the BCB" was
+    measured on an eMMC recovery boot. Candidate here: the cleared BCB is written by the menu path rather
+    than by recovery startup; the discriminating measurement is a misc read after a menu action versus
+    after recovery exits without one.
+  * Evidence channel: nothing landed on the second card in this boot. The log reads
+    `evidence: /mnt/external_sd is mounted from /dev/block/mmcblk0p1, which is not the second card -
+    refusing it as a destination`, then `no second SD card of 30533764 blocks present`. Three measured
+    defects, now fixed in the module (`scripts/hu_h_common.sh` `ec3fb6582c9c…`,
+    `scripts/hu_card.sh` `b74b147295d0…`):
+    - `EVID_CARD_BLOCKS` was 30,533,764; `/proc/partitions` reports mmcblk0 as 30,533,632 blocks, which is
+      31,266,439,168 B / 1024. The old value was an arithmetic slip, so no device ever matched it.
+    - `is_evidence_card()` read sysfs `device/type` on the mount's node name. A partition node
+      (`mmcblk0p1`) has no sysfs directory, so the type came back empty and the approved channel was
+      refused; it now resolves the parent device first.
+    - Timing: at up=1.5 s `/proc/partitions` had no mmcblk0 at all, so `hu-card.sh` gave up before the
+      second card existed. It now waits up to `CARD_WAIT_TICKS` (default 12 x 10 s) before giving up, and
+      writes nothing while waiting.
+  * The eMMC was untouched during the card boot: p7 head `fac15a4b138e…`, p8 head `b06dc33648a3…`, misc
+    head `0f2ec43e7a5c…` all equal their heads of record; `by-name` points only at eMMC nodes; no eMMC node
+    is mounted, and the only mounts are `/metadata` (ext4) and `/mnt/external_sd` (vfat) from the stock
+    recovery rc. The second card's older copies from Nov 21 are still present and unchanged.
+  * Gate additions for the partition-node case: scenario 4d (a partition-node mount of the second card is
+    accepted on its parent, no mount issued) and 4e (a partition-node mount of the boot card is refused and
+    the second card is mounted instead). `scripts/smoke_card_module.sh` reports failures=0 and the other
+    five gates plus pytest stay green.

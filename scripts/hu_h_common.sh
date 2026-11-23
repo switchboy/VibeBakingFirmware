@@ -45,8 +45,10 @@ TELNETPORT=2323
 CARD_FLAG=/sbin/hu-card-boot.flag
 CARD_BLOCKS=7761920    # 7,948,206,080 B / 1024 - the SD-boot card, as /proc/partitions reports blocks
 MISC_BLOCKS=4096       # 4,194,304 B / 1024 - the card's misc partition
-EVID_CARD_BLOCKS=30533764   # 31,266,439,168 B / 1024 - the SECOND SD card (mmcblk0), the owner-approved
-                            # evidence channel; the boot card and the eMMC are never a copy destination
+EVID_CARD_BLOCKS=30533632   # the SECOND SD card (mmcblk0) in /proc/partitions - measured in the real card
+                            # boot of Nov 23: mmcblk0 is 30,533,632 blocks = 31,266,439,168 B / 1024. The
+                            # earlier 30,533,764 was an arithmetic slip, so nothing ever matched it; the
+                            # boot card and the eMMC are never a copy destination
 if [ -f "$CARD_FLAG" ]; then
   CACHE=/tmp
   LOG=/tmp/hu-mark.log
@@ -58,8 +60,13 @@ fi
 # them is never a copy destination.
 is_evidence_card() {
   n=${1##*/}
-  t=$($SB/cat "$SYSBLOCK/$n/device/type" 2>/dev/null)
-  b=$($BB awk -v n="$n" '$4==n {print $3}' /proc/partitions 2>/dev/null)
+  # A mount source is normally a PARTITION node (mmcblk0p1). sysfs keeps device/type on the PARENT, and
+  # /proc/partitions lists the parent too, so resolve the parent before checking - measured Nov 23 in the
+  # real card boot: the stock recovery mounts /mnt/external_sd from mmcblk0p1, and the type read on the
+  # partition node came back empty, so the approved channel was refused.
+  parent=${n%%p[0-9]*}
+  t=$($SB/cat "$SYSBLOCK/$parent/device/type" 2>/dev/null)
+  b=$($BB awk -v n="$parent" '$4==n {print $3}' /proc/partitions 2>/dev/null)
   [ "$t" = SD ] && [ "$b" = "$EVID_CARD_BLOCKS" ]
 }
 

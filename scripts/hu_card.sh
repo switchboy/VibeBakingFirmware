@@ -30,6 +30,21 @@ copy_all() {
 if [ -f "$CARD_FLAG" ]; then
   dst=$(evidence_target 2>/dev/null)
   if [ -z "$dst" ]; then
+    # The second card is enumerated AFTER the ramdisk services start. Measured Nov 23 in the real card
+    # boot: at up=1.5 s /proc/partitions had no mmcblk0 at all, and the stock recovery mounted
+    # /mnt/external_sd from mmcblk0p1 only later. So wait for it before giving up; the wait is bounded
+    # (CARD_WAIT_TICKS, default 12 x 10 s) and writes nothing while it waits.
+    w=${CARD_WAIT_TICKS:-12}
+    j=0
+    while [ "$j" -lt "$w" ]; do
+      $BB sleep 10
+      dst=$(evidence_target 2>/dev/null)
+      [ -n "$dst" ] && break
+      j=$((j + 1))
+    done
+    [ "$j" -gt 0 ] && say "card: waited $((j * 10)) s for the second card"
+  fi
+  if [ -z "$dst" ]; then
     say "card: card-boot mode - no second card available, copies stay in RAM ($CACHE)"
     exit 0
   fi
