@@ -374,11 +374,19 @@ __attribute__((unused)) static void start_crasher(int mountsfd, int sysrqfd, con
   if (pid != 0) { hu_line("hu-card-arm: crasher child pid=", pid); return; }
   struct { long s; long ns; } ts = { secs, 0 };
   syscall(SYS_nanosleep, &ts, 0);
+#ifndef HU_CRASH_ALWAYS
   if (boot_looks_alive(mountsfd, ok_path)) {
     hu_put("hu-card-arm: crasher: the boot reached /data - standing down\n");
     syscall(SYS_exit_group, 0);
   }
   hu_put("hu-card-arm: crasher: no /data after the deadline - dumping and panicking\n");
+#else
+  /* Unattended build (-DHU_CRASH_ALWAYS): nobody can press reset, so every boot ends in a warm reboot
+   * at the deadline whatever state it reached, and its console and Android log survive in pstore into
+   * the card recovery that the armed BCB selects. */
+  (void)mountsfd; (void)ok_path;
+  hu_put("hu-card-arm: crasher: unattended deadline reached - dumping and panicking\n");
+#endif
   hu_sysrq(sysrqfd, 't');
   hu_sysrq(sysrqfd, 'w');
   hu_sysrq(sysrqfd, 'l');

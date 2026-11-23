@@ -5517,4 +5517,21 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `/proc/sys/net/core` holding `bpf_jit_enable` and `bpf_jit_kallsyms`, and execs the real netbpfload, so
   programs load into the kernel's interpreter and are pinned in the shared bpffs; every other process keeps
   the real `net.core`. Fail-open: any failed step still execs netbpfload unchanged.
+* **Nov 24 00:0x - the workstation's data drive has NTFS corruption; the working copy moved off it.**
+  `/dev/sda2` (NTFS, mounted `errors=continue`, holding the old repo checkout and every a14-work artifact)
+  logs `ntfs_lookup(): Found stale reference to inode ... returning -EIO. Run chkdsk.` for several directory
+  indexes since 23:32; there are no block-level I/O errors, so it is filesystem metadata damage. Git then
+  failed with `unable to open .git/objects/62: Invoer-/uitvoerfout` (the blob itself, `6269af8b…`
+  `scripts/deploy_device.sh`, hashes correctly from the working file). Nothing more is written to that drive:
+  the repo was cloned fresh from GitHub to `/home/Daan/vbf-work/VibeBakingFirmware` (ext4, `git fsck` clean),
+  and the live artifacts were copied to `/home/Daan/vbf-work/a14-work/`, each verified against its registered
+  digest (all twelve matched). Repairing the NTFS volume is the owner's decision; nothing was attempted.
+* **Attempt 9 written: super with the two fixes, plus an unattended crasher.** Card p14 was confirmed to hold
+  the old super (`d81f913aee91…`, whole-partition read), then only the eight 4 MiB chunks that differ were
+  written (`write_card_chunked.sh` with `CHUNK_MIB=4 ONLY_CHUNKS="0 32 74 81 224 241 259 337"`), each verified,
+  and the whole partition then read back as the new super `afa3ca57d691…`. Card p7 `cc5133f59072…` is
+  attempt 8's image with one change: the wrapper is built `-DHU_CRASH_ALWAYS -DHU_CRASH_SECS=300`
+  (`44d02b1307e7…`), so with nobody to press reset every boot ends at 300 s in a warm reboot (sysrq `t`, `w`,
+  `l`, then `c`) and its console and Android log survive in pstore into the card recovery. The default build is
+  unchanged (`c378cf7c7a36…`); gate 69 checks, `failures=0`.
 
