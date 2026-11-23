@@ -5499,4 +5499,22 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `reboot_on_failure` alone is not enough: `/system/etc/init/netbpfload.rc` itself records that a bpfloader
   failure leads to a netd crashloop and a system_server crashloop. The system image is plain ext4 (no
   `shared_blocks`), 247,283 blocks, 750 free, so it can be edited in place.
+* **Attempt 8's other blockers: one broken vendor manifest behind three abort loops.** From 38 s until the
+  reboot, `vendor.keymint-default`, `keystore2` and `surfaceflinger` aborted every 4-5 s (signal 6). The
+  userspace log (`pmsg-ramoops-0`) shows the cause 95 times: `getDeviceHalManifest: VINTF parse error: Cannot
+  add manifest fragment /vendor/etc/vintf/manifest/android.hardware.health@2.1.xml: HAL
+  "android.hardware.health" has a conflict: @2.0::IHealth/default (from /vendor/etc/vintf/manifest.xml) vs.
+  @2.1::IHealth/default`. With no device manifest, KeyMint cannot register (`Check failed: status ==
+  STATUS_OK (status=-3)`), keystore2 cannot reach a TEE KeyMint (`HARDWARE_TYPE_UNAVAILABLE`) and
+  surfaceflinger aborts with `failed to get hwcomposer service`. The vendor's `manifest.xml` is the stock
+  Android 10 one (target-level 4): it declares `health@2.0` although the image ships
+  `android.hardware.health@2.1-service`, and `keymaster@3.0` although there is no keymaster binary (the AIDL
+  KeyMint service replaces it). All other fragments are AIDL or HIDL `cas@1.2` and do not collide.
+* **Attempt 9 plan (being built offline).** Two edits inside super, both at their existing extents: vendor's
+  `manifest.xml` loses the `health@2.0` and `keymaster@3.0` blocks; system gains `tools/hu_netbpfload.c`
+  (7,280 B static, `7dac0ee0245a…`) as `/system/bin/hu-netbpfload`, and `netbpfload.rc` starts it instead of
+  netbpfload. The wrapper unshares its mount namespace, makes its mounts private, mounts a tmpfs over
+  `/proc/sys/net/core` holding `bpf_jit_enable` and `bpf_jit_kallsyms`, and execs the real netbpfload, so
+  programs load into the kernel's interpreter and are pinned in the shared bpffs; every other process keeps
+  the real `net.core`. Fail-open: any failed step still execs netbpfload unchanged.
 

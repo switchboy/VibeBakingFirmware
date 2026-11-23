@@ -514,3 +514,4 @@ CARD-GPT-TAIL-ORIG	sha	75596805bbe774a84146798e6eaf0e78e643e31dfde65221bf0ec739b
 A14-CARD-P7-SDNAMES-IMG	sha	1f4713f9f092df98a656b16adee7c10520e0f26edbbe8f264e603e99b501ec47	bytes	2026-11-23	docs/findings.md	Card p7	docs/findings.md	attempt 8 boot image, super_partition=sd_super + fstab sd_metadata
 A14-FSTAB-SDNAMES	sha	ca631046608a2416feb9b262c93a940304e82950e5403f66da3816db6ab0e1c1	bytes	2026-11-23	docs/findings.md	one line	docs/findings.md	ramdisk first-stage fstab with /metadata from by-name/sd_metadata
 HU-CARD-ARM-180-BIN	sha	c378cf7c7a369c6f30778a3f22807c8ce5a6ee21af623a39c4ba0176af8ddefa	bytes	2026-11-23	docs/findings.md	Wrapper	docs/findings.md	100 ms recorder 180 s, crasher 90 s, 16,208 B
+HU-NETBPFLOAD-BIN	sha	7dac0ee0245a19b49667af950b86414772dd42bdd66a7f7b82c40b11cdb64dd0	bytes	2026-11-23	docs/findings.md	tools/hu_netbpfload.c	docs/findings.md	netbpfload wrapper: private /proc/sys/net/core with the two JIT knobs, 7,280 B static aarch64
