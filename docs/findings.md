@@ -5056,3 +5056,24 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   digest `ca6d1f4d3384…` at epoch `1795384713`. The verification pass re-reads every chunk and compares digests
   before the image is trusted; it was still in progress at the time of writing, so this digest is the assembled
   stream, not yet a verified copy of the card.
+* **STEP 0.3 on the verified image.** The card's own boot (p7, offset 30,408,704, digest `1b47dbc48aee…` - the
+  same digest the partial stream gave, so the two pulls agree) and recovery (p8, offset 63,963,136, digest
+  `04ed02a2713c…`) share one kernel blob `a11c2667f843…` (25,421,832 B) and one second blob `948d678b9b9e…`
+  (903,168 B). p8 ramdisk gz `65fd99c053e1…` 12,515,795 B, 484 entries. p8 carries a DTB at 37,945,344 size
+  130,833 `9ffc84924422…` and a second DTB-shaped payload at 38,846,528 size 739 `e48134ad0ec7…` - so the card's
+  recovery dtbo span is 739 B, not the eMMC's measured 803 B. p8 files measured: `init.rc` 6,363 B `c57d847660c8…`,
+  `init.recovery.rk30board.rc` 663 B `8938ae4348de…`, `prop.default` 11,025 B `17cc18c1fd71…` (299 keys; it carries
+  `ro.system.build.fingerprint`, `ro.build.display.id` and `ro.bootimage.build.fingerprint` and no `ro.adb.secure`
+  line), `system/bin/recovery` 416,280 B `3aff97ce31d4…`, `sbin/sh` 206,684 B `93fa195954a3…`,
+  `sbin/busybox` 1,807,056 B `e9ad9c4e8999…`, and `default.prop` is a symlink to `prop.default`.
+  `recovery.fstab` is ABSENT from the card's recovery ramdisk (484 entries, none named recovery.fstab).
+  The kernel blob contains 4 `ax88179` strings including `ax88179_178a.c`; whether the driver is built in or a
+  module is not established by that measurement, and the discriminating measurement is whether an
+  `ax88179_178a.ko` exists in the ramdisk listing (it does not appear in the 484 entries) versus the driver
+  registering eth0 during a card boot.
+* **The card's misc partition is not a clean BCB region.** Its first 2048 B digest is `51d5a08cb654…`:
+  `boot-recovery\0` at offset 0 (run 0..12), and at offset 64 the stage line reads `recovery\n--wipe_all\0`
+  (run 64..82), so the card currently instructs `--wipe_all` alongside the recovery stage. Bytes 2048..4,194,303
+  are not zero - there is an `AB0` marker at 2049 followed by binary content, 412,385 separate non-zero runs in
+  the partition. The re-arm step writes only the first 2048 B and leaves 2048..4,194,303 untouched; its blob is the
+  registered `ceaae1a6314a…` BCB WITHOUT arguments, which differs from the card's current `--wipe_all` stage line.
