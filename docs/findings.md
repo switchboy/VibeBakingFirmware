@@ -5127,3 +5127,11 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   * Naming note: the builder's `rd-src` is the overlaid working tree (it already carries the hu files and the
     markers), not a clean extraction; `rd-patched` is a re-extraction of the output image, and its digests
     equal the working tree's, which is what proves the image carries the intended files.
+
+* **The card image of record is mirrored into NAS cold storage (Nov 23, additive).**
+  `/srv/50911774-19fb-46b6-bc9e-8cf81623d044/cold/vibe-baking/hu-card-p8-nov23/` holds
+  `recovery-netmodule.img` (100,663,296 B), `MANIFEST.sha256`, `patch.log`, the `inject/` files and the three
+  write spans (`spans/header-page.bin` 2,048 B, `spans/ramdisk-span.bin` 12,517,376 B,
+  `spans/bcb-rearm.bin` 2,048 B) under `MIRROR.sha256` `c523dc48008a…`. `sha256sum -c` run on the NAS returns
+  rc 0 with 16 of 16 entries OK; the directory is 109 MB and nothing existing was moved or deleted, so
+  **D96** still holds.
