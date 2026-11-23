@@ -5436,4 +5436,30 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   the system is not fully frozen it panics at 45 s and the console survives into the card recovery. Wrapper
   `62d3e0f0f377…` (16,208 B), card p7 image `f6bea79586b8…`; gate nineteen scenarios, 69 checks,
   `summary: failures=0`.
+* **Attempt 7 - root cause found: Android 14's first stage never froze the system; it failed in 70 ms and
+  rebooted into a target that does not come back.** Card p7 `f6bea79586b8…`, 100 ms recorder. The card log
+  shows, after the wrapper's `execing init.real` at 1.049 s: `init: init first stage started!` (1.085 s),
+  `Unable to open /lib/modules, skipping module loading`, `ReadFstabFromDt(): failed to read fstab from dt`,
+  `Failed to read vbmeta partitions`, `realpath failed: /dev/block/by-name/super: No such file or directory`
+  (1.117 s), `Failed to create devices required for first stage mount`, `InitFatalReboot: signal 6`,
+  `Reboot ending, jumping to kernel`, `reboot: --mtc restart` (1.133 s). `InitFatalReboot` restarts into the
+  bootloader target by default, which on this unit is a silent loader mode: black screen, no network, no
+  panic, no detector, and a cold reset afterwards. That one fact explains attempts 1-5, and corrects the
+  "system-wide stop" reading above: the kernel shut down cleanly on init's request.
+* **Why `/dev/block/by-name/super` was never made (MEASURED + AOSP android14-release source).** The cmdline
+  carried `androidboot.boot_devices=fe320000.dwmmc`; the card and all fifteen partitions were enumerated by
+  0.735 s; `mmcblk1p14` has `PARTNAME=super`; its sysfs path resolves to the platform device
+  `fe320000.dwmmc`, which is what `DeviceHandler::FindPlatformDevice` expects. But
+  `BlockDevInitializer::HandleUevent` (init/block_dev_initializer.cpp) matches the wanted devices by partition
+  name alone and stops at the first match - and the eMMC's `mmcblk2p14` is also named `super`, because the
+  card is a clone of the eMMC layout. The eMMC is not a boot device, so handling its uevent makes only
+  `/dev/block/platform/fe330000.sdhci/by-name/super`; `super` is then struck off the wanted list and the
+  card's partition is never handled. The same collision applies to `metadata`, the other first-stage name.
+  `androidboot.partition_map` does not help: it only links partitions that have no GPT name.
+* **The fix, not yet built.** Give the card's two first-stage partitions unique GPT names (p14 and p12), pass
+  `androidboot.super_partition=<new name>` on the boot image's cmdline (fs_mgr.cpp
+  `fs_mgr_get_super_partition_name` honours it when there is no slot suffix), and point the ramdisk fstab's
+  `/metadata` line at the new name. liblp's `GetPhysicalPartitionDevicePath` maps the metadata's super block
+  device to the super path init resolved, not to the literal name `super`, so the super image itself does not
+  change. Second stage is unaffected: ueventd only makes `/dev/block/by-name/*` for boot devices.
 
