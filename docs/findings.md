@@ -5549,4 +5549,29 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `/apex/com.android.tethering/bin/netbpfload`, falling back to `/system/bin/netbpfload` only if it is missing.
   Both files keep mode, owner and `security.selinux`; e2fsck clean. Super `b3f350783336…`: five 4 MiB chunks
   differ from attempt 9's, written with `ONLY_CHUNKS`, whole p14 read back equal.
+* **Attempt 10 - bpfloader passes; the framework runs and RescueParty reboots it at 200 s.** The boot got past
+  `bpfloader` (no `bpfloader-failed`) and ended with `reboot,RescueParty` at 199.8 s after RescueParty chose
+  `WARM_REBOOT`; pstore held a full 524,276 B console ring (from 125 s on) and 262,132 B of userspace log. In
+  the surviving console the whole display/framework group was restarted 15 times together (`zygote`,
+  `zygote_secondary`, `surfaceflinger`, `netd`, `audioserver`, `cameraserver`, `media`, `wificond`, each
+  signal 9), triggered each time by `vendor.hwcomposer-2-1` dying with signal 11; `vendor.audio-hal` (abort:
+  `Could not register Audio Core API`) and `vendor.rockit-hal-1-0` (abort: seccomp policy
+  `/vendor/etc/seccomp_policy/rockit.vendor.base-arm.policy` missing) also crash every cycle. Tombstones were read
+  from the card's `/data/tombstones` (userdata mounted read-only with `norecovery` in the card recovery).
+* **The composer crash is an ABI mismatch in the HWC1 device struct (MEASURED).** tombstone_00: composer@2.1-service,
+  SIGSEGV at pc 0 from `HWC2On1Adapter::populateCapabilities()+64`, called from `HwcLoader::openDeviceWithAdapter`.
+  The Rockchip module `hwcomposer.rk30board.so` (`329a6d722870…`, identical to the daisaita_a10 stock tree) is an
+  HWC1 device; stock Android 10 also drove it through `libhwc2on1adapter.so`, but its adapter (`8601c434465f…`)
+  was built in Rockchip's tree. `populateCapabilities` is source-identical in android10-release and
+  android14-release, yet the stock adapter loads `query` from `[device, #0xb8]` and ours (`c32e3e68bb5b…`, built
+  from AOSP) from `[device, #0x98]`: Rockchip's `hwc_composer_device_1` carries 32 extra bytes before `query`, so
+  ours calls a NULL slot. Rockchip also changed other HWC1 structs historically, so patching offsets is not safe.
+* **Attempt 11 written: the stock Android 10 composer pair, built against Rockchip's header.** vendor gets the stock
+  `android.hardware.graphics.composer@2.1-service` (`11870e3b9af6…`, 11,664 B) and `libhwc2on1adapter.so`
+  (`8601c434465f…`, 159,976 B) in place of ours, with the original mode, owner and `security.selinux`
+  (`hal_graphics_composer_default_exec`, `vendor_file`). All their C++ imports resolve against the Android 14
+  vendor libraries (composer@2.1, libbinder, libhidlbase, libhidltransport, libutils, libcutils, libhardware,
+  libc++, liblog, libsync); the rest are bionic names. A stock adapter with our Android 14 service would not
+  work: the two sources differ in members, so `make_unique` would allocate the wrong class size. Super
+  `9dbfc7b5c757…`, five 4 MiB chunks written, whole p14 read back equal.
 
