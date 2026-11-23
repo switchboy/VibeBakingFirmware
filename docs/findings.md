@@ -5135,3 +5135,30 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   `spans/bcb-rearm.bin` 2,048 B) under `MIRROR.sha256` `c523dc48008a…`. `sha256sum -c` run on the NAS returns
   rc 0 with 16 of 16 entries OK; the directory is 109 MB and nothing existing was moved or deleted, so
   **D96** still holds.
+
+* **STEP 2 executed (Nov 23, owner GO): the SD-boot card carries the patched p8 and a re-armed misc.**
+  * Pre-state: the card's p8 pulled over adb was 100,663,296 B digest `04ed02a2713c…`, byte-identical to the
+    verified capture. The card was resolved by whole-device size 7,948,206,080 B and type SD;
+    `/dev/block/by-name/*` still points only at eMMC nodes, so no by-name path was used anywhere.
+  * Writes: the header page (partition bytes 0..2,047) and the ramdisk span (partition bytes
+    25,425,920..37,943,295 = 12,517,376 B) into `/dev/block/mmcblk1p8` with `conv=notrunc`, from blobs pushed
+    to `/data/local/tmp`. Pulling the whole p8 back afterwards gave 100,663,296 B digest `03dcdad7af92…` -
+    byte-identical to the record image - and every difference against the capture falls inside those two
+    spans (12,464,811 bytes in 50,745 runs). The kernel span, second bootloader, dtbo and vendor tail are
+    untouched.
+  * Misc re-arm: `scripts/arm_card_misc.sh`, corrected to digest `d05786794c87…`, resolved the SD card misc
+    by whole-device size and type, wrote exactly 2,048 B and read it back equal - blob and readback digest
+    `ceaae1a6314a…`, so the card's stage line no longer carries `--wipe_all`. Bytes 2048..4095 of that
+    partition are still identical to the capture.
+  * Two Android-side defects in that script, found by running it: `stat` is not a bare Android binary (it is
+    only a toybox applet), and Android's normal boot has no `/tmp` (recovery does), so the BCB blob could
+    never be created. Both calls now go through the script's `tool()` resolver and the blob is built in the
+    first writable of `/tmp` and `/data/local/tmp`. The first run aborted with an empty blob size and wrote
+    nothing, which is the safe outcome; `scripts/smoke_card_rearm.sh` still reports failures=0.
+  * Nothing else changed: the card's p7 4 KiB head `5f1d9939bb0d…` matches the capture, and the eMMC heads
+    are unchanged (p7 `fac15a4b138e…`, p8 `b06dc33648a3…`, misc `0f2ec43e7a5c…`). The card's misc 4 KiB head
+    is now `89b2d3ba61b1…`. The second SD card is not present in this boot - only `mmcblk1` (SD
+    7,948,206,080 B) and `mmcblk2` (MMC 62,813,896,704 B) exist - so the approved evidence channel needs
+    that card put back in before a card boot can copy anything.
+  * Pull timing: 100,663,296 B of card p8 in 24 chunks of 4,194,304 B took 32 s before the write and 33 s
+    after.

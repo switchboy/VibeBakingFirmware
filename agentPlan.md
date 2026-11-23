@@ -597,3 +597,15 @@ dongle plugged in **before** power-up, read `-HUPATCH` in the menu header and th
     need is the header page 0..2,047 plus the ramdisk span 25,425,920..37,943,295 - 12,519,424 B of the partition,
     on the SD node resolved by size 7,948,206,080 B, followed separately by the card misc re-arm
     (`scripts/arm_card_misc.sh`). Nothing has been written to the card or the eMMC.
+33. **Nov 23: STEP 2 done with the owner's GO - the SD-boot card is patched and re-armed.** The card was
+    resolved by size (7,948,206,080 B, type SD), never by-name. Pre-state pull proved p8 equal to the capture
+    (`04ed02a2713c…`); the header page and the ramdisk span were written with `conv=notrunc`; the whole-partition
+    readback equals the record image `03dcdad7af92…` and every changed byte falls inside those two spans; the misc
+    re-arm wrote 2,048 B (`ceaae1a6314a…`, no `--wipe_all`) and read back equal. The card's p7 head and all three
+    eMMC heads are unchanged. Two Android-side bugs in `scripts/arm_card_misc.sh` were found and fixed on the way
+    (`stat` is a toybox applet, not a bare Android binary, and Android's normal boot has no `/tmp`); the first run
+    aborted safely. The next step is STEP 3: read-only measurement in Android with the card in (by-name links,
+    eMMC by size 62,813,896,704 B, mounts, eMMC p7 hash), then the owner's deliberate card boot - the boot card
+    must not be rebooted with it inserted until the owner chooses. The second SD card (31,266,439,168 B) is
+    currently absent from the unit, so the approved evidence channel needs it re-inserted before a card boot can
+    copy anything.
