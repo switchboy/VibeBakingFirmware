@@ -32,6 +32,18 @@
 #include <sys/stat.h>
 #include <sys/mount.h>
 #include <unistd.h>
+#include <linux/reboot.h>
+#include <signal.h>
+
+/* Seconds the watchdog child waits before forcing a SOFTWARE reboot. Measured reason it exists: on
+ * attempt 2 the Android 14 boot hung without panicking, so `panic=10` never fired, and the owner's
+ * reset button is a COLD reset that wipes DRAM - which destroys the ramoops console record, the only
+ * log channel this unit has. A reboot through the reboot syscall is warm, so the record survives into
+ * the next boot, and the armed BCB makes that next boot the networked recovery. 150 s is long enough
+ * for an Android 14 boot to get as far as it is going to get and short enough to keep the loop fast. */
+#ifndef HU_WDT_SECS
+#define HU_WDT_SECS 150
+#endif
 
 #define HU_BCB_LEN 2048
 /* /proc/partitions counts 1024-byte blocks. Measured on the unit: the SD-boot card is 7,948,206,080 B
@@ -166,6 +178,44 @@ static int find_card_misc(const char *parts_path, long *major, long *minor) {
   return -1;
 }
 
+/* Fork a child that waits, re-checks the BCB and then reboots in software. It is started only after
+ * the BCB has been written and verified, because a reboot with no armed BCB would just boot the same
+ * failing image again. If anything clears the BCB within the window - which a booted Android 14 can
+ * do over adb - the child exits quietly and nothing reboots. The parent returns immediately and execs
+ * init.real; the child is a plain child of PID 1 and survives that exec.
+ *
+ * Correct reboot magics matter: tools/hu_wrap.c used 0x6a215546 and 0xd1d1f7e7, which are not the
+ * kernel's LINUX_REBOOT_MAGIC2 (0x28121969) and LINUX_REBOOT_CMD_RESTART2 (0xa1b2c3d4), so its
+ * reboot syscall could only ever have returned EINVAL. That is why D97's watchdog was never observed. */
+static void start_watchdog(int miscfd, long secs, int test, const char *mark) {
+  long pid = syscall(SYS_clone, (unsigned long)SIGCHLD, 0UL, 0UL, 0UL, 0UL);
+  if (pid != 0) { hu_line("hu-card-arm: watchdog child pid=", pid); return; }
+
+  struct { long tv_sec; long tv_nsec; } ts = { secs, 0 };
+  syscall(SYS_nanosleep, &ts, 0);
+
+  char back[HU_BCB_LEN];
+  long r = syscall(SYS_pread64, miscfd, back, HU_BCB_LEN, 0);
+  int armed = r == HU_BCB_LEN;
+  for (int i = 0; armed && i < HU_BCB_LEN; i++) if (back[i] != bcb[i]) armed = 0;
+  if (!armed) {
+    hu_put("hu-card-arm: watchdog: BCB no longer armed, standing down\n");
+    syscall(SYS_exit_group, 0);
+  }
+  hu_put("hu-card-arm: watchdog expired with the BCB still armed - software reboot so the console "
+         "record survives\n");
+  syscall(SYS_sync);
+  if (test) {
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, mark ? mark : "hu-card-arm.reboot",
+                          O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd >= 0) { syscall(SYS_write, fd, "reboot\n", 7); syscall(SYS_close, fd); }
+  } else {
+    syscall(SYS_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, LINUX_REBOOT_CMD_RESTART, 0);
+    hu_put("hu-card-arm: watchdog: reboot syscall returned - it was refused\n");
+  }
+  syscall(SYS_exit_group, 0);
+}
+
 int main(int argc, char **argv) {
   extern char **environ;
   int test = hu_getenv("HU_TEST") != 0;
@@ -194,21 +244,26 @@ int main(int argc, char **argv) {
   if (arm) {
     fill_bcb();
     int fd = -1;
-    if (test) {
-      const char *mp = hu_getenv("HU_TEST_MISC");
-      fd = mp ? (int)syscall(SYS_openat, AT_FDCWD, mp, O_RDWR) : -1;
-      if (!mp) hu_put("hu-card-arm: HU_TEST_MISC unset\n");
-    } else {
+    long major = 0, minor = 0;
+    /* The device lookup runs in BOTH modes, so the offline gate exercises the rule that decides which
+     * device may be written. Only the mount and the node differ: a test run reads a fake
+     * /proc/partitions and writes a loopback file instead of a block node. */
+    if (!test) {
       syscall(SYS_mkdirat, AT_FDCWD, HU_PROC, 0755);
       if (syscall(SYS_mount, "proc", HU_PROC, "proc", 0, 0) != 0) {
         hu_put("hu-card-arm: ARM FAILED: cannot mount proc\n");
         goto handoff;
       }
       mounted = 1;
-      long major = 0, minor = 0;
-      if (find_card_misc(parts, &major, &minor) != 0) { hu_put("hu-card-arm: ARM FAILED: no misc\n"); goto handoff; }
-      hu_line("hu-card-arm: major=", major);
-      hu_line("hu-card-arm: minor=", minor);
+    }
+    if (find_card_misc(parts, &major, &minor) != 0) { hu_put("hu-card-arm: ARM FAILED: no misc\n"); goto handoff; }
+    hu_line("hu-card-arm: major=", major);
+    hu_line("hu-card-arm: minor=", minor);
+    if (test) {
+      const char *mp = hu_getenv("HU_TEST_MISC");
+      fd = mp ? (int)syscall(SYS_openat, AT_FDCWD, mp, O_RDWR) : -1;
+      if (!mp) hu_put("hu-card-arm: HU_TEST_MISC unset\n");
+    } else {
       if (syscall(SYS_mknodat, AT_FDCWD, HU_MISC, S_IFBLK | 0600, (major << 8) | minor) != 0) {
         hu_put("hu-card-arm: ARM FAILED: mknod\n");
         goto handoff;
@@ -228,6 +283,13 @@ int main(int argc, char **argv) {
     hu_line("hu-card-arm: readback=", r);
     hu_put(same ? "hu-card-arm: BCB verified - the next reset boots recovery\n"
                 : "hu-card-arm: ARM FAILED: readback mismatch\n");
+    if (same) {
+      const char *w = test ? hu_getenv("HU_TEST_WATCHDOG") : 0;
+      long secs = HU_WDT_SECS;
+      if (w) { secs = 0; for (const char *q = w; *q >= '0' && *q <= '9'; q++) secs = secs * 10 + (*q - '0'); }
+      hu_line("hu-card-arm: watchdog delay=", secs);
+      start_watchdog(fd, secs, test, test ? hu_getenv("HU_TEST_REBOOT_MARK") : 0);
+    }
     syscall(SYS_close, fd);
     if (!test) syscall(SYS_unlinkat, AT_FDCWD, HU_MISC, 0);
   }

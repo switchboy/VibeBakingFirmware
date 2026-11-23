@@ -5329,3 +5329,29 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   partition left the pre-write digest empty, which would have matched a blank line in a `.before` file (the
   digest must now be 64 characters).
 
+## Nov 23 (late afternoon) - Android 14 attempts 1 to 3 on the card
+
+* **Attempt 1** - card p7 `fa8e4463573f…` (shape A boot image plus the diagnostic cmdline), card p14
+  `d81f913aee91…`, card p5 `1de2005b2406…`, BCB cleared. Started with the reset button. The owner reports a
+  black screen with the buttons illuminated; the network never answered (watcher saw the reset at 14:54:43
+  and nothing for the rest of the window). Afterwards, read from the Android 10 boot: `/sys/fs/pstore`
+  **empty** (**D105**), card p12 `5eac140209ed…` byte-identical to the capture, card p5 and p7 exactly as
+  written. So the attempt produced no log and touched nothing.
+* **Attempt 2** - the same payload with the PID-1 wrapper injected (`d60b6ea965a7…`, cmdline `panic=10`).
+  Started with `adb reboot` from Android 10, which the owner confirmed boots the card. Black screen again,
+  and nothing on the network for about three minutes, so no panic fired. **But the card's BCB read
+  `ceaae1a6314a…` afterwards - armed.** Nothing else writes that blob, so u-boot booted card p7, the stock
+  kernel ran, the initramfs ran with the wrapper as PID 1, the wrapper resolved the card's misc by block
+  count, wrote and verified the 2048 B BCB, and execed Android 14's own `init`. The whole chain up to
+  Android 14's userspace works, and the failure is inside it, without a panic.
+* **The wrapper, gated offline.** `scripts/smoke_hu_card_arm.sh` runs ten scenarios under qemu-aarch64 with a
+  fake `/proc/partitions` and a loopback misc: the happy path resolves `mmcblk1` and `mmcblk1p3` by block
+  count and writes the registered BCB `ceaae1a6314a…` with nothing past byte 2048, two devices of the card's
+  size are refused rather than guessed, a misc of the wrong block count is refused, a non-`init` argv[0] is
+  passthrough with the misc untouched, an unopenable misc fails open, the watchdog fires in software after
+  its delay, it stands down if the BCB is cleared inside the window, and it never starts when nothing was
+  armed. `summary: failures=0`.
+* **Attempt 3** - `aaa4fe5fc21d…`, the same image plus the watchdog, written to card p7 and verified by
+  whole-partition readback, with the BCB cleared again and the reboot issued over adb. The wrapper binary is
+  `adc4b2b764b4…`, built `zig cc -target aarch64-linux-musl -static -Os` with `SOURCE_DATE_EPOCH=1760000000`.
+

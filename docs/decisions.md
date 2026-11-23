@@ -2644,3 +2644,44 @@ corruptions)**
 * **Page cache discipline.** Any readback that is meant to prove what a medium holds must be preceded by
   `echo 3 > /proc/sys/vm/drop_caches`. A digest taken right after a write proves the transfer, not the
   medium.
+
+**D105 - the unit's reset button is a COLD reset, so the only log channel needs a software reboot
+(Nov 23, MEASURED three times)**
+* **What was measured.** `/sys/fs/pstore` came back empty after every boot the owner started with the
+  button: both card recovery boots on Nov 23 (the module logged `early pstore copied files=0`) and the
+  Android 10 boot taken right after Android 14 attempt 1. The Android 10 boot reports
+  `ramoops: attached 0xf0000@0x110000` - the same region as the card boot - so the region matches and the
+  records were simply gone. **D69**'s surviving whole-boot console record came from a reboot issued in
+  software, not from the button.
+* **Consequence.** The button can start an attempt but can never collect its log. Every failed attempt must
+  reach a reboot through the reboot syscall, or through a kernel panic with `panic=10`, for the ramoops
+  console to survive into the next boot.
+* **Not measured.** Whether the button cuts DRAM power or the loader clears the region; the discriminating
+  measurement would be a button press from a boot known to have written console output, read back by the
+  next boot, and it is not worth an owner cycle while the software path works.
+
+**D103 - the Android 14 ramdisk gets a minimal PID-1 wrapper that arms the card's BCB and forces a
+software reboot (Nov 23, EXECUTED)**
+* **What it does.** `tools/hu_card_arm.c`, 9,048 B static aarch64, runs as `/init` from the Android 14
+  ramdisk: it mounts `proc` on a private directory, finds the boot card's `misc` by whole-device block count
+  plus the partition's own block count (**D76** - never by-name, never a partition number alone), mknods the
+  node, writes the registered 2048 B BCB, verifies the readback, forks a watchdog child, and execs
+  `/init.real`. Every failure path still execs `/init.real`: refusing to boot is worse than not arming.
+* **Why not `tools/hu_wrap.c`.** That one resolves `misc` by walking `/sys/block`, but sysfs is not mounted
+  when PID 1 starts, so the lookup cannot succeed in a first-stage ramdisk. Worse, its reboot used
+  `0x6a215546` and `0xd1d1f7e7` where the kernel wants `LINUX_REBOOT_MAGIC2` `0x28121969` and
+  `LINUX_REBOOT_CMD_RESTART2` `0xa1b2c3d4`, so its reboot syscall could only ever return EINVAL. That is why
+  **D97**'s watchdog reboot was never observed: it could not have worked.
+* **The watchdog.** A forked child waits 150 s, re-reads the BCB, and if it is still armed reboots through
+  the reboot syscall - a warm reboot, so the ramoops console survives, and the armed BCB makes the next boot
+  the networked recovery. If anything clears the BCB inside the window the child stands down and nothing
+  reboots, which is the escape hatch a booted Android 14 can use over adb. The child is started only after
+  the BCB verifies, because rebooting with no armed BCB would just boot the same failing image again.
+* **What it buys.** The loop is remote: `adb reboot` from Android 10 starts an attempt, and a failed attempt
+  reports itself in the networked recovery about three minutes later with its console record intact. No
+  button press, no card handling.
+* **The BCB is also the non-volatile signal.** It survives a cold reset, so reading it answers the one
+  question ramoops cannot when a log is lost: armed means u-boot booted card p7, the kernel ran, the
+  initramfs ran and the wrapper handed off to Android 14's init; clear means u-boot never reached our
+  ramdisk.
+
