@@ -2573,3 +2573,65 @@ reproducible (Nov 23).**
   which is an in-place cpio byte transform (**D95**) and never calls this repacker, so their recorded digests
   still describe the files on disk: `b1378cd79497…`, `8f287e8bfa98…` and `02ac85b9aee4…` were re-measured on
   the workstation after the repacker change and still match.
+
+**D101 - the Android 14 test bed moves onto the SD-boot card, and the wrapper leaves the loop (Nov 23,
+owner GO)**
+* **The measurement that changed the plan.** The SD-boot card carries the same partition layout as the
+  eMMC. Measured in the card recovery boot from `/proc/partitions`: `mmcblk1p7` 32,768 blocks (33,554,432 B,
+  boot) and `mmcblk1p14` 3,186,688 blocks (3,263,168,512 B, super), and the card's p14 holds a real liblp
+  container - geometry magic `gDla` at byte 4096 of the capture, five logical partitions, every metadata copy
+  verifying against its own SHA-256.
+* **Why by-name pointed at the eMMC anyway.** The card's own dtbo (p5) is a `dt_table` with one 739-byte FDT
+  at offset 64 whose property `bootargs_ext` reads `androidboot.boot_devices=fe330000.sdhci`, at byte 213.
+  u-boot appends that to the kernel cmdline, and ueventd builds `/dev/block/by-name` only for partitions on a
+  boot device, which is why `by-name/super` resolved to `mmcblk2p14` even while running from the card.
+  Measured controllers: `/sys/block/mmcblk1/device` -> `fe320000.dwmmc` (the boot card),
+  `mmcblk0` -> `fe310000.dwmmc` (the second card), `mmcblk2` -> `fe330000.sdhci` (the eMMC).
+* **The change.** 14 bytes of the card's dtbo become `fe320000.dwmmc`, so a normal card boot resolves
+  by-name to the card itself: boot from card p7, system from card p14, `/data` from card p15, `misc` from
+  card p3. The eMMC is never opened. The card's recovery (p8) is unaffected because a recovery boot uses the
+  dtbo embedded in the recovery image, not p5, so the rescue environment keeps the behaviour it was measured
+  with.
+* **What this buys.** The rollback for a failed Android 14 boot is physical: the owner removes the card and
+  the unit boots the untouched stock Android 10 from the eMMC, with the owner's `/data` never touched. The
+  card is writable from a running Android 10 boot by hot-plug - the owner's own procedure - so a card that
+  stops booting is still repairable over the network. Nothing in the loop writes the eMMC.
+* **The wrapper leaves the loop.** `hu_wrap` existed to arm `misc` and watchdog-reboot into recovery when a
+  payload boot died, because no external escape existed. The card is that escape, and the wrapper's only live
+  test produced a black screen with no network (**D97**). It is no longer built into any image that goes to
+  the unit; the three staged candidates stay on the workstation as history.
+* **Diagnosis channel, measured.** The card boot has ramoops attached (`0xf0000@0x110000`, `pstore` mounted,
+  `Registered ramoops as persistent store backend`), so a dead Android 14 boot's console survives a warm
+  reset. The owner's agreed recovery step is: remove the card, press reset, let stock Android 10 boot, and the
+  previous boot's `console-ramoops` is read over adb. A cold power cut destroys it (**D90**).
+
+**D102 - the card has three stuck-at-zero bits in its super span, and the payload is re-placed around them
+(Nov 23, MEASURED)**
+* **How they were found.** The shape A super was written to card p14 and the whole partition read back:
+  `5b26b47c1654…` instead of the image's `d81f913aee91…`. Chunked at 100 MiB, exactly three chunks differed
+  (14, 21, 22); at 1 MiB, exactly three blocks (1479, 2169, 2238); inside those, exactly **one byte each**.
+  In all three the byte on the card is the image byte with one bit cleared - xor `0x40`, `0x40`, `0x10`.
+* **They are frozen, not transient.** Rewriting the three 100 MiB chunks reproduced the identical wrong
+  digests, and a targeted 512 B rewrite of one sector left it unchanged. Two independent reads with different
+  request sizes return the same bytes, and `dmesg` reports no mmc error. The card is an `SU08G` 7.40 GiB SDHC.
+* **The card's state is fully accounted for.** The image with exactly those three bits cleared hashes to
+  `5b26b47c1654…`, the digest the card read back, so 3,263,168,509 of 3,263,168,512 bytes were written
+  correctly and the damage is exactly three bits.
+* **What they hit.** Mapped through liblp and ext4: `vendor` block 131129 -> `/lib64/librkisp.so`,
+  `system_ext` block 60238 -> `/priv-app/SystemUI/oat/arm64/SystemUI.odex`, `system_ext` block 78071 ->
+  `/priv-app/TrebuchetQuickStep/TrebuchetQuickStep.apk`. All three are real code, so leaving them would make
+  a failed boot ambiguous.
+* **The fix is placement, not repair.** The container is 3,263,168,512 B and the five filesystems need
+  2,300 MiB, so 811 MiB is slack. `tools/repack_super_place.py` moves each partition's single linear extent -
+  the filesystem images are copied byte-for-byte, nothing is rebuilt - so the three damaged offsets fall
+  between extents, where the image is zero. A stuck-at-zero bit under a zero byte is invisible, so the
+  partition reads back byte-exact and whole-partition verification stays meaningful.
+* **What the tool changes and proves.** Only each extent's `target_data`; names, sizes, groups, attributes,
+  the geometry and the block-device descriptor are untouched. All four metadata copies (two slots, primary and
+  backup) are resealed - `tables_checksum` = SHA-256 of the tables, `header_checksum` = SHA-256 of the header
+  with its checksum field zeroed, both verified against the source first. It then re-reads its own output:
+  metadata verifies, every extent reads back at its new start, every filesystem is byte-identical to the
+  source with its own ext4 volume name, and every avoided offset is zero. New layout: `system` at 1 MiB,
+  `product` at 967, `odm` at 1403, `vendor` at 1480, `system_ext` at 2239. Image of record
+  `fc2bed8ff15f…`.
+

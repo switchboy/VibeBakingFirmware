@@ -5257,3 +5257,59 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
     `/proc/uptime`, while the first boot's log started at 1795430134. Candidate: the RTC is populated in
     some boots only; the discriminating measurement is the log's epoch base against `/proc/uptime` at the
     same ticks, which holds in both boots.
+
+## Nov 23 (afternoon) - the SD-boot card becomes the Android 14 test bed
+
+Everything here is read-only measurement unless a write is named, and every write went to the card.
+The eMMC's heads were printed before and after each write and never changed: p3 `0f2ec43e7a5c…`,
+p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
+
+* **The card has the eMMC's partition layout.** From `/proc/partitions` in the card recovery boot:
+  `mmcblk1` 7,761,920 blocks with p1..p15, where p3 is 4,096 blocks, p5 4,096, p7 32,768, p8 98,304,
+  p12 16,384, p14 3,186,688 and p15 3,885,551. The card's p14 is a real liblp container: geometry magic
+  `0x616c4467` at byte 4096, `metadata_max_size` 65,536, 2 slots, logical block size 4,096, four metadata
+  copies at 12,288 / 77,824 / 143,360 / 208,896, one block device `super` of 3,263,168,512 B with alignment
+  1,048,576 and `first_logical_sector` 2,048.
+* **Why `by-name` resolves to the eMMC even from a card boot.** The card's dtbo (p5) is a `dt_table`
+  (magic `0xd7b7ab1e`) with a single 739-byte FDT at offset 64, whose `__overlay__` property `bootargs_ext`
+  holds the 40-byte string `androidboot.boot_devices=fe330000.sdhci`, starting at byte 188 with the device
+  name at byte 213. The live card-boot cmdline ends in exactly that token. Controllers measured from sysfs:
+  `mmcblk0` -> `fe310000.dwmmc`, `mmcblk1` -> `fe320000.dwmmc`, `mmcblk2` -> `fe330000.sdhci`.
+* **The card's first-stage fstab is the stock one** (`fstab.rk30board`, 1,932 B, `7b8581f69b88…` inside the
+  card's p7 ramdisk): `system`, `vendor`, `odm` and `product` are `logical,first_stage_mount`, and
+  `metadata`, `misc`, `cache` and `userdata` come from `/dev/block/by-name/...`. So which device the card boot
+  uses is decided entirely by the boot-devices token, not by the fstab.
+* **On-device whole-partition hashing works in recovery, and it is fast.** `toybox sha256sum` on
+  `/dev/block/mmcblk1p7` returned `1b47dbc48aee…` - the registered card p7 carve digest - in 2.5 s, and
+  sequential reads run at 14 MB/s. The older "a whole-partition hash never returns" note was an Android 10
+  observation, not a property of the recovery environment. Card writes measured 2.8-4.5 MB/s.
+* **Baseline before any write**, from `scripts/flash_card_a14.sh verify`: card p3 `c637af0b71c6…`,
+  p5 `adc64fd980bd…`, p7 `1b47dbc48aee…`, p8 `b32bff398f3b…` (our patched recovery, unchanged),
+  p14 `0b925b8c7df5…`. Every one equals the digest carved offline from the whole-card capture, so the capture
+  and the live card agree.
+* **The Android 14 kit, built offline** in `a14-work/card-a14/` with its own manifest: `card-p5-a14.bin`
+  4,194,304 B `1de2005b2406…` (the dtbo with 14 bytes changed to `fe320000.dwmmc`; only 6 bytes actually
+  differ, the FDT total size stays 739 and the property re-reads correctly), `card-p7-a14.img` 33,554,432 B
+  `e504655bd32c…` (the identity-gated shape A boot image, unmodified), and the super below. Rollbacks in the
+  same directory: `card-p5-stock.bin` `adc64fd980bd…`, `card-p7-stock.img` `1b47dbc48aee…`,
+  `card-p14-stock.img` `0b925b8c7df5…`, `card-p3-stock.bin` `fa8258a8fcf8…`.
+* **The Android 14 payload ramdisk, measured.** 18 entries, 3,651,840 B uncompressed:
+  `first_stage_ramdisk/fstab.rk30board` 4,190 B, `init` 3,644,288 B, `system/etc/ramdisk/build.prop` 860 B
+  and the device nodes. Its header cmdline is 333 B and already carries `androidboot.veritymode=disabled`
+  and `androidboot.selinux=permissive`.
+* **Write 1 - the super, and the three stuck bits it exposed (**D102**).** The shape A super
+  `d81f913aee91…` was staged on the second card and written to card p14; `dd` reported all 3,263,168,512 B
+  copied, and the whole-partition readback came back `5b26b47c1654…`. Three single bits are frozen at zero,
+  at super offsets 1,551,079,141, 2,274,683,038 and 2,347,726,420, hitting
+  `/vendor/lib64/librkisp.so`, `SystemUI.odex` and `TrebuchetQuickStep.apk`. The image with exactly those
+  three bits cleared hashes to `5b26b47c1654…`, which accounts for the card's content to the byte.
+* **The re-placed super.** `tools/repack_super_place.py` moved the five extents to 1 / 967 / 1403 / 1480 /
+  2239 MiB (`system`, `product`, `odm`, `vendor`, `system_ext`), leaving the three damaged offsets in
+  zero-filled gaps; the five filesystem images are byte-identical to the source and all four metadata copies
+  reseal and re-verify. Image of record `fc2bed8ff15f…`, 3,263,168,512 B.
+* **Two defects fixed in the write path before it was used again**, both found by review rather than by the
+  unit: `bcb-clear` wrote the 2048 B Boot Control Block with no pre-write digest gate (it now refuses unless
+  the BCB is our armed blob `ceaae1a6314a…` or already all zeros `e5a00aa9991a…`), and an unreadable
+  partition left the pre-write digest empty, which would have matched a blank line in a `.before` file (the
+  digest must now be 64 characters).
+
