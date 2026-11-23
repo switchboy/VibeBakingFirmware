@@ -37,24 +37,14 @@
 #include <unistd.h>
 #include <linux/reboot.h>
 #include <signal.h>
+#include <errno.h>
 
-/* Seconds the watchdog child waits before forcing the log out and crashing. Measured reason it exists:
- * on attempts 2 and 3 the Android 14 boot hung without panicking, so `panic=10` never fired, and the
- * owner's reset button is a COLD reset that wipes DRAM - which destroys the ramoops console record, the
- * only log channel this unit has (**D105**). So the child must end the boot itself.
- *
- * The child does three things, in this order, and each one is a different way of surviving:
- *   1. sysrq 't' - dumps every task's backtrace into the console ring. This is the answer to "what was
- *      PID 1 and every other process blocked on", which is the only question left about the hang.
- *   2. copy the pstore records into the padding of the card's own boot partition. This survives ANY
- *      reset, cold included, and is read back with dd from whichever boot comes next - no reboot path,
- *      no recovery, no u-boot behaviour assumed.
- *   3. sysrq 'c' - panic. `panic=10` then reboots in software, so the console record also survives into
- *      the next boot as ordinary pstore content.
- * 60 s is long enough for Android 14's init to reach whatever it blocks on, and short enough that a
- * failed attempt reports within about two minutes of the reboot being issued. */
+/* Seconds the flight recorder runs before it dumps task backtraces and crashes the boot, unless the boot
+ * reached /data or the BCB was cleared first. The recorder writes the kernel log to the card every second
+ * from the start (see start_watchdog), so this only bounds how long a hung boot is left hanging; 90 s is
+ * well past the point where a healthy Android 14 boot mounts /data. */
 #ifndef HU_WDT_SECS
-#define HU_WDT_SECS 60
+#define HU_WDT_SECS 90
 #endif
 
 #define HU_BCB_LEN 2048
@@ -70,13 +60,13 @@
  * i.e. byte 8,388,608, so the sectors before it are not part of any partition. Mapping the first 8 MiB in
  * 64 KiB blocks found data only at 0..262,144 (the partition table and vendor blobs) and at
  * 1,245,184..1,310,720 (one 64 KiB vendor block); every other block in that space reads as zero. The log
- * sits at 2 MiB for 1 MiB - clear of both data areas by about 787 KiB, 5 MiB short of p1, and invisible to
+ * sits at 2 MiB for 5 MiB - clear of both data areas by about 787 KiB, 1 MiB short of p1, and invisible to
  * anything that reads a partition. The boot partition's own tail is NOT usable: it carries about 2 MB of
  * vendor data past the declared image (measured in card-p7-a14.img, non-zero from 28,537,216 to
  * 32,093,450), and the misc partition beyond the BCB is full of data too.
- * The next boot reads the copy with dd if=/dev/block/mmcblk1 bs=1024 skip=2048 count=1024. */
+ * The next boot reads the copy with dd if=/dev/block/mmcblk1 bs=1024 skip=2048 count=5120. */
 #define HU_LOG_RAW           2097152
-#define HU_LOG_LEN           1048576
+#define HU_LOG_LEN           5242880   /* 2 MiB..7 MiB, 1 MiB short of p1 */
 #define HU_LOG_HDR           64
 #define HU_FIRST_PART_START  8388608   /* byte offset of mmcblk1p1, measured */
 
@@ -88,7 +78,6 @@
 #define HU_KMSG   "/hu-kmsg"
 #define HU_MISC   "/hu-misc"
 #define HU_CARD   "/hu-card"
-#define HU_PSTORE "/hu-pstore"
 #define HU_INIT   "/init.real"
 
 static char bcb[HU_BCB_LEN];
@@ -270,97 +259,60 @@ static long hu_sysrq(int fd, char c) {
   return r;
 }
 
-struct hu_dirent {
-  unsigned long long d_ino;
-  long long d_off;
-  unsigned short d_reclen;
-  unsigned char d_type;
-  char d_name[128];
-};
+static long hu_fmt(char *d, long v) {
+  char nb[24]; int k = 0; long n = 0;
+  if (v < 0) v = 0;
+  do { nb[k++] = (char)('0' + (v % 10)); v /= 10; } while (v);
+  while (k) d[n++] = nb[--k];
+  return n;
+}
+static long hu_cat(char *d, long n, const char *s) { while (*s) d[n++] = *s++; return n; }
 
-/* Copy every pstore record into the log region of the raw boot card, in its unpartitioned head. Returns
- * the number of record bytes stored. Reading the log out of the card costs nothing in the next boot and
- * survives a cold reset, which pstore does not (D105). Records are written chunk by chunk so a record
- * larger than the read buffer is stored whole, and the region is capped so it cannot reach p1. */
-static long dump_pstore(int cardfd, const char *dir_path, long cap, long *records) {
-  int dir = (int)syscall(SYS_openat, AT_FDCWD, dir_path, O_RDONLY | O_DIRECTORY);
-  if (dir < 0) { hu_put("hu-card-arm: pstore dump: cannot open the record directory\n"); return 0; }
-  char dents[2048];
-  char rec[1024];
-  long used = 0;
-  long got_entries = 0;
-  for (;;) {
-    long n = syscall(SYS_getdents64, dir, dents, sizeof(dents));
-    if (n <= 0) break;
-    for (long off = 0; off < n;) {
-      struct hu_dirent *de = (struct hu_dirent *)(dents + off);
-      off += de->d_reclen;
-      if (hu_streq(de->d_name, ".") || hu_streq(de->d_name, "..")) continue;
-      int rf = (int)syscall(SYS_openat, dir, de->d_name, O_RDONLY | O_CLOEXEC);
-      if (rf < 0) continue;
-
-      /* header line for this record, then the record in chunks. The header is counted against the cap, so
-       * a full region never spills past the bytes the next boot reads. */
-      char hd[128];
-      unsigned h = 0;
-      const char *pre = "=== ";
-      for (unsigned i = 0; pre[i]; i++) hd[h++] = pre[i];
-      for (unsigned i = 0; de->d_name[i] && h < sizeof(hd) - 8; i++) hd[h++] = de->d_name[i];
-      hd[h++] = '\n';
-      if (used + (long)h > cap) { syscall(SYS_close, rf); hu_put("hu-card-arm: pstore dump: log region full\n"); continue; }
-      long at = HU_LOG_RAW + HU_LOG_HDR + used;
-      if (syscall(SYS_pwrite64, cardfd, hd, h, at) != h) { syscall(SYS_close, rf); continue; }
-      used += h;
-      long total = 0;
-      for (;;) {
-        if (used + (long)sizeof(rec) > cap) break;
-        long r = syscall(SYS_read, rf, rec, sizeof(rec));
-        if (r <= 0) break;
-        if (syscall(SYS_pwrite64, cardfd, rec, r, HU_LOG_RAW + HU_LOG_HDR + used) != r) break;
-        used += r;
-        total += r;
-      }
-      syscall(SYS_close, rf);
-      if (total) got_entries++;
-    }
-  }
-  syscall(SYS_close, dir);
-  if (records) *records = got_entries;
-  hu_line("hu-card-arm: pstore records copied=", got_entries);
-  long stored = used - HU_LOG_HDR;
-  if (stored < 0) stored = 0;
-  hu_line("hu-card-arm: bytes stored=", stored);
-  return stored;
+static long hu_uptime_ms(void) {
+  struct { long tv_sec; long tv_nsec; } t = { 0, 0 };
+  syscall(SYS_clock_gettime, 7 /* CLOCK_BOOTTIME */, &t);
+  return t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
 
-/* A 64-byte header at the start of the log region, so the reader can tell the copy from padding and
- * know how much of it is real. */
-static void write_log_header(int cardfd, long pid, long bytes, long records) {
-  if (pid < 0) pid = 0;
-  if (bytes < 0) bytes = 0;
-  if (records < 0) records = 0;
+/* The 64-byte heartbeat at the start of the log region, rewritten every tick:
+ *   HULOG2 tick=<n> up_ms=<boot time> bytes=<log bytes after the header> state=<word>
+ * state is start, rec, cleared, alive, dumped or crash. After a cold reset the last heartbeat says how
+ * long the recorder kept running, which separates "the whole system froze" (heartbeat stops at the same
+ * time as the log) from "userspace hung but the kernel ran" (heartbeat keeps going). */
+static void write_hb(int cardfd, long tick, long bytes, const char *state) {
+  if (cardfd < 0) return;
   char hd[HU_LOG_HDR];
   for (int i = 0; i < HU_LOG_HDR; i++) hd[i] = ' ';
-  const char *pre = "HULOG1 pid=";
-  unsigned h = 0;
-  for (unsigned i = 0; pre[i]; i++) hd[h++] = pre[i];
-  long v = pid; char nb[24]; int k;
-  k = 0; do { nb[k++] = (char)('0' + (v % 10)); v /= 10; } while (v);
-  while (k) hd[h++] = nb[--k];
-  hd[h++] = ' '; hd[h++] = 'b'; hd[h++] = 'y'; hd[h++] = 't'; hd[h++] = 'e'; hd[h++] = 's'; hd[h++] = '=';
-  v = bytes; k = 0; do { nb[k++] = (char)('0' + (v % 10)); v /= 10; } while (v);
-  while (k) hd[h++] = nb[--k];
-  hd[h++] = ' '; hd[h++] = 'r'; hd[h++] = 'e'; hd[h++] = 'c'; hd[h++] = 'o'; hd[h++] = 'r';
-  hd[h++] = 'd'; hd[h++] = 's'; hd[h++] = '=';
-  v = records; k = 0; do { nb[k++] = (char)('0' + (v % 10)); v /= 10; } while (v);
-  while (k) hd[h++] = nb[--k];
-  hd[h++] = '\n';
+  char t[128]; long n = 0;
+  n = hu_cat(t, n, "HULOG2 tick="); n += hu_fmt(t + n, tick);
+  n = hu_cat(t, n, " up_ms="); n += hu_fmt(t + n, hu_uptime_ms());
+  n = hu_cat(t, n, " bytes="); n += hu_fmt(t + n, bytes);
+  n = hu_cat(t, n, " state="); n = hu_cat(t, n, state);
+  if (n > HU_LOG_HDR - 1) n = HU_LOG_HDR - 1;
+  for (long i = 0; i < n; i++) hd[i] = t[i];
+  hd[HU_LOG_HDR - 1] = '\n';
   (void)syscall(SYS_pwrite64, cardfd, hd, HU_LOG_HDR, HU_LOG_RAW);
 }
 
-/* Is the Android 14 boot alive? A boot that reached /data and started zygote is a boot worth leaving
- * alone, so the watchdog stands down instead of crashing it. The mounts fd is opened by the parent while
- * proc is mounted; the zygote socket is created by init once the boot is progressing. */
+/* Append every kmsg record that is available now to the log region, and return the new fill level.
+ * /dev/kmsg opened for reading starts at the oldest record still in the ring, so the first drain carries
+ * the boot from time zero; EPIPE means records were overwritten before we read them and the next read
+ * resumes, EAGAIN means nothing new. A test run reads a regular file, which ends in 0 (EOF). The region is
+ * capped, so a long boot can never write past HU_LOG_RAW + HU_LOG_LEN. */
+static long drain_kmsg(int kfd, int cardfd, long used, long cap, int *full) {
+  if (kfd < 0 || cardfd < 0 || *full) return used;
+  char rec[2048];
+  for (int i = 0; i < 8192; i++) {
+    long r = syscall(SYS_read, kfd, rec, sizeof(rec));
+    if (r < 0) { if (errno == EPIPE) continue; break; }
+    if (r == 0) break;
+    if (used + r > cap) { *full = 1; break; }
+    if (syscall(SYS_pwrite64, cardfd, rec, r, HU_LOG_RAW + HU_LOG_HDR + used) != r) break;
+    used += r;
+  }
+  return used;
+}
+
 static int hu_contains(const char *s, const char *needle) {
   unsigned n = hu_len(needle);
   for (const char *p = s; *p; p++) {
@@ -370,91 +322,97 @@ static int hu_contains(const char *s, const char *needle) {
   }
   return 0;
 }
+/* Is the Android 14 boot alive? A boot that reached /data is a boot worth leaving alone, so the recorder
+ * stands down instead of crashing it. */
 static int boot_looks_alive(int mountsfd, const char *ok_path) {
-  char b[2048];
-  long r = syscall(SYS_pread64, mountsfd, b, sizeof(b) - 1, 0);
-  if (r > 0) { b[r] = 0; if (hu_contains(b, "/data")) return 1; }
+  char b[4096];
+  long r = mountsfd >= 0 ? syscall(SYS_pread64, mountsfd, b, sizeof(b) - 1, 0) : -1;
+  if (r > 0) { b[r] = 0; if (hu_contains(b, " /data ")) return 1; }
   if (ok_path) {
     int fd = (int)syscall(SYS_openat, AT_FDCWD, ok_path, O_RDONLY | O_CLOEXEC);
     if (fd >= 0) { syscall(SYS_close, fd); return 1; }
   }
   return 0;
 }
-
-/* Fork a child that waits, re-checks the BCB, then ends the boot and reports it. Started only after the
- * BCB has been written and verified: an attempt that reports nothing is useless, and the arm is what
- * makes the next boot land somewhere readable. It stands down if the BCB was cleared inside the window
- * or if the boot looks alive, so a successful Android 14 boot is never killed. The child is a plain child
- * of PID 1 and survives the parent's exec of init.real, because every fd it needs is opened before the
- * exec and none of them is leaked into it.
- *
- * The reporting is deliberately redundant, because none of the three channels may be assumed to work:
- *   sysrq 't'   - task backtraces into the console ring: the answer to what the boot was blocked on.
- *   pstore copy - written into the card's unpartitioned head, so it survives even the owner's cold reset
- *                 (D105), and is read back with dd by whichever boot comes next (D106, D107).
- *   sysrq 'c'   - panic, which `panic=10` turns into a software reboot, so the console record also
- *                 survives as ordinary pstore content in the next boot.
- * If sysrq is unavailable or refused, the fallback is the reboot syscall with the kernel's real magics:
- * tools/hu_wrap.c used 0x6a215546 and 0xd1d1f7e7, which are not LINUX_REBOOT_MAGIC2 (0x28121969) and
- * LINUX_REBOOT_CMD_RESTART2 (0xa1b2c3d4), so its reboot could only ever have returned EINVAL - that is
- * why **D97**'s watchdog was never observed. */
-static void start_watchdog(int miscfd, int mountsfd, int sysrqfd, int cardfd, const char *pstore_dir,
-                           const char *ok_path, long secs, int test, const char *mark) {
-  long pid = syscall(SYS_clone, (unsigned long)SIGCHLD, 0UL, 0UL, 0UL, 0UL);
-  if (pid < 0) { hu_put("hu-card-arm: clone failed - no watchdog\n"); return; }
-  if (pid != 0) { hu_line("hu-card-arm: watchdog child pid=", pid); return; }
-
-  struct { long tv_sec; long tv_nsec; } ts = { secs, 0 };
-  syscall(SYS_nanosleep, &ts, 0);
-
+static int bcb_still_armed(int miscfd) {
   char back[HU_BCB_LEN];
   long r = syscall(SYS_pread64, miscfd, back, HU_BCB_LEN, 0);
-  int armed = r == HU_BCB_LEN;
-  for (int i = 0; armed && i < HU_BCB_LEN; i++) if (back[i] != bcb[i]) armed = 0;
-  if (!armed) {
-    hu_put("hu-card-arm: watchdog: BCB no longer armed, standing down\n");
-    syscall(SYS_exit_group, 0);
-  }
-  if (boot_looks_alive(mountsfd, ok_path)) {
-    hu_put("hu-card-arm: watchdog: the boot reached /data - standing down, not crashing a working boot\n");
-    syscall(SYS_exit_group, 0);
-  }
-  hu_put("hu-card-arm: watchdog expired with the BCB still armed and no working boot - reporting and crashing\n");
+  if (r != HU_BCB_LEN) return 0;
+  for (int i = 0; i < HU_BCB_LEN; i++) if (back[i] != bcb[i]) return 0;
+  return 1;
+}
+static void hu_sleep1(void) { struct { long s; long ns; } ts = { 1, 0 }; syscall(SYS_nanosleep, &ts, 0); }
 
-  /* The task dump happens whether or not the log sink exists: the backtraces are the point, and the
-   * panic's own console record may survive into the next boot even with no sink. */
-  hu_sysrq(sysrqfd, 't');
-  long bytes = 0, records = 0;
-  if (cardfd >= 0) {
-    if (!test) {
-      syscall(SYS_mkdirat, AT_FDCWD, HU_PSTORE, 0755);
-      if (syscall(SYS_mount, "pstorefs", HU_PSTORE, "pstorefs", 0, 0) != 0)
-        hu_put("hu-card-arm: pstore dump: cannot mount pstorefs\n");
+/* The flight recorder (attempt 5). Measured reason it replaced the sleep-then-act child: on attempts 3 and
+ * 4 the child never acted - attempt 4's card region was still all zero after the owner's reset, so the
+ * child did not even reach its first write after a 60 s sleep. Whether the system froze, timers stopped,
+ * or the child was killed is unmeasured, and a child that only acts at the end cannot tell those apart.
+ * This one writes immediately and then every second: it drains /dev/kmsg (the kernel log plus every line
+ * Android's init writes there) into the card's unpartitioned head, rewrites the heartbeat, and fsyncs the
+ * card, so everything up to the last second the system was alive survives the owner's cold reset (D105).
+ *
+ * It stands down - recording stops, nothing is crashed - when the BCB was cleared or the mount table shows
+ * /data. When `secs` ticks pass with neither, it dumps every task's backtrace with sysrq 't', records three
+ * more seconds so the backtraces reach the card, and crashes with sysrq 'c' so `panic=10` reboots in
+ * software. If sysrq is unavailable or refused it falls back to the reboot syscall with the kernel's real
+ * magics (tools/hu_wrap.c used 0x6a215546 and 0xd1d1f7e7, which is why **D97**'s watchdog was never seen).
+ * Test mode never calls reboot(2) or sync(2): the gate runs on the workstation. */
+static void start_watchdog(int miscfd, int mountsfd, int sysrqfd, int cardfd, int kfd,
+                           const char *ok_path, long secs, int test, const char *mark) {
+  long pid = syscall(SYS_clone, (unsigned long)SIGCHLD, 0UL, 0UL, 0UL, 0UL);
+  if (pid < 0) { hu_put("hu-card-arm: clone failed - no recorder\n"); return; }
+  if (pid != 0) { hu_line("hu-card-arm: recorder child pid=", pid); return; }
+
+  const long cap = HU_LOG_LEN - HU_LOG_HDR;
+  long used = 0; int full = 0;
+  hu_put("hu-card-arm: recorder started\n");
+  used = drain_kmsg(kfd, cardfd, used, cap, &full);
+  write_hb(cardfd, 0, used, "start");
+  if (cardfd >= 0) syscall(SYS_fsync, cardfd);
+
+  for (long tick = 1; tick <= secs; tick++) {
+    hu_sleep1();
+    used = drain_kmsg(kfd, cardfd, used, cap, &full);
+    if (!bcb_still_armed(miscfd)) {
+      hu_put("hu-card-arm: recorder: BCB no longer armed, standing down\n");
+      write_hb(cardfd, tick, used, "cleared");
+      if (cardfd >= 0) syscall(SYS_fsync, cardfd);
+      syscall(SYS_exit_group, 0);
     }
-    bytes = dump_pstore(cardfd, pstore_dir, HU_LOG_LEN - HU_LOG_HDR, &records);
-    write_log_header(cardfd, syscall(SYS_getpid), bytes, records);
-    syscall(SYS_fsync, cardfd);
-    syscall(SYS_close, cardfd);
+    if (boot_looks_alive(mountsfd, ok_path)) {
+      hu_put("hu-card-arm: recorder: the boot reached /data - standing down, not crashing a working boot\n");
+      used = drain_kmsg(kfd, cardfd, used, cap, &full);
+      write_hb(cardfd, tick, used, "alive");
+      if (cardfd >= 0) syscall(SYS_fsync, cardfd);
+      syscall(SYS_exit_group, 0);
+    }
+    write_hb(cardfd, tick, used, "rec");
+    if (cardfd >= 0) syscall(SYS_fsync, cardfd);
   }
-  if (!test) syscall(SYS_sync);   /* never sync(2) the workstation in test mode */
+
+  hu_put("hu-card-arm: recorder expired with the BCB still armed and no working boot - dumping and crashing\n");
+  hu_sysrq(sysrqfd, 't');
+  for (long extra = 1; extra <= 3; extra++) {
+    hu_sleep1();
+    used = drain_kmsg(kfd, cardfd, used, cap, &full);
+    write_hb(cardfd, secs + extra, used, "dumped");
+    if (cardfd >= 0) syscall(SYS_fsync, cardfd);
+  }
+  write_hb(cardfd, secs + 3, used, "crash");
+  if (cardfd >= 0) syscall(SYS_fsync, cardfd);
+  if (!test) syscall(SYS_sync);
 
   long crashed = hu_sysrq(sysrqfd, 'c');
   if (crashed != 1) {
-    hu_put("hu-card-arm: watchdog: falling back to the reboot syscall\n");
-    /* Test mode never calls reboot: the gate runs on the workstation, and reboot(2) there would take
-     * the workstation down if it ever ran with the capability. */
+    hu_put("hu-card-arm: recorder: falling back to the reboot syscall\n");
     if (!test) {
       syscall(SYS_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, LINUX_REBOOT_CMD_RESTART, 0);
-      hu_put("hu-card-arm: watchdog: reboot syscall returned - it was refused\n");
+      hu_put("hu-card-arm: recorder: reboot syscall returned - it was refused\n");
     }
   }
-  if (test) {
-    if (mark) {
-      int fd = (int)syscall(SYS_openat, AT_FDCWD, mark, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-      if (fd >= 0) { syscall(SYS_write, fd, "crash\n", 6); syscall(SYS_close, fd); }
-    } else {
-      hu_put("hu-card-arm: test: HU_TEST_REBOOT_MARK unset, nothing written\n");
-    }
+  if (test && mark) {
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, mark, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd >= 0) { syscall(SYS_write, fd, "crash\n", 6); syscall(SYS_close, fd); }
   }
   syscall(SYS_exit_group, 0);
 }
@@ -541,8 +499,7 @@ int main(int argc, char **argv) {
        * armed BCB. Every fd here is opened with O_CLOEXEC so none of it survives into init.real - the
        * watchdog child gets its own copy of the table through clone, and Android's init and every
        * service it starts inherits nothing. */
-      int sysrqfd = -1, cardfd = -1, mountsfd = -1;
-      const char *pstore_dir = test ? hu_getenv("HU_TEST_PSTORE") : HU_PSTORE;
+      int sysrqfd = -1, cardfd = -1, mountsfd = -1, kfd = -1;
       const char *ok_path = test ? hu_getenv("HU_TEST_OK") : "/dev/socket/zygote";
 
       /* sysrq-trigger and the mount table come from proc, which the parent detaches after forking; an
@@ -552,7 +509,11 @@ int main(int argc, char **argv) {
         sysrqfd = sp ? (int)syscall(SYS_openat, AT_FDCWD, sp, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0644) : -1;
         const char *mt = hu_getenv("HU_TEST_MOUNTS");
         mountsfd = mt ? (int)syscall(SYS_openat, AT_FDCWD, mt, O_RDONLY | O_CLOEXEC) : -1;
+        const char *km = hu_getenv("HU_TEST_KMSG");
+        kfd = km ? (int)syscall(SYS_openat, AT_FDCWD, km, O_RDONLY | O_CLOEXEC) : -1;
       } else {
+        /* A second open of the kmsg node, for reading: it starts at the oldest record in the ring. */
+        kfd = (int)syscall(SYS_openat, AT_FDCWD, HU_KMSG, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         sysrqfd = (int)syscall(SYS_openat, AT_FDCWD, HU_SYSRQ, O_WRONLY | O_CLOEXEC);
         mountsfd = (int)syscall(SYS_openat, AT_FDCWD, HU_MOUNTS, O_RDONLY | O_CLOEXEC);
       }
@@ -592,12 +553,13 @@ int main(int argc, char **argv) {
       hu_line("hu-card-arm: sysrq fd=", sysrqfd);
       hu_line("hu-card-arm: log sink fd=", cardfd);
       hu_line("hu-card-arm: mounts fd=", mountsfd);
+      hu_line("hu-card-arm: kmsg read fd=", kfd);
       hu_line("hu-card-arm: log region offset=", HU_LOG_RAW);
       const char *wd = test ? hu_getenv("HU_TEST_WATCHDOG") : 0;
       long secs = HU_WDT_SECS;
       if (wd) { secs = 0; for (const char *q = wd; *q >= '0' && *q <= '9'; q++) secs = secs * 10 + (*q - '0'); }
       hu_line("hu-card-arm: watchdog delay=", secs);
-      start_watchdog(fd, mountsfd, sysrqfd, cardfd, pstore_dir ? pstore_dir : HU_PSTORE, ok_path, secs,
+      start_watchdog(fd, mountsfd, sysrqfd, cardfd, kfd, ok_path, secs,
                      test, test ? hu_getenv("HU_TEST_REBOOT_MARK") : 0);
     }
     syscall(SYS_close, fd);

@@ -16,7 +16,7 @@
 #   5 passthrough       - argv[0] is not "init": no arm at all
 #   6 unwritable misc   - the misc file cannot be opened: refuses to arm, still execs init.real
 #   7 BCB bytes         - the 2048 B written equal the registered blob ceaae1a6314a…
-#   8 watchdog reports  - task dump first, then the pstore copy, then the crash; order and content checked
+#   8 recorder crashes  - kmsg on the card every second, task dump, three more seconds, then the crash
 #   9 stand-down        - a cleared BCB inside the window: nothing is written to sysrq or to the card
 #  10 no watchdog       - an arm that failed starts no child and writes nothing
 #  11 sink bounds       - the copy touches only the unpartitioned head; a record bigger than the region is
@@ -26,6 +26,7 @@
 #  14 p1 too close      - sysfs says the first partition starts inside the log region: sink disabled
 #  15 boot alive        - the mount table shows /data mounted: the watchdog stands down, boot not crashed
 #  16 fds not leaked    - init.real sees no fd to the raw card or sysrq after execve
+#  17 early heartbeat   - the recorder writes its heartbeat and the log from time zero within 3 s
 set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${OUT:-/run/media/Daan/Opslagmonster/a14-work/hu-card-arm}
@@ -54,21 +55,20 @@ newmisc() { head -c 4194304 /dev/zero > "$WORK/misc.bin"; }
 # Each scenario gets its own sink file, because a watchdog child from an earlier scenario is alive for a
 # second or two and would otherwise write into a later scenario's file.
 LOG_BASE=2097152
-LOG_LEN=1048576
+LOG_LEN=5242880
 FIRST_PART=8388608
 newcard() { dd if=/dev/null of="$WORK/$1" bs=1 seek=7948206080 count=0 status=none; }
 nonzero() { head -c "$2" "$WORK/$1" | tr -d '\0' | wc -c; }
 firstnz() { head -c "$2" "$WORK/$1" | tr -d '\0' | head -c 24 | od -An -tx1 | tr -s ' ' | head -1; }
+# A stand-in for /dev/kmsg: a regular file the recorder drains on its first tick.
 mkpstore() {
-  mkdir -p "$WORK/pstore"
-  printf 'Booting Android 14\ninit: mount /data failed\n' > "$WORK/pstore/console-ramoops-0"
-  printf 'oops backtrace here\n' > "$WORK/pstore/last-kmsg-0"
+  printf '6,1,0,-;Booting Linux on physical CPU 0x0\n6,2,900,-;init: first stage started\n3,3,5000,-;init: mount /data failed\n' > "$WORK/kmsg.txt"
 }
 mkbigpstore() {
-  mkdir -p "$WORK/pstorebig"
-  # one record larger than the whole log region, to prove the cap
-  head -c 1200000 /dev/zero | tr '\0' 'x' > "$WORK/pstorebig/console-ramoops-0"
+  # a log larger than the whole 5 MiB region, in kmsg-sized records, to prove the cap
+  python3 -c "import sys; sys.stdout.write(''.join('6,%d,%d,-;%s\\n' % (i, i, 'x'*200) for i in range(30000)))" > "$WORK/kmsgbig.txt"
 }
+hdr() { dd if="$WORK/$1" bs=1 skip="$LOG_BASE" count=64 2>/dev/null | tr -d '\0'; }
 # The fixture stands in for sysfs: it needs the device directory, because the wrapper reads
 # <sys_dir>/<parent>p1/start the way the kernel exposes it.
 mksysfs() { mkdir -p "$WORK/$1/mmcblk1p1"; printf '%s\n' "$2" > "$WORK/$1/mmcblk1p1/start"; }
@@ -94,7 +94,7 @@ echo "== 1 happy path =="
 mkparts "$CARD_LINES"; newmisc; newcard card1.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
 rm -f "$WORK/rebooted"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_SYS="$WORK/sysdir" \
-    HU_TEST_CARD="$WORK/card1.bin" HU_TEST_PSTORE="$WORK/pstore"
+    HU_TEST_CARD="$WORK/card1.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 [ "$(cat "$WORK/rc")" = 7 ] && ok "exec reached init.real (rc 7)" || bad "rc $(cat "$WORK/rc"), expected 7"
 grep -q "card device mmcblk1" "$WORK/log.txt" && ok "card resolved as mmcblk1 by block count" || bad "card not resolved: $(tr '\n' '|' < "$WORK/log.txt")"
 grep -q "misc node mmcblk1p3" "$WORK/log.txt" && ok "misc resolved as mmcblk1p3" || bad "misc not resolved"
@@ -148,15 +148,17 @@ mkparts "$CARD_LINES"; newmisc; newcard card8.bin; mkpstore; mkmounts mounts; mk
 rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/rebooted" \
     HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
-    HU_TEST_CARD="$WORK/card8.bin" HU_TEST_PSTORE="$WORK/pstore"
+    HU_TEST_CARD="$WORK/card8.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 [ "$(cat "$WORK/rc")" = 7 ] && ok "the parent still execs init.real immediately" || bad "rc $(cat "$WORK/rc"), expected 7"
-grep -q "watchdog child pid=" "$WORK/log.txt" && ok "watchdog child forked" || bad "no watchdog child"
+grep -q "recorder child pid=" "$WORK/log.txt" && ok "recorder child forked" || bad "no recorder child"
 sleep 4
 [ -f "$WORK/rebooted" ] && ok "watchdog reached the crash step after its delay" || bad "watchdog never reached the crash step"
 grep -q "no working boot" "$WORK/log.txt" && ok "logged why it crashed" || bad "no reason logged"
+hdr card8.bin | grep -q "state=crash" && ok "final heartbeat says crash: $(hdr card8.bin | tr -s ' ')" || bad "final heartbeat: $(hdr card8.bin)"
+dd if="$WORK/card8.bin" bs=1 skip="$LOG_BASE" count=4096 2>/dev/null | grep -a -q "init: mount /data failed" \
+  && ok "the kmsg records are on the card" || bad "kmsg records missing from the card"
 [ "$(cat "$WORK/sysrq.txt" 2>/dev/null)" = "tc" ] && ok "sysrq order: task dump before crash" \
   || bad "sysrq file is '$(cat "$WORK/sysrq.txt" 2>/dev/null)', expected tc"
-grep -q "pstore records copied=2" "$WORK/log.txt" && ok "both pstore records copied" || bad "records not copied: $(tr '\n' '|' < "$WORK/log.txt")"
 
 echo "== 9 the watchdog stands down if the BCB is cleared inside the window =="
 mkparts "$CARD_LINES"; newmisc; newcard card9.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
@@ -166,20 +168,21 @@ cp "$BIN" "$WORK/init"; : > "$WORK/log.txt"
 env HU_TEST=1 HU_TEST_FORCE_ARM=1 HU_TEST_LOG="$WORK/log.txt" HU_TEST_INIT="$WORK/init.real" \
     HU_TEST_PARTS="$WORK/partitions" HU_TEST_MISC="$WORK/misc.bin" HU_TEST_WATCHDOG=3 \
     HU_TEST_REBOOT_MARK="$WORK/rebooted" HU_TEST_SYSRQ="$WORK/sysrq.txt" \
-    HU_TEST_SYS="$WORK/sysdir" HU_TEST_CARD="$WORK/card9.bin" HU_TEST_PSTORE="$WORK/pstore" \
+    HU_TEST_SYS="$WORK/sysdir" HU_TEST_CARD="$WORK/card9.bin" HU_TEST_KMSG="$WORK/kmsg.txt" \
     HU_TEST_MOUNTS="$WORK/mounts" qemu-aarch64 "$WORK/init" >/dev/null 2>&1
 sleep 1; head -c 2048 /dev/zero > "$WORK/zero"; dd if="$WORK/zero" of="$WORK/misc.bin" bs=2048 count=1 conv=notrunc status=none
 sleep 5
 [ -f "$WORK/rebooted" ] && bad "crashed even though the BCB was cleared" || ok "stood down after the BCB was cleared"
 grep -q "standing down" "$WORK/log.txt" && ok "logged standing down" || bad "no stand-down line"
 [ -s "$WORK/sysrq.txt" ] && bad "sysrq written after standing down" || ok "nothing written to sysrq"
-[ "$(nonzero card9.bin 8388608)" = 0 ] && ok "the card's head is still all zero - nothing written" || bad "card written after standing down: $(firstnz card9.bin 8388608)"
+hdr card9.bin | grep -q "state=cleared" && ok "final heartbeat says cleared" || bad "final heartbeat: $(hdr card9.bin)"
+[ "$(nonzero card9.bin "$LOG_BASE")" = 0 ] && ok "nothing written before the log region" || bad "wrote before the region"
 
 echo "== 10 no watchdog when the arm failed =="
 mkparts $' 179        0   30533632 mmcblk0\n 179       64   61341696 mmcblk2'; newmisc; newcard card10.bin; mkpstore; mkmounts mounts
 rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_SYSRQ="$WORK/sysrq.txt" \
-    HU_TEST_CARD="$WORK/card10.bin" HU_TEST_PSTORE="$WORK/pstore"
+    HU_TEST_CARD="$WORK/card10.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 sleep 3
 [ -f "$WORK/rebooted" ] && bad "started a watchdog without an armed BCB" || ok "no watchdog when nothing was armed"
 [ "$(nonzero card10.bin 8388608)" = 0 ] && ok "the card's head is untouched" || bad "card written without an armed BCB: $(firstnz card10.bin 8388608)"
@@ -189,16 +192,15 @@ mkparts "$CARD_LINES"; newmisc; newcard card11.bin; mkbigpstore; mkmounts mounts
 rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/rebooted" \
     HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
-    HU_TEST_CARD="$WORK/card11.bin" HU_TEST_PSTORE="$WORK/pstorebig"
+    HU_TEST_CARD="$WORK/card11.bin" HU_TEST_KMSG="$WORK/kmsgbig.txt"
 sleep 4
 [ "$(nonzero card11.bin "$LOG_BASE")" = 0 ] && ok "no bytes before the log region (the partition table area is safe)" \
   || bad "bytes before the log region were changed: $(firstnz card11.bin "$LOG_BASE")"
-dd if="$WORK/card11.bin" bs=1 skip="$LOG_BASE" count=64 2>/dev/null | grep -a -q "HULOG1" \
-  && ok "the header names the copy" || bad "no HULOG1 header at offset $LOG_BASE"
-dd if="$WORK/card11.bin" bs=1 skip="$LOG_BASE" count="$LOG_LEN" 2>/dev/null | grep -a -q "=== console-ramoops-0" \
-  && ok "the record name is in the copy" || bad "record name missing"
+hdr card11.bin | grep -q "HULOG2" && ok "the heartbeat names the region" || bad "no HULOG2 header at offset $LOG_BASE"
+b=$(hdr card11.bin | sed -n 's/.*bytes=\([0-9]*\).*/\1/p'); [ -n "$b" ] && [ "$b" -le $((LOG_LEN - 64)) ] && [ "$b" -gt 5000000 ] \
+  && ok "region filled to $b B and capped" || bad "fill level '$b'"
 dd if="$WORK/card11.bin" bs=1 skip="$((LOG_BASE + LOG_LEN))" count="$((FIRST_PART - LOG_BASE - LOG_LEN))" 2>/dev/null \
-  | tr -d '\0' | wc -c | grep -qx 0 && ok "a 1,200,000 B record was capped: nothing written between the region and p1 ($((FIRST_PART/1024)) KiB)" \
+  | tr -d '\0' | wc -c | grep -qx 0 && ok "a 6.2 MB log was capped: nothing written between the region and p1 ($((FIRST_PART/1024)) KiB)" \
   || bad "wrote between the log region and the first partition"
 
 echo "== 12 a card node that cannot be opened disables the sink, the crash still happens =="
@@ -207,7 +209,7 @@ chmod 000 "$WORK/card12.bin"
 rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/rebooted" \
     HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
-    HU_TEST_CARD="$WORK/card12.bin" HU_TEST_PSTORE="$WORK/pstore"
+    HU_TEST_CARD="$WORK/card12.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 chmod 600 "$WORK/card12.bin"
 sleep 4
 grep -q "log sink fd=-1" "$WORK/log.txt" && ok "sink disabled, no fd opened" || bad "sink not disabled"
@@ -218,10 +220,10 @@ echo "== 13 sysrq missing falls back to the reboot syscall, still after dumping 
 mkparts "$CARD_LINES"; newmisc; newcard card13.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
 rm -f "$WORK/rebooted"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/rebooted" \
-    HU_TEST_SYS="$WORK/sysdir" HU_TEST_CARD="$WORK/card13.bin" HU_TEST_PSTORE="$WORK/pstore"
+    HU_TEST_SYS="$WORK/sysdir" HU_TEST_CARD="$WORK/card13.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 sleep 4
 grep -q "sysrq unavailable" "$WORK/log.txt" && ok "logged that sysrq is unavailable" || bad "no sysrq-unavailable line"
-grep -q "pstore records copied=2" "$WORK/log.txt" && ok "the dump happened anyway" || bad "the dump was skipped"
+hdr card13.bin | grep -q "state=crash" && ok "the recording happened anyway" || bad "no recording: $(hdr card13.bin)"
 grep -q "falling back to the reboot syscall" "$WORK/log.txt" && ok "logged the reboot fallback" || bad "no fallback line"
 [ -f "$WORK/rebooted" ] && ok "reached the fallback step (the syscall itself is never called in test mode)" || bad "no reboot fallback"
 
@@ -230,7 +232,7 @@ mkparts "$CARD_LINES"; newmisc; newcard card14.bin; mkpstore; mkmounts mounts; m
 rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/rebooted" \
     HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
-    HU_TEST_CARD="$WORK/card14.bin" HU_TEST_PSTORE="$WORK/pstore"
+    HU_TEST_CARD="$WORK/card14.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 sleep 4
 grep -q "log region would reach the first partition" "$WORK/log.txt" && ok "refused a region that overlaps p1" \
   || bad "did not refuse: $(tr '\n' '|' < "$WORK/log.txt")"
@@ -243,19 +245,19 @@ mkparts "$CARD_LINES"; newmisc; newcard card15.bin; mkpstore; mklive mounts15; m
 rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/rebooted" \
     HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" HU_TEST_MOUNTS="$WORK/mounts15" \
-    HU_TEST_CARD="$WORK/card15.bin" HU_TEST_PSTORE="$WORK/pstore"
+    HU_TEST_CARD="$WORK/card15.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 sleep 4
 grep -q "the boot reached /data" "$WORK/log.txt" && ok "stood down on a live boot" || bad "did not notice the live boot: $(tr '\n' '|' < "$WORK/log.txt")"
 [ -f "$WORK/rebooted" ] && bad "crashed a working boot" || ok "no crash on a working boot"
 [ -s "$WORK/sysrq.txt" ] && bad "sysrq written on a working boot" || ok "nothing written to sysrq"
-[ "$(nonzero card15.bin 8388608)" = 0 ] && ok "the card was not written on a working boot" || bad "card written on a working boot"
+hdr card15.bin | grep -q "state=alive" && ok "final heartbeat says alive" || bad "final heartbeat: $(hdr card15.bin)"
 
 echo "== 16 init.real inherits no fd to the card, sysrq or the misc =="
 mkparts "$CARD_LINES"; newmisc; newcard card16.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
 rm -f "$WORK/rebooted" "$WORK/sysrq.txt" "$WORK/fd-after-exec.txt"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/rebooted" \
     HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
-    HU_TEST_CARD="$WORK/card16.bin" HU_TEST_PSTORE="$WORK/pstore"
+    HU_TEST_CARD="$WORK/card16.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 sleep 4
 if [ -s "$WORK/fd-after-exec.txt" ]; then
   leaked=$(grep -c -E "card16\.bin|sysrq\.txt|misc\.bin|log\.txt" "$WORK/fd-after-exec.txt" || true)
@@ -263,6 +265,18 @@ if [ -s "$WORK/fd-after-exec.txt" ]; then
 else
   bad "init.real did not record its fds"
 fi
+
+echo "== 17 the recorder writes its first heartbeat and the log at once, long before any deadline =="
+mkparts "$CARD_LINES"; newmisc; newcard card17.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
+rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
+run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=60 HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
+    HU_TEST_CARD="$WORK/card17.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
+sleep 3
+hdr card17.bin | grep -qE "state=(start|rec)" && ok "heartbeat present within 3 s: $(hdr card17.bin | tr -s ' ')" || bad "no early heartbeat: '$(hdr card17.bin)'"
+dd if="$WORK/card17.bin" bs=1 skip="$LOG_BASE" count=4096 2>/dev/null | grep -a -q "Booting Linux" \
+  && ok "the log from time zero is on the card within 3 s" || bad "early log missing"
+[ -s "$WORK/sysrq.txt" ] && bad "sysrq written before the deadline" || ok "nothing crashed before the deadline"
+reap
 
 printf 'summary: failures=%d\n' "$fail"
 [ "$fail" = 0 ]

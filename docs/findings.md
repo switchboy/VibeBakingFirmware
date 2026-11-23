@@ -5371,4 +5371,24 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `scripts/smoke_hu_card_arm.sh` now runs sixteen scenarios, `summary: failures=0`: the sink bounds (nothing
   before the log region, nothing between it and p1, a record larger than the region capped), a p1 start read
   from sysfs that overlaps the region disables the sink, and init.real seeing no wrapper fd after execve.
+* **Attempt 4 - the reporting child never wrote anything.** Card p7 `6ba537be0f70…` written and verified by
+  whole-partition readback, BCB cleared, the 1 MiB log region at 2,097,152 B confirmed all-zero, eMMC heads
+  unchanged; `adb reboot` at 18:52:41. Black screen, nothing on the network, no automatic reboot; the owner
+  reset the unit and Android 10 came up from the eMMC at about 19:00:06. Afterwards the card BCB read
+  `ceaae1a6314a…` (armed - the wrapper ran and handed off, as on attempts 2 and 3), `/sys/fs/pstore` was empty,
+  and the log region was still all zero after `drop_caches` - so the child did not even reach the header it
+  writes first after its 60 s sleep. Three attempts in a row, a forked child that sleeps and then acts has
+  never acted. Not measured: whether the whole system froze (arm64 has no hard-lockup detector here, which
+  would fit "no panic ever"), timers stopped, or the child was killed.
+* **Attempt 5 built offline, gated, not yet written: a flight recorder.** The child now writes at once and
+  then every second: it drains `/dev/kmsg` (from the oldest record in the ring, so the boot from time zero
+  plus every line Android's init writes there) into the card's unpartitioned head, rewrites a 64-byte
+  heartbeat `HULOG2 tick= up_ms= bytes= state=`, and fsyncs the card. The region grows to 5 MiB,
+  2,097,152..7,340,032, measured all-zero on the unit in 1 MiB steps with p1 still at sector 16384. After 90 s
+  with the BCB armed and no `/data` mount it dumps task backtraces with sysrq `t`, records three more
+  seconds, and crashes with sysrq `c`. After any reset the last heartbeat separates a whole-system freeze
+  (heartbeat stops with the log) from a userspace hang (heartbeat runs to the deadline). Wrapper
+  `fe92d58d24bd…` (13,752 B), card p7 image `4d1e839d96bf…`. `scripts/smoke_hu_card_arm.sh` runs seventeen
+  scenarios, 57 checks, `summary: failures=0`, including a heartbeat and the log from time zero on the card
+  within 3 s, and a 6.2 MB log capped at the region end.
 
