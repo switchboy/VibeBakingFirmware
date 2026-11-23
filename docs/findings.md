@@ -5420,4 +5420,20 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   heartbeat stopping one second after `execing init.real` is caused by Android 14's first-stage init.
   The previous-boot copy also worked: 6..7 MiB held `HUPREV1 bytes=333545 records=2`, Android 10's shutdown
   console from the warm `adb reboot` - the mount type `pstore` is right.
+* **The stop is system-wide, not just card I/O.** The kernel in the Android 14 boot image is `4.19.111+`
+  (built Jul 5 2024) with an embedded config: `CONFIG_DEFAULT_HUNG_TASK_TIMEOUT=10`, `CONFIG_DETECT_HUNG_TASK=y`,
+  `CONFIG_SOFTLOCKUP_DETECTOR=y`, and our cmdline sets `hung_task_panic=1 softlockup_panic=1`. Had only card
+  I/O wedged, attempt 5's recorder would have sat in `fsync` in D state and the kernel would have panicked
+  within 10-20 s; the owner waited about four minutes and nothing fired. So the hung-task detector itself did
+  not run: the scheduler, timers or interrupts stopped, within about a second of Android 14's first stage
+  starting. The ramdisk carries no kernel modules; the first-stage fstab mounts five logical partitions and
+  `/metadata`. A read-only analysis by the local model (a14-work/qwen-suspects/REPORT.md, checked against the
+  files) ranked an init blocked on a uevent first; that cannot stop a separate process from writing, so it does
+  not explain the measurement.
+* **Attempt 7 built, gated, not yet written: unmodified Android 14 with a 100 ms recorder.** The recorder now
+  ticks ten times a second, so every kmsg line Android 14's first stage prints more than about 100 ms before the
+  stop reaches the card, and the last one names the step. The no-I/O crasher is enabled again for this run: if
+  the system is not fully frozen it panics at 45 s and the console survives into the card recovery. Wrapper
+  `62d3e0f0f377…` (16,208 B), card p7 image `f6bea79586b8…`; gate nineteen scenarios, 69 checks,
+  `summary: failures=0`.
 

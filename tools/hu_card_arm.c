@@ -355,6 +355,12 @@ static int bcb_still_armed(int miscfd) {
   return 1;
 }
 static void hu_sleep1(void) { struct { long s; long ns; } ts = { 1, 0 }; syscall(SYS_nanosleep, &ts, 0); }
+/* The recorder ticks every 100 ms. Measured reason: attempt 5's 1 s tick caught nothing of Android 14's
+ * own first-stage log, because the system stopped within a second of init starting; ten ticks a second
+ * put every kmsg line printed more than ~100 ms before the stop onto the card, so the last line names
+ * the first-stage step that stops the system. The heartbeat's tick= counts these 100 ms ticks. */
+#define HU_TICKS_PER_SEC 10
+static void hu_sleep_tick(void) { struct { long s; long ns; } ts = { 0, 1000000000L / HU_TICKS_PER_SEC }; syscall(SYS_nanosleep, &ts, 0); }
 
 /* The crasher. Its only tools are a sleep, a pread of the already-open proc mount table, and writes to
  * the already-open /proc/sysrq-trigger - no block device, no filesystem write - so a hang in card I/O
@@ -475,8 +481,8 @@ static void start_recorder(int miscfd, int mountsfd, int cardfd, int kfd, const 
   write_hb(cardfd, 0, used, "start");
   if (cardfd >= 0) syscall(SYS_fsync, cardfd);
 
-  for (long tick = 1; tick <= secs; tick++) {
-    hu_sleep1();
+  for (long tick = 1; tick <= secs * HU_TICKS_PER_SEC; tick++) {
+    hu_sleep_tick();
     used = drain_kmsg(kfd, cardfd, used, cap, &full);
     if (!bcb_still_armed(miscfd)) {
       hu_put("hu-card-arm: recorder: BCB no longer armed, standing down\n");
@@ -496,7 +502,7 @@ static void start_recorder(int miscfd, int mountsfd, int cardfd, int kfd, const 
   }
 
   hu_put("hu-card-arm: recorder: done\n");
-  write_hb(cardfd, secs, used, "done");
+  write_hb(cardfd, secs * HU_TICKS_PER_SEC, used, "done");
   if (cardfd >= 0) syscall(SYS_fsync, cardfd);
   syscall(SYS_exit_group, 0);
 }

@@ -316,7 +316,7 @@ if [ -x "$CBIN" ]; then
   [ "$rc" = 9 ] && ok "idled and returned 9 - never executed init.real" || bad "rc $rc, expected 9"
   [ -e "$WORK/fd-after-exec.txt" ] && bad "init.real ran" || ok "init.real never ran"
   head -c 2048 "$WORK/misc.bin" | sha256sum | grep -q "^$want" && ok "the BCB is armed" || bad "BCB not armed"
-  hdr card19.bin | grep -q "tick=3 .*state=done" && ok "the recorder ran all its ticks: $(hdr card19.bin | tr -s ' ')" || bad "recorder: '$(hdr card19.bin)'"
+  hdr card19.bin | grep -q "tick=30 .*state=done" && ok "the recorder ran all its ticks: $(hdr card19.bin | tr -s ' ')" || bad "recorder: '$(hdr card19.bin)'"
   [ -f "$WORK/rebooted" ] && bad "the control crashed" || ok "no crasher in the control"
   [ -s "$WORK/sysrq.txt" ] && bad "sysrq written by the control" || ok "nothing written to sysrq"
   grep -q "CONTROL build - not executing init.real" "$WORK/log.txt" && ok "logged the control" || bad "no control line"

@@ -505,3 +505,5 @@ A14-CARD-P7-REC-IMG	sha	4d1e839d96bf71751762a99e20fab5e5e4d1c4ae5e2f58e2320cbc89
 HU-CARD-ARM-CONTROL-BIN	sha	ad501c668c007c884e1556455111315075f08af97aa78c622c98942a11be8991	bytes	2026-11-23	docs/findings.md	Control	docs/findings.md	step-0 control wrapper, -DHU_CONTROL, 14,680 B
 A14-CARD-P7-CONTROL-IMG	sha	b5ad5d58a56f11d3b53ffa7c3144a1d5e15dca289b29f1ddc143a1f19029cb86	bytes	2026-11-23	docs/findings.md	card	docs/findings.md	attempt 6 step-0 control card p7 image
 HU-CARD-ARM-CRASHER-BIN	sha	9a9a97c0de276977d28e11ed9948b9cdca1164efcb6525c868cebdd14ba94937	bytes	2026-11-23	docs/findings.md	normal wrapper	docs/findings.md	recorder + crasher + previous-boot copy, 16,176 B, not flashed
+HU-CARD-ARM-FAST-BIN	sha	62d3e0f0f377cb006c2cf3d540540499df9572b2db96a4a162d3a0087aa20351	bytes	2026-11-23	docs/findings.md	Wrapper	docs/findings.md	100 ms recorder + crasher + previous-boot copy, 16,208 B
+A14-CARD-P7-FAST-IMG	sha	f6bea79586b8d4442f4e1f9aa84429cdeae8cba260f497c998af3c7eb2940ea4	bytes	2026-11-23	docs/findings.md	card p7 image	docs/findings.md	attempt 7: unmodified Android 14 with the 100 ms recorder
