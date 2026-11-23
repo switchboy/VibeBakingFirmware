@@ -5360,8 +5360,8 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   attempt 3 too. `/dev/watchdog` does not exist on this kernel, so a hardware watchdog was never an option.
   Why the child never rebooted the unit is not measured; the next attempt does not depend on the reboot
   syscall working, and does not depend on which media boots next (**D106**).
-* **Attempt 4 built offline, gated, not yet written.** The wrapper is `be7322b18ec5…` (13,816 B, static
-  aarch64, `SOURCE_DATE_EPOCH=1760000000`) and the card p7 image is `3cafc5b3a717…` (33,554,432 B). The child
+* **Attempt 4 built offline, gated, not yet written.** The wrapper is `1013b19082e3…` (13,840 B, static
+  aarch64, `SOURCE_DATE_EPOCH=1760000000`) and the card p7 image is `6ba537be0f70…` (33,554,432 B. The child
   waits 60 s, then dumps every task's backtrace with sysrq `t`, copies the pstore records into the card's
   unpartitioned head (**D107**), and crashes the boot with sysrq `c` so `panic=10` reboots in software; it
   stands down if the BCB was cleared or if the mount table already shows `/data`, so a working Android 14

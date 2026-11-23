@@ -53,7 +53,7 @@ newmisc() { head -c 4194304 /dev/zero > "$WORK/misc.bin"; }
 # mmcblk1. The wrapper writes only inside [HU_LOG_RAW, HU_LOG_RAW+HU_LOG_LEN), so the rest must stay zero.
 # Each scenario gets its own sink file, because a watchdog child from an earlier scenario is alive for a
 # second or two and would otherwise write into a later scenario's file.
-LOG_BASE=1048576
+LOG_BASE=2097152
 LOG_LEN=1048576
 FIRST_PART=8388608
 newcard() { dd if=/dev/null of="$WORK/$1" bs=1 seek=7948206080 count=0 status=none; }

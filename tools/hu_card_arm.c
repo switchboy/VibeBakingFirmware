@@ -67,14 +67,15 @@
 
 /* Where the log copy goes: the unpartitioned space at the start of the boot card, before its first
  * partition. Measured on the unit from /sys/block/mmcblk1/mmcblk1p1/start: p1 begins at sector 16384,
- * i.e. byte 8,388,608, so the sectors before it are not part of any partition. The first few KiB of
- * that gap hold the partition table and three small vendor blobs (measured non-zero at 32 KiB, 64 KiB
- * and 128 KiB); everything from about 256 KiB to 8 MiB reads as zero. The log sits at 1 MiB for 1 MiB -
- * past those blobs, far short of p1, and invisible to anything that reads a partition. The boot
- * partition's own tail is NOT usable: it carries about 2 MB of vendor data past the declared image
- * (measured in card-p7-a14.img, non-zero from 28,537,216 to 32,093,450).
- * The next boot reads the copy with dd if=/dev/block/mmcblk1 bs=1024 skip=1024 count=1024. */
-#define HU_LOG_RAW           1048576
+ * i.e. byte 8,388,608, so the sectors before it are not part of any partition. Mapping the first 8 MiB in
+ * 64 KiB blocks found data only at 0..262,144 (the partition table and vendor blobs) and at
+ * 1,245,184..1,310,720 (one 64 KiB vendor block); every other block in that space reads as zero. The log
+ * sits at 2 MiB for 1 MiB - clear of both data areas by about 787 KiB, 5 MiB short of p1, and invisible to
+ * anything that reads a partition. The boot partition's own tail is NOT usable: it carries about 2 MB of
+ * vendor data past the declared image (measured in card-p7-a14.img, non-zero from 28,537,216 to
+ * 32,093,450), and the misc partition beyond the BCB is full of data too.
+ * The next boot reads the copy with dd if=/dev/block/mmcblk1 bs=1024 skip=2048 count=1024. */
+#define HU_LOG_RAW           2097152
 #define HU_LOG_LEN           1048576
 #define HU_LOG_HDR           64
 #define HU_FIRST_PART_START  8388608   /* byte offset of mmcblk1p1, measured */

@@ -2708,10 +2708,14 @@ software reboot (Nov 23, EXECUTED)**
   2048-byte BCB would corrupt data we do not understand. The card's first partition starts at byte 8,388,608
   (from `/sys/block/mmcblk1/mmcblk1p1/start`, sector 16384), and the space before it reads as zero from
   about 256 KiB onward except three small blobs measured at 32 KiB, 64 KiB and 128 KiB.
-* **The sink.** Bytes 1,048,576..2,097,152 of the raw card device: past those blobs, 6 MiB short of the first
-  partition, invisible to anything that reads a partition, and readable in any later boot with
-  `dd if=/dev/block/mmcblk1 bs=1024 skip=1024 count=1024`. Chosen by the same rule as every other write
-  (**D76**) - the parent device must report the card's whole-device block count - so the eMMC and the second
-  card cannot be selected. The offline gate proves nothing is written before that region or between it and
-  the first partition.
+* **The sink.** Bytes 2,097,152..3,145,728 of the raw card device. Mapping the card's first 8 MiB in 64 KiB
+  blocks found data only at 0..262,144 (partition table and vendor blobs) and at one block,
+  1,245,184..1,310,720; every other block reads as zero, so a 1 MiB region at 2 MiB is clear of both areas
+  by about 787 KiB and 5 MiB short of the first partition. It is invisible to anything that reads a
+  partition and readable in any later boot with `dd if=/dev/block/mmcblk1 bs=1024 skip=2048 count=1024`.
+  Chosen by the same rule as every other write (**D76**) - the parent device must report the card's
+  whole-device block count - so the eMMC and the second card cannot be selected. The region's bound against
+  p1 is measured from sysfs at runtime rather than trusted, and the offline gate proves nothing is written
+  before the region, nothing between the region and p1, and nothing at all when a measured p1 start overlaps
+  the region.
 
