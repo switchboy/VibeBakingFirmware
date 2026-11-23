@@ -19,7 +19,9 @@
 #
 # Usage: scripts/write_card_chunked.sh IMAGE PARTITION_INDEX EXPECTED_PARTITION_BLOCKS
 #   e.g. scripts/write_card_chunked.sh .../card-p14-a14-placed.img 14 3186688
-# Env: ANDROID_SERIAL, CHUNK_MIB (default 128), RETRY (default 3), DRY_RUN=1 to stop before writing.
+# Env: ANDROID_SERIAL, CHUNK_MIB (default 128), RETRY (default 3), DRY_RUN=1 to stop before writing,
+#      ONLY_CHUNKS="i j k" to write and verify only those chunk indexes (0-based CHUNK_MIB chunks from
+#      the start of the partition); unset means every chunk, exactly as before.
 set -u
 
 IMG=${1:?usage: write_card_chunked.sh IMAGE PARTITION_INDEX EXPECTED_BLOCKS}
@@ -27,6 +29,7 @@ IDX=${2:?partition index}
 WANT_BLOCKS=${3:?expected partition blocks}
 CHUNK_MIB=${CHUNK_MIB:-128}
 RETRY=${RETRY:-3}
+ONLY_CHUNKS=${ONLY_CHUNKS:-}
 BOOT_CARD_BLOCKS=7761920
 EVID_CARD_BLOCKS=30533632
 EMMC_BLOCKS=61341696
@@ -39,6 +42,32 @@ sh_() { adb shell "$@" 2>/dev/null | tr -d '\r'; }
 ISZ=$(stat -c %s "$IMG")
 [ $((ISZ % 1048576)) -eq 0 ] || die "image $ISZ B is not a whole number of MiB"
 [ "$ISZ" = "$((WANT_BLOCKS * 1024))" ] || die "image $ISZ B != partition $((WANT_BLOCKS * 1024)) B"
+[ "$CHUNK_MIB" -ge 1 ] || die "CHUNK_MIB=$CHUNK_MIB is not a positive number of MiB"
+CHUNKS=$(( (ISZ / 1048576 + CHUNK_MIB - 1) / CHUNK_MIB ))
+[ "$CHUNKS" -ge 1 ] || die "image $ISZ B holds no ${CHUNK_MIB} MiB chunks"
+
+# --- which chunk indexes to write ---------------------------------------------------------
+# Done before adb is touched, so a bad ONLY_CHUNKS aborts without ever reaching the unit.
+# Unset => SEL is every index 0..CHUNKS-1, which is exactly the old loop.
+declare -a SEL
+n_sel=0
+if [ -n "$ONLY_CHUNKS" ]; then
+  listed=""
+  for tok in $ONLY_CHUNKS; do
+    case "$tok" in
+      ''|*[!0-9]*) die "ONLY_CHUNKS: '$tok' is not a chunk index (only digits allowed)" ;;
+    esac
+    [ "$tok" -lt "$CHUNKS" ] || die "ONLY_CHUNKS: index $tok is out of range: $ISZ B is $CHUNKS chunks (0..$((CHUNKS - 1))) of ${CHUNK_MIB} MiB"
+    case " $listed " in *" $tok "*) continue ;; esac
+    listed="$listed $tok"
+    SEL+=("$tok")
+    n_sel=$((n_sel + 1))
+  done
+  [ "$n_sel" -gt 0 ] || die "ONLY_CHUNKS is set but names no chunk index"
+else
+  i=0
+  while [ "$i" -lt "$CHUNKS" ]; do SEL+=("$i"); i=$((i + 1)); done
+fi
 
 adb root >/dev/null 2>&1
 [ "$(sh_ 'id -u')" = 0 ] || die "adb is not root on the unit"
@@ -69,14 +98,15 @@ emmc_heads() {
 }
 echo "== eMMC heads before =="; emmc_heads
 
-CHUNKS=$(( (ISZ / 1048576 + CHUNK_MIB - 1) / CHUNK_MIB ))
 echo "image $ISZ B -> $CHUNKS chunks of ${CHUNK_MIB} MiB, $RETRY retries per step"
+if [ -n "$ONLY_CHUNKS" ]; then
+  echo "ONLY_CHUNKS: writing and verifying only chunk(s):${SEL[*]}"
+fi
 [ "${DRY_RUN:-0}" = 1 ] && { echo "DRY_RUN: stopping before any write"; exit 0; }
 
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 bad=""
-i=0
-while [ "$i" -lt "$CHUNKS" ]; do
+for i in "${SEL[@]}"; do
   off=$(( i * CHUNK_MIB ))                       # MiB from the start of the partition
   left=$(( ISZ / 1048576 - off ))
   n=$(( left < CHUNK_MIB ? left : CHUNK_MIB ))
@@ -92,7 +122,7 @@ while [ "$i" -lt "$CHUNKS" ]; do
   done
   if [ "$staged" != "$want" ]; then
     echo "  chunk $i [$((off))..$((off+n)) MiB]: COULD NOT STAGE - skipped, nothing written"
-    bad="$bad $i:stage"; i=$((i+1)); continue
+    bad="$bad $i:stage"; continue
   fi
 
   got=""; t=0
@@ -108,11 +138,15 @@ while [ "$i" -lt "$CHUNKS" ]; do
     printf '  chunk %2d/%d  %5d..%5d MiB  UNFIXABLE (card returns %s)\n' "$((i+1))" "$CHUNKS" "$off" "$((off+n))" "${got:0:12}"
     bad="$bad $i:medium"
   fi
-  i=$((i+1))
 done
 sh_ "rm -f $STAGE"
 
 echo "== whole-partition readback =="
+if [ -n "$ONLY_CHUNKS" ]; then
+  echo "ONLY_CHUNKS set: only the chunks listed above were written. If the partition held the image's"
+  echo "predecessor and ONLY_CHUNKS lists every chunk that differs, the digests below must be EQUAL;"
+  echo "a difference means the partition was not in the expected state or a chunk list was incomplete"
+fi
 sh_ "echo 3 > /proc/sys/vm/drop_caches; /system/bin/sha256sum $NODE"
 echo "image digest: $(sha256sum "$IMG" | cut -d' ' -f1)"
 echo "== eMMC heads after =="; emmc_heads
@@ -122,4 +156,8 @@ if [ -n "$bad" ]; then
   echo " tools/repack_super_place.py so the payload is placed around them)"
   exit 2
 fi
-echo "all chunks verified"
+if [ -n "$ONLY_CHUNKS" ]; then
+  echo "the selected chunks verified; the other chunks were not written"
+else
+  echo "all chunks verified"
+fi
