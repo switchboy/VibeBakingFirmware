@@ -5354,4 +5354,21 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
 * **Attempt 3** - `aaa4fe5fc21d…`, the same image plus the watchdog, written to card p7 and verified by
   whole-partition readback, with the BCB cleared again and the reboot issued over adb. The wrapper binary is
   `adc4b2b764b4…`, built `zig cc -target aarch64-linux-musl -static -Os` with `SOURCE_DATE_EPOCH=1760000000`.
+* **Attempt 3 ended without a report.** The boot stayed black for about nine minutes with no panic, the 150 s
+  watchdog reboot never happened, and the owner's hard reset at 15:24 came back as Android 10 from the eMMC at
+  15:25:27 with `/sys/fs/pstore` empty (**D105**) and the card's BCB armed again - the wrapper ran and armed on
+  attempt 3 too. `/dev/watchdog` does not exist on this kernel, so a hardware watchdog was never an option.
+  Why the child never rebooted the unit is not measured; the next attempt does not depend on the reboot
+  syscall working, and does not depend on which media boots next (**D106**).
+* **Attempt 4 built offline, gated, not yet written.** The wrapper is `be7322b18ec5…` (13,816 B, static
+  aarch64, `SOURCE_DATE_EPOCH=1760000000`) and the card p7 image is `3cafc5b3a717…` (33,554,432 B). The child
+  waits 60 s, then dumps every task's backtrace with sysrq `t`, copies the pstore records into the card's
+  unpartitioned head (**D107**), and crashes the boot with sysrq `c` so `panic=10` reboots in software; it
+  stands down if the BCB was cleared or if the mount table already shows `/data`, so a working Android 14
+  boot is never killed. If sysrq is unavailable or refused it falls back to the reboot syscall with the
+  kernel's real magics, and test mode never calls reboot or sync at all - the gate runs on the workstation.
+  Every fd the wrapper opens is O_CLOEXEC, so Android's init inherits no writable fd to the raw card.
+  `scripts/smoke_hu_card_arm.sh` now runs sixteen scenarios, `summary: failures=0`: the sink bounds (nothing
+  before the log region, nothing between it and p1, a record larger than the region capped), a p1 start read
+  from sysfs that overlaps the region disables the sink, and init.real seeing no wrapper fd after execve.
 

@@ -2685,3 +2685,33 @@ software reboot (Nov 23, EXECUTED)**
   initramfs ran and the wrapper handed off to Android 14's init; clear means u-boot never reached our
   ramdisk.
 
+**D106 - the card's BCB is a signal, not a reboot path; the log must be read from the card itself
+(Nov 23, MEASURED)**
+* **What was measured.** After Android 14 attempt 3 the owner pressed the reset button with the boot card
+  still inserted and the card's BCB armed (`ceaae1a6314a…`). The unit came back as stock Android 10 from the
+  eMMC: `/proc/cmdline` reports `storagemedia=emmc` and `b.mode=normal`, uptime 25 s. So u-boot does not
+  choose the next boot from the card's misc - an armed card BCB does not send the next boot to the card's
+  recovery. The card boot is started by the software reboot issued from Android 10, which the owner
+  confirmed and which attempts 2 and 3 both reproduced.
+* **Consequence.** Arming the BCB answers only "did our wrapper run". Reporting a failed Android 14 attempt
+  cannot depend on which media boots next, so the log is written onto the card and read back by whatever
+  comes up - Android 10 over adb included. That is what attempt 4 does.
+* **Not measured.** Whether u-boot reads any BCB on the card at all; the discriminating measurement is an
+  armed card BCB plus a card-only boot, and it costs an owner cycle for no benefit while the card-log path
+  works.
+
+**D107 - the log sink is the card's unpartitioned head, because every partition carries vendor data
+(Nov 23, MEASURED)**
+* **What was measured.** The boot partition's tail is not free space: `card-p7-a14.img` holds about 2 MB of
+  non-zero data past the declared image content, from 28,537,216 B to 32,093,450 B. The card's misc is the
+  same story - `p3.bin` has 3,671,650 non-zero bytes across its whole 4,194,304 B, so writing past the
+  2048-byte BCB would corrupt data we do not understand. The card's first partition starts at byte 8,388,608
+  (from `/sys/block/mmcblk1/mmcblk1p1/start`, sector 16384), and the space before it reads as zero from
+  about 256 KiB onward except three small blobs measured at 32 KiB, 64 KiB and 128 KiB.
+* **The sink.** Bytes 1,048,576..2,097,152 of the raw card device: past those blobs, 6 MiB short of the first
+  partition, invisible to anything that reads a partition, and readable in any later boot with
+  `dd if=/dev/block/mmcblk1 bs=1024 skip=1024 count=1024`. Chosen by the same rule as every other write
+  (**D76**) - the parent device must report the card's whole-device block count - so the eMMC and the second
+  card cannot be selected. The offline gate proves nothing is written before that region or between it and
+  the first partition.
+
