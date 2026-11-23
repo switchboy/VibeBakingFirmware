@@ -586,3 +586,14 @@ dongle plugged in **before** power-up, read `-HUPATCH` in the menu header and th
     nonce with a 30-minute window - that arm is the owner's decision to approve. STEP 2 needs a GO and writes only
     the card's p8 plus the re-armed card misc (`scripts/arm_card_misc.sh` `026f22a31da8…`). STEP 4's ladder stays
     as defined, with the eMMC resolved by size, never by-name.
+32. **Nov 23: STEP 1 done offline - the card's own p8 image is built and reproducible (**D100**); STEP 2 needs
+    the owner's GO.** `HU_CARD_BUILD=1 HU_PART_BYTES=100663296 HU_DTBO_SIZE=803 scripts/patch_recovery_netmodule.sh`
+    ran on the verified capture and produced `card-p8/recovery-netmodule.img` (`03dcdad7af92…`), 100,663,296 B, and
+    a second independent build gives that same digest. Only header bytes 16..17 change; the kernel, second
+    bootloader, dtbo region and the 61,816,029 B vendor tail beyond the dtbo are byte-identical to the capture, and
+    the ramdisk keeps the stock page span via `sbin/hu-pad.bin` so no offset moves. The header's declared dtbo size
+    is 803 (64-byte DTB header + 739-byte payload), which is why `HU_DTBO_SIZE=803` is now the card parameter, and
+    the repacker was made reproducible (mtime normalisation plus `cpio --reproducible`). The write STEP 2 would
+    need is the header page 0..2,047 plus the ramdisk span 25,425,920..37,943,295 - 12,519,424 B of the partition,
+    on the SD node resolved by size 7,948,206,080 B, followed separately by the card misc re-arm
+    (`scripts/arm_card_misc.sh`). Nothing has been written to the card or the eMMC.

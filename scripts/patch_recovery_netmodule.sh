@@ -39,7 +39,9 @@ PART_BYTES=${HU_PART_BYTES:-100663296}
 DTBO_SIZE=${HU_DTBO_SIZE:-803}
 # Card build (**D98**): HU_CARD_BUILD=1 patches the SD-boot card's own recovery capture. The appended rc
 # is built from the capture's stock rc plus hu_net_module_block_card.rc, /sbin/hu-card-boot.flag is baked
-# into the ramdisk (the module's card-boot switch), hu_install is not carried, and hu_card is not started.
+# into the ramdisk (the module's card-boot switch), hu_install is not carried, and hu_card is started as
+# the owner-approved second-card evidence channel (**D99/D100 note in docs/decisions.md: the boot card and the
+# eMMC are refused as destinations).
 CARD_BUILD=${HU_CARD_BUILD:-0}
 
 mkdir -p "$OUTDIR/inject"
@@ -171,7 +173,7 @@ for svc in ("hu_early", "hu_hb", "hu_state5", "hu_state30", "hu_state120", "hu_n
     print(f"service {svc}: defined {n}, started {s} (want {want_start})")
     if n != 1 or s != want_start:
         print("REFUSE: service not defined exactly once or not started as expected"); sys.exit(1)
-if card_build and b"hu_install" in tail:
+if card_build and (b"service hu_install" in tail or b"start hu_install" in tail):
     print("REFUSE: the card build must not carry hu_install"); sys.exit(1)
 print("retired hu_evidence absent from tail:", b"hu_evidence" not in tail)
 print("stock markers still present:", b"service console" in old, b"sys.usb.controller" in old)
@@ -180,7 +182,7 @@ grep -q "REFUSE: appended rc\|REFUSE: service" "$LOG" && fail "rc splice refused
 
 say "=== 4. splice the image ==="
 python3 "$REPO/scripts/repack_recovery_python.py" "$CAPTURE" "$RD" "$OUTDIR/recovery-netmodule.img" \
-  "$PART_BYTES" "$DTBO_SIZE" >> "$LOG" 2>&1 | tail -14
+  "$PART_BYTES" "$DTBO_SIZE" ${CARD_BUILD:+inplace} >> "$LOG" 2>&1 | tail -16
 OUT="$OUTDIR/recovery-netmodule.img"
 [ -f "$OUT" ] || fail "no output image written"
 
@@ -213,7 +215,10 @@ print(f"dtbo digest         {hashlib.sha256(a[da:da+dtbo_sz]).hexdigest()[:12]} 
 tail = a[cb:]
 nz = sum(1 for x in tail if x)
 print(f"partition tail beyond patched content end: {len(tail):,} B, non-zero {nz:,} (left untouched by the write)")
-print(f"write span: 0..{len(b):,} B of partition {len(a):,} B")
+first = next((i for i in range(min(len(a), len(b))) if a[i] != b[i]), None)
+last = next((i for i in range(min(len(a), len(b)) - 1, -1, -1) if a[i] != b[i]), None)
+print(f"changed byte range: {first}..{last}  ({0 if first is None else last - first + 1:,} B of the capture differ)")
+print(f"output {len(b):,} B for partition {len(a):,} B; everything outside the changed range is byte-identical")
 PY
 grep "REFUSE" "$LOG" > /dev/null && fail "byte-level check refused the image (see $LOG)"
 

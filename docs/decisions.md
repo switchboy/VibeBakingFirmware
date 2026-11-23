@@ -2548,3 +2548,28 @@ carrier-first order)**
   device; the sysfs root is now the variable `SYSBLOCK=/sys/block` in `scripts/hu_h_common.sh`, rewritten as a
   whole line by the gate. After both fixes `scripts/smoke_card_module.sh` reports failures=0, and the eMMC-side
   gates still pass unchanged.
+
+**D100 - the card image of record is the `HU_DTBO_SIZE=803` build, and the boot-image repacker is made
+reproducible (Nov 23).**
+
+* **The card's boot header declares a dtbo of 803 B, not 739 B.** Measured Nov 23 on the verified capture:
+  `recovery_dtbo_size` = 803 at header byte 1632, `recovery_dtbo_offset` = 38,846,464 at 1636, `header_size` =
+  1660 at 1644. The region holds a 64-byte DTB header followed by the 739-byte OEM overlay payload, so the
+  builder's `HU_DTBO_SIZE` for the card must be 803; 739 slices the header into the payload and reports the
+  tail boundary 64 bytes early. The payload digest `e48134ad0ec7…` and the region digest `28a07d4946e9…` are
+  unchanged by STEP 1, and both were registered before (**D39**, the DTB re-measurement).
+* **The boundary cannot corrupt anything, but it must be truthful.** The dtbo is the last part of a boot
+  image, so nothing later is positioned by its size, and the bytes past the header-declared offset are carried
+  verbatim whichever size the builder is given. Both builds leave everything from 37,943,296 onward
+  byte-identical to the capture. The corrected parameter only makes the builder's tail report and the
+  registered digests describe what is actually there.
+* **`cpio -o` was not reproducible.** Two builds of the same overlaid tree produced different image digests:
+  measured 1,481 differing bytes inside the uncompressed cpio, every one of them an inode field, because the
+  extraction assigns fresh inode numbers and `cpio -o` stores each entry's mtime too.
+  `scripts/repack_recovery_python.py` now sets every entry's mtime to `SOURCE_DATE_EPOCH` (default
+  1760000000, the epoch **D92** uses) and packs with `--reproducible`, which zeroes the inode and device
+  fields. Two independent builds of the card tree now produce one digest, `03dcdad7af92…`.
+* **The wrapper path is unaffected.** The staged candidates are injected by `scripts/inject_hu_wrap_boot.py`,
+  which is an in-place cpio byte transform (**D95**) and never calls this repacker, so their recorded digests
+  still describe the files on disk: `b1378cd79497…`, `8f287e8bfa98…` and `02ac85b9aee4…` were re-measured on
+  the workstation after the repacker change and still match.

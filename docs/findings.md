@@ -5085,3 +5085,45 @@ Step 2 (reduced scope) and Step 3 (probe + network merged) ran read-only; nothin
   scripts/hu_early.sh `6450ebb0385a…`
   scripts/hu_net_module_block_card.rc `6b7c1d2be09a…`
   scripts/patch_recovery_netmodule.sh `1581b4ad7332…`
+
+* **STEP 1: the card's own p8 is patched offline (Nov 23) and nothing was written to any device.**
+  `HU_CARD_BUILD=1 HU_PART_BYTES=100663296 HU_DTBO_SIZE=803 scripts/patch_recovery_netmodule.sh
+  /run/media/Daan/Opslagmonster/a14-work/sdcard/analysis/p8.bin /run/media/Daan/Opslagmonster/a14-work/card-p8`
+  exited 0 and produced `card-p8/recovery-netmodule.img`, 100,663,296 B, digest `03dcdad7af92…`. A second
+  independent build (`card-p8-repro`) gives the same digest, so the image of record is reproducible.
+  * Header: only bytes 16..17 differ - the declared ramdisk size goes 12,515,795 -> 12,515,402. The declared
+    dtbo size 803 at byte 1632, the dtbo offset 38,846,464 at byte 1636, header_size 1660 at byte 1644, the
+    cmdline 64..575, page size 2048 and header version 2 are identical to the capture.
+  * Kernel blob `a11c2667f843…`, second bootloader `948d678b9b9e…` at 37,943,296 and the dtbo region there are
+    unchanged: the 803 B region digest is `28a07d4946e9…` and the 739 B payload after the 64-byte DTB header is
+    `e48134ad0ec7…`, both unchanged by the patch. Everything from 37,943,296 to the end of the partition is
+    byte-identical, including the 61,816,029 B of vendor data beyond the dtbo (`beca4ef242e1…`).
+  * Ramdisk: 12,515,402 B gzip holding 493 cpio entries against the capture's 484 - 9 entries added, none
+    removed: `sbin/hu-h-common.sh`, `sbin/hu-early.sh`, `sbin/hu-hb.sh`, `sbin/hu-state.sh`, `sbin/hu-net.sh`,
+    `sbin/hu-card.sh`, `sbin/hu-udhcpc.script`, `sbin/hu-card-boot.flag` (0 B) and `sbin/hu-pad.bin`
+    (25,948 B `649556ea25dd…`).
+  * Why `hu-pad.bin` exists: the loader computes second_offset = ramdisk_offset + align(declared ramdisk size,
+    2048). Without the pad the patched gzip is 12,487,018 B, which lands in the previous page and would move
+    the second bootloader and the dtbo, so inplace mode binary-searches the filler size until the output lands
+    inside the stock page span (12,515,328, 12,517,376]; 25,948 B of deterministic filler lands at 12,515,402 B.
+    No rc or `init.rc` line names `hu-pad.bin`, so nothing reads it.
+  * Files byte-identical to the capture's extraction (`sdcard/analysis/rd8/`): `system/bin/recovery`
+    `3aff97ce31d4…`, `sbin/busybox` `e9ad9c4e8999…`, `sbin/sh` `93fa195954a3…`, `init.rc` `c57d847660c8…`. The
+    stock menu and its `update.zip` path stay intact because the recovery binary and `init.rc` are untouched.
+  * `prop.default` `17cc18c1fd71…` -> `81aa46e67f36…`: three build strings gain `-HUPATCH` and `ro.adb.secure=0`
+    is appended. Measured byte effect 11,025 B -> 11,065 B, 8 diff lines (3 changed, 1 added, a blank line and
+    the dropped final newline); the patched file no longer ends with a newline.
+  * `init.recovery.rk30board.rc` `8938ae4348de…` -> `3d6a4b127c20…`: the capture's stock 663 B kept verbatim as
+    the prefix plus the appended 1,519 B card block = 2,182 B. Each hu service is defined exactly once and
+    started exactly once, `hu_install` is absent, and `hu_card` is started (**D99** approved evidence channel).
+  * The write STEP 2 would need is the header page 0..2,047 plus the ramdisk span 25,425,920..37,943,295 =
+    12,519,424 B of the 100,663,296 B partition. Inside that span 12,464,811 B differ across 50,745 runs;
+    nothing outside it differs.
+  * Superseded first run: the same tree built with `HU_DTBO_SIZE=739` and an unnormalised cpio gave
+    `3af09dfaad04…`, declared 12,515,482 B, filler `sbin/hu-pad.bin` 25,766 B `cc1787d0c124…`, and reported its
+    tail as the 61,816,093 B slice `891bdb3275c2…`. Those values are kept for traceability; the boundary only
+    changes where the builder reports the tail starting, not the bytes - the output from the dtbo offset
+    onward is identical in both builds, and nothing outside the header page and the ramdisk span ever differs.
+  * Naming note: the builder's `rd-src` is the overlaid working tree (it already carries the hu files and the
+    markers), not a clean extraction; `rd-patched` is a re-extraction of the output image, and its digests
+    equal the working tree's, which is what proves the image carries the intended files.
