@@ -5574,4 +5574,17 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   libc++, liblog, libsync); the rest are bionic names. A stock adapter with our Android 14 service would not
   work: the two sources differ in members, so `make_unique` would allocate the wrong class size. Super
   `9dbfc7b5c757…`, five 4 MiB chunks written, whole p14 read back equal.
+* **Attempt 11 - the composer runs; the boot animation plays; surfaceflinger aborts in its shader warm-up.**
+  With the stock composer pair `vendor.hwcomposer-2-1` no longer crashes and `/product/media/bootanimation.zip
+  is loaded successfully` appears five times. No RescueParty this time: the boot ran to the unattended crasher
+  at 300 s (sysrq dump then panic; pstore added `dmesg-ramoops-0`, 327,561 B). The display group was still
+  restarted 9 times, now triggered by `surfaceflinger` itself (signal 6). tombstone_29 (read from the card's
+  `/data/tombstones`): `Abort message: 'Failed to create a valid texture. [128,128] isProtected:0 isWriteable:0
+  format:22'` from `AutoBackendTexture::AutoBackendTexture` <- `SkiaRenderEngine::mapExternalTextureBuffer` <-
+  `skia::Cache::primeShaderCache` <- `SkiaRenderEngine::primeCache`. Format 22 is RGBA_FP16: the startup shader
+  warm-up draws an FP16 buffer the Mali-T860 r18p0 driver cannot import. `vendor.audio-hal` (9x) and
+  `vendor.rockit-hal-1-0` (8x) keep aborting as on attempt 10.
+* **Attempt 12 written: `service.sf.prime_shader_cache=0`.** The property is read by this build's surfaceflinger
+  (present in its strings). Added to `/vendor/build.prop` above `# end of file`, mode 0600, owner and
+  `security.selinux` kept; e2fsck clean. Super `f15cf47dbc81…`, two 4 MiB chunks written, whole p14 equal.
 
