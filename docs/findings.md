@@ -5534,4 +5534,19 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   (`44d02b1307e7…`), so with nobody to press reset every boot ends at 300 s in a warm reboot (sysrq `t`, `w`,
   `l`, then `c`) and its console and Android log survive in pstore into the card recovery. The default build is
   unchanged (`c378cf7c7a36…`); gate 69 checks, `failures=0`.
+* **Attempt 9 - the VINTF fix works; the netbpfload wrapper never ran.** `VINTF parse error` appears 0 times
+  (95 on attempt 8), and with the keymint/keystore2/surfaceflinger abort loops gone the boot reaches
+  `bpfloader` at 45 s instead of 121 s; `/data` mounts at 33.6 s. NetBpfLoad then failed exactly as before
+  and init rebooted with `bpfloader-failed` at 47.0 s; pstore carried `console-ramoops-0` (191,688 B) and
+  `pmsg-ramoops-0` (62,745 B) into the card recovery. No `hu-netbpfload:` line was logged: the Tethering
+  APEX ships `/etc/netbpfload.33rc` with `service bpfloader /apex/com.android.tethering/bin/netbpfload` and
+  `override`, which replaces the /system rc's `bpfloader` definition, so the edited service line was never
+  used. The only trigger is the /system rc's `on load_bpf_programs: exec_start bpfloader`.
+* **Attempt 10 written: the wrapper under its own service name.** The /system rc now reads
+  `exec_start hu_bpfloader` and `service hu_bpfloader /system/bin/hu-netbpfload` (two lines; every option of
+  the service, including `reboot_on_failure reboot,bpfloader-failed`, unchanged), so the APEX's override has
+  nothing to replace. The wrapper (`7ebfda3348e9…`, 7,480 B) now execs the APEX binary,
+  `/apex/com.android.tethering/bin/netbpfload`, falling back to `/system/bin/netbpfload` only if it is missing.
+  Both files keep mode, owner and `security.selinux`; e2fsck clean. Super `b3f350783336…`: five 4 MiB chunks
+  differ from attempt 9's, written with `ONLY_CHUNKS`, whole p14 read back equal.
 

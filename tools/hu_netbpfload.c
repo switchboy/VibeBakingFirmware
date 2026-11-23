@@ -17,6 +17,13 @@
  * Fail-open: if any step fails it still execs netbpfload, which then fails exactly as it did without
  * the wrapper. Each step is logged to /dev/kmsg, so the console record shows what happened.
  *
+ * Which netbpfload (measured on attempt 9): the Tethering APEX's own /etc/netbpfload.33rc redefines the
+ * `bpfloader` service with `override`, pointing at /apex/com.android.tethering/bin/netbpfload, so editing
+ * the /system rc's service line changed nothing - the APEX binary ran and the wrapper never did. The
+ * /system rc therefore starts this wrapper under its own service name (hu_bpfloader), and the wrapper execs
+ * the APEX binary - the one Android 14 actually runs - falling back to /system/bin/netbpfload only if the
+ * APEX one is missing.
+ *
  * HU_NB_DIR (test only) replaces /proc/sys/net/core, and HU_NB_REAL replaces the exec target, so the
  * offline gate can run it without touching the workstation's /proc.
  */
@@ -58,7 +65,8 @@ int main(int argc, char **argv) {
   const char *real = getenv("HU_NB_REAL");
   int test = dir != NULL;
   if (!dir) dir = "/proc/sys/net/core";
-  if (!real) real = "/system/bin/netbpfload";
+  if (!real) real = access("/apex/com.android.tethering/bin/netbpfload", X_OK) == 0
+                        ? "/apex/com.android.tethering/bin/netbpfload" : "/system/bin/netbpfload";
   kfd = open(test ? "/dev/null" : "/dev/kmsg", O_WRONLY | O_CLOEXEC);
 
   if (test) {
@@ -76,6 +84,7 @@ int main(int argc, char **argv) {
   } else {
     say("private /proc/sys/net/core with bpf_jit_enable and bpf_jit_kallsyms; BPF runs interpreted");
   }
+  say(real[1] == 'a' ? "exec /apex/com.android.tethering/bin/netbpfload" : "exec (fallback or test target)");
 
   argv[0] = (char *)real;
   execv(real, argv);

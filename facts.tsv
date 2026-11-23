@@ -518,3 +518,5 @@ HU-NETBPFLOAD-BIN	sha	7dac0ee0245a19b49667af950b86414772dd42bdd66a7f7b82c40b11cd
 A14-SUPER-ATT9	sha	afa3ca57d6917eba46168d8c450f90ec2b16205ac4c2335fb0bd00f7b9d5836a	bytes	2026-11-24	docs/findings.md	new super	docs/findings.md	attempt 9 super: system with hu-netbpfload + rc, vendor manifest without health@2.0/keymaster@3.0
 A14-CARD-P7-NIGHT-IMG	sha	cc5133f59072ad66d101069ac005d2bd2df118537f0d98ab98d074d9596572e7	bytes	2026-11-24	docs/findings.md	Card p7	docs/findings.md	attempt 9 boot image, unattended crasher at 300 s
 HU-CARD-ARM-NIGHT-BIN	sha	44d02b1307e7a4f6a17da604e2228077445634869099fae0af7c2a31daccf00a	bytes	2026-11-24	docs/findings.md	HU_CRASH_ALWAYS	docs/findings.md	wrapper with unconditional crasher at 300 s, 15,968 B
+HU-NETBPFLOAD-APEX-BIN	sha	7ebfda3348e99a5f796fbed9838863b12fb946502ad936ccba752d76fb171b5d	bytes	2026-11-24	docs/findings.md	The wrapper (	docs/findings.md	netbpfload wrapper that execs the Tethering APEX binary, 7,480 B
+A14-SUPER-ATT10	sha	b3f350783336c6dfacb0fcfa00b031bcd6503e27f38a991e14040e22a433d7cd	bytes	2026-11-24	docs/findings.md	Super	docs/findings.md	attempt 10 super: hu_bpfloader service in the /system rc
