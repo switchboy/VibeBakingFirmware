@@ -5587,4 +5587,20 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
 * **Attempt 12 written: `service.sf.prime_shader_cache=0`.** The property is read by this build's surfaceflinger
   (present in its strings). Added to `/vendor/build.prop` above `# end of file`, mode 0600, owner and
   `security.selinux` kept; e2fsck clean. Super `f15cf47dbc81…`, two 4 MiB chunks written, whole p14 equal.
+* **Attempt 12 - surfaceflinger survives; system_server starts its services and aborts in ClatCoordinator on
+  bpffs labels.** `Failed to create a valid texture` appears 0 times and surfaceflinger is gone from the restart
+  list; the boot ran to the 300 s crasher. system_server reached `Starting phase 200` and its
+  `NetworkStatsServiceInitializer`; tombstone_08 (`system_server_native_crash`): abort in
+  `register_com_android_server_connectivity_ClatCoordinator` <- `JNI_OnLoad` of
+  `/apex/com.android.tethering/lib64/libservice-connectivity.so`. The log before it: `context of
+  '/sys/fs/bpf/net_shared/prog_clatd_schedcls_egress4_clat_rawip' is 'u:object_r:fs_bpf:s0' !=
+  'u:object_r:fs_bpf_net_shared:s0'` (six such lines, all under `net_shared`). So the netbpfload wrapper worked:
+  the clatd programs and maps are pinned. But Android 14 labels bpffs subdirectories by path (platform policy
+  `genfscon bpf "/net_shared" fs_bpf_net_shared` and seven more), and this kernel gives every bpffs object the
+  root's `fs_bpf` (inferred: no path-based genfs labelling for bpffs in this vendor 4.19).
+* **Attempt 13 written: one labelled bpffs mount per policy subdirectory.** Before anything else,
+  `hu-netbpfload` (`08ea8311e660…`, 28,048 B) mounts a bpffs instance in the shared namespace on each of the
+  eight policy paths (`loader`, `net_private`, `net_shared`, `netd_readonly`, `netd_shared`, `tethering`,
+  `uprobestats`, `vendor`) with `context=u:object_r:<label>:s0`, so every object pinned there carries the
+  policy's label; then the private JIT knobs and the exec as before. Super `ff51ee63d69e…`, three chunks.
 

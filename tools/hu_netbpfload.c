@@ -24,6 +24,15 @@
  * the APEX binary - the one Android 14 actually runs - falling back to /system/bin/netbpfload only if the
  * APEX one is missing.
  *
+ * bpffs labels (measured on attempt 12): the programs and maps loaded, but system_server aborted in
+ * libservice-connectivity's ClatCoordinator check `context of '/sys/fs/bpf/net_shared/...' is
+ * 'u:object_r:fs_bpf:s0' != 'u:object_r:fs_bpf_net_shared:s0'`. Android 14 labels bpffs subdirectories by
+ * path (`genfscon bpf "/net_shared" ...`), which this vendor 4.19 kernel does not do, so every object gets
+ * the root's fs_bpf. So before anything else, in the SHARED mount namespace, the wrapper mounts a separate
+ * bpffs instance on each labelled subdirectory with SELinux's `context=` option, which gives every file in
+ * that mount the policy's label. The list is the platform policy's genfscon bpf entries. Pinning works into
+ * any bpffs instance, and every process sees these mounts. A mount that fails is logged and skipped.
+ *
  * HU_NB_DIR (test only) replaces /proc/sys/net/core, and HU_NB_REAL replaces the exec target, so the
  * offline gate can run it without touching the workstation's /proc.
  */
@@ -34,6 +43,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mount.h>
+#include <stdio.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static int kfd = -1;
@@ -59,6 +70,29 @@ static int put(const char *dir, const char *name, const char *val) {
   return ok ? 0 : -1;
 }
 
+static const char *const bpf_labels[][2] = {
+  {"loader", "fs_bpf_loader"},           {"net_private", "fs_bpf_net_private"},
+  {"net_shared", "fs_bpf_net_shared"},   {"netd_readonly", "fs_bpf_netd_readonly"},
+  {"netd_shared", "fs_bpf_netd_shared"}, {"tethering", "fs_bpf_tethering"},
+  {"uprobestats", "fs_bpf_uprobestats"}, {"vendor", "fs_bpf_vendor"},
+};
+
+static void label_bpffs(const char *root) {
+  for (size_t i = 0; i < sizeof(bpf_labels) / sizeof(bpf_labels[0]); i++) {
+    char path[160], opt[96], msg[200];
+    snprintf(path, sizeof(path), "%s/%s", root, bpf_labels[i][0]);
+    snprintf(opt, sizeof(opt), "context=u:object_r:%s:s0", bpf_labels[i][1]);
+    if (mkdir(path, 01777) != 0 && errno != EEXIST) {
+      snprintf(msg, sizeof(msg), "mkdir %s failed (errno %d)", path, errno); say(msg); continue;
+    }
+    if (mount("bpf", path, "bpf", MS_NOSUID | MS_NODEV | MS_NOEXEC, opt) != 0) {
+      snprintf(msg, sizeof(msg), "bpffs %s with %s failed (errno %d)", path, opt, errno); say(msg); continue;
+    }
+    (void)chmod(path, 01777);
+    snprintf(msg, sizeof(msg), "bpffs %s mounted with %s", path, opt); say(msg);
+  }
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   const char *dir = getenv("HU_NB_DIR");
@@ -68,6 +102,8 @@ int main(int argc, char **argv) {
   if (!real) real = access("/apex/com.android.tethering/bin/netbpfload", X_OK) == 0
                         ? "/apex/com.android.tethering/bin/netbpfload" : "/system/bin/netbpfload";
   kfd = open(test ? "/dev/null" : "/dev/kmsg", O_WRONLY | O_CLOEXEC);
+
+  if (!test) label_bpffs("/sys/fs/bpf");
 
   if (test) {
     /* the gate exercises the file step only; namespaces and mounts need privileges it does not have */
