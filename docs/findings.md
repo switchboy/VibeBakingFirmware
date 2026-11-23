@@ -5391,4 +5391,24 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `fe92d58d24bd…` (13,752 B), card p7 image `4d1e839d96bf…`. `scripts/smoke_hu_card_arm.sh` runs seventeen
   scenarios, 57 checks, `summary: failures=0`, including a heartbeat and the log from time zero on the card
   within 3 s, and a 6.2 MB log capped at the region end.
+* **Attempt 5 - the recorder wrote once, then card I/O (or the whole system) stopped.** Card p7
+  `4d1e839d96bf…` written and verified, BCB cleared, the 5 MiB region confirmed zero; `adb reboot` at 19:11:53,
+  black screen, owner reset, Android 10 back at about 19:16:15. The card held the heartbeat
+  `HULOG2 tick=0 up_ms=1009 bytes=67346 state=start` and 67,346 B of kmsg ending with the wrapper's own
+  `execing init.real` at 1.004794 s. There was never a tick 1: about one second after Android 14's init was
+  executed, the child could no longer put a heartbeat on the card, and no panic fired despite `hung_task`,
+  softlockup and oops panics. Every earlier child's first action after its sleep also needed card I/O
+  (attempt 3's reboot shuts the MMC devices down; attempt 4's fsync), so the three silent attempts are one
+  observation: within about a second of Android 14's first stage starting, the system freezes or card I/O
+  hangs. Separately, attempt 4's pstore copy asked for filesystem type `pstorefs`, which does not exist (the
+  kernel's name is `pstore`), so that copy could never have worked.
+* **Step 0 control built, gated, not yet written.** The same wrapper built with `-DHU_CONTROL`: it arms the
+  BCB, copies the previous boot's pstore to 6..7 MiB of the card, runs the recorder for 120 one-second ticks
+  in 2..6 MiB, and never executes Android 14's init - PID 1 just sleeps. If the heartbeat still stops about a
+  second in, the hang is in the kernel, the card or the wrapper and Android 14 is innocent; if it reaches tick
+  120, Android 14's first stage is what kills card I/O, and the next step is a staged first-stage init that
+  repeats its steps one at a time, starting with the `super`/dm-linear setup over the card. The crasher (sysrq
+  `t`, `w`, `l`, `c` with no block I/O) stays in the source and is compiled out of the control. Control
+  wrapper `ad501c668c00…` (14,680 B), card p7 image `b5ad5d58a56f…`; normal wrapper `9a9a97c0de27…`
+  (16,176 B). `scripts/smoke_hu_card_arm.sh` runs nineteen scenarios, 69 checks, `summary: failures=0`.
 

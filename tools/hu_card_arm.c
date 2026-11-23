@@ -44,7 +44,16 @@
  * from the start (see start_watchdog), so this only bounds how long a hung boot is left hanging; 90 s is
  * well past the point where a healthy Android 14 boot mounts /data. */
 #ifndef HU_WDT_SECS
-#define HU_WDT_SECS 90
+#define HU_WDT_SECS 120   /* recorder ticks; it never crashes anything */
+#endif
+/* Seconds before the crasher fires. It does no block I/O at all (attempt 5 measured the recorder's card
+ * heartbeat stopping one second after Android 14's init started, so card I/O may be what hangs); a healthy
+ * boot that mounted /data by then is left alone. */
+#ifndef HU_TEST_CONTROL_SECS
+#define HU_TEST_CONTROL_SECS 4
+#endif
+#ifndef HU_CRASH_SECS
+#define HU_CRASH_SECS 45
 #endif
 
 #define HU_BCB_LEN 2048
@@ -66,7 +75,10 @@
  * 32,093,450), and the misc partition beyond the BCB is full of data too.
  * The next boot reads the copy with dd if=/dev/block/mmcblk1 bs=1024 skip=2048 count=5120. */
 #define HU_LOG_RAW           2097152
-#define HU_LOG_LEN           5242880   /* 2 MiB..7 MiB, 1 MiB short of p1 */
+#define HU_LOG_LEN           4194304   /* recorder: 2 MiB..6 MiB */
+/* The previous boot's pstore records, copied by the parent before Android 14 starts: 6 MiB..7 MiB. */
+#define HU_PREV_RAW          6291456
+#define HU_PREV_LEN          1048576
 #define HU_LOG_HDR           64
 #define HU_FIRST_PART_START  8388608   /* byte offset of mmcblk1p1, measured */
 
@@ -76,6 +88,7 @@
 #define HU_MOUNTS "/hu-proc/mounts"
 #define HU_SYSRQ  "/hu-proc/sysrq-trigger"
 #define HU_KMSG   "/hu-kmsg"
+#define HU_PSTORE "/hu-pstore"
 #define HU_MISC   "/hu-misc"
 #define HU_CARD   "/hu-card"
 #define HU_INIT   "/init.real"
@@ -343,6 +356,99 @@ static int bcb_still_armed(int miscfd) {
 }
 static void hu_sleep1(void) { struct { long s; long ns; } ts = { 1, 0 }; syscall(SYS_nanosleep, &ts, 0); }
 
+/* The crasher. Its only tools are a sleep, a pread of the already-open proc mount table, and writes to
+ * the already-open /proc/sysrq-trigger - no block device, no filesystem write - so a hang in card I/O
+ * cannot stop it. If the kernel and its timers are alive it dumps every task (t), the blocked tasks (w)
+ * and every CPU (l) into the console ring, then panics (c); `panic=10` turns that into a warm reboot, so
+ * the console record survives in ramoops (D105 only wipes it on a cold reset). If it never fires, the
+ * kernel or its timers stopped - which is itself the answer. */
+__attribute__((unused)) static void start_crasher(int mountsfd, int sysrqfd, const char *ok_path, long secs, int test, const char *mark) {
+  long pid = syscall(SYS_clone, (unsigned long)SIGCHLD, 0UL, 0UL, 0UL, 0UL);
+  if (pid < 0) { hu_put("hu-card-arm: clone failed - no crasher\n"); return; }
+  if (pid != 0) { hu_line("hu-card-arm: crasher child pid=", pid); return; }
+  struct { long s; long ns; } ts = { secs, 0 };
+  syscall(SYS_nanosleep, &ts, 0);
+  if (boot_looks_alive(mountsfd, ok_path)) {
+    hu_put("hu-card-arm: crasher: the boot reached /data - standing down\n");
+    syscall(SYS_exit_group, 0);
+  }
+  hu_put("hu-card-arm: crasher: no /data after the deadline - dumping and panicking\n");
+  hu_sysrq(sysrqfd, 't');
+  hu_sysrq(sysrqfd, 'w');
+  hu_sysrq(sysrqfd, 'l');
+  hu_sleep1();
+  long crashed = hu_sysrq(sysrqfd, 'c');
+  if (crashed != 1) {
+    hu_put("hu-card-arm: crasher: falling back to the reboot syscall\n");
+    if (!test) {
+      syscall(SYS_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, LINUX_REBOOT_CMD_RESTART, 0);
+      hu_put("hu-card-arm: crasher: reboot syscall returned - it was refused\n");
+    }
+  }
+  if (test && mark) {
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, mark, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (fd >= 0) { syscall(SYS_write, fd, "crash\n", 6); syscall(SYS_close, fd); }
+  }
+  syscall(SYS_exit_group, 0);
+}
+
+struct hu_dirent { unsigned long long d_ino; long long d_off; unsigned short d_reclen; unsigned char d_type; char d_name[256]; };
+
+/* Copy the previous boot's pstore records into [HU_PREV_RAW, HU_PREV_RAW + HU_PREV_LEN) of the raw card,
+ * synchronously, in the parent, before Android 14's init runs - the one moment card writes are measured
+ * to work (attempt 5's tick 0). If the crasher's warm reboot lands on the card again, this is how the
+ * crashed boot's console reaches the card. The filesystem type is "pstore": attempt 4 asked for
+ * "pstorefs", which does not exist, so its copy could never have happened. Header:
+ *   HUPREV1 bytes=<n> records=<n> up_ms=<when copied> */
+static void copy_prev_pstore(int cardfd, const char *dir_path) {
+  int dir = (int)syscall(SYS_openat, AT_FDCWD, dir_path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (dir < 0) { hu_put("hu-card-arm: prev pstore: cannot open the record directory\n"); return; }
+  const long cap = HU_PREV_LEN - HU_LOG_HDR;
+  char dents[2048], rec[2048];
+  long used = 0, records = 0;
+  for (;;) {
+    long n = syscall(SYS_getdents64, dir, dents, sizeof(dents));
+    if (n <= 0) break;
+    for (long off = 0; off < n;) {
+      struct hu_dirent *de = (struct hu_dirent *)(dents + off);
+      off += de->d_reclen;
+      if (de->d_name[0] == '.') continue;
+      int rf = (int)syscall(SYS_openat, dir, de->d_name, O_RDONLY | O_CLOEXEC);
+      if (rf < 0) continue;
+      char hd[160]; long h = 0;
+      h = hu_cat(hd, h, "=== ");
+      for (unsigned i = 0; de->d_name[i] && h < 150; i++) hd[h++] = de->d_name[i];
+      hd[h++] = '\n';
+      if (used + h > cap) { syscall(SYS_close, rf); break; }
+      if (syscall(SYS_pwrite64, cardfd, hd, h, HU_PREV_RAW + HU_LOG_HDR + used) != h) { syscall(SYS_close, rf); continue; }
+      used += h;
+      for (;;) {
+        long r = syscall(SYS_read, rf, rec, sizeof(rec));
+        if (r <= 0) break;
+        if (used + r > cap) r = cap - used;
+        if (r <= 0) break;
+        if (syscall(SYS_pwrite64, cardfd, rec, r, HU_PREV_RAW + HU_LOG_HDR + used) != r) break;
+        used += r;
+      }
+      syscall(SYS_close, rf);
+      records++;
+    }
+  }
+  syscall(SYS_close, dir);
+  char hd[HU_LOG_HDR]; for (int i = 0; i < HU_LOG_HDR; i++) hd[i] = ' ';
+  char t[128]; long k = 0;
+  k = hu_cat(t, k, "HUPREV1 bytes="); k += hu_fmt(t + k, used);
+  k = hu_cat(t, k, " records="); k += hu_fmt(t + k, records);
+  k = hu_cat(t, k, " up_ms="); k += hu_fmt(t + k, hu_uptime_ms());
+  if (k > HU_LOG_HDR - 1) k = HU_LOG_HDR - 1;
+  for (long i = 0; i < k; i++) hd[i] = t[i];
+  hd[HU_LOG_HDR - 1] = '\n';
+  (void)syscall(SYS_pwrite64, cardfd, hd, HU_LOG_HDR, HU_PREV_RAW);
+  syscall(SYS_fsync, cardfd);
+  hu_line("hu-card-arm: prev pstore records copied=", records);
+  hu_line("hu-card-arm: prev pstore bytes=", used);
+}
+
 /* The flight recorder (attempt 5). Measured reason it replaced the sleep-then-act child: on attempts 3 and
  * 4 the child never acted - attempt 4's card region was still all zero after the owner's reset, so the
  * child did not even reach its first write after a 60 s sleep. Whether the system froze, timers stopped,
@@ -357,8 +463,7 @@ static void hu_sleep1(void) { struct { long s; long ns; } ts = { 1, 0 }; syscall
  * software. If sysrq is unavailable or refused it falls back to the reboot syscall with the kernel's real
  * magics (tools/hu_wrap.c used 0x6a215546 and 0xd1d1f7e7, which is why **D97**'s watchdog was never seen).
  * Test mode never calls reboot(2) or sync(2): the gate runs on the workstation. */
-static void start_watchdog(int miscfd, int mountsfd, int sysrqfd, int cardfd, int kfd,
-                           const char *ok_path, long secs, int test, const char *mark) {
+static void start_recorder(int miscfd, int mountsfd, int cardfd, int kfd, const char *ok_path, long secs) {
   long pid = syscall(SYS_clone, (unsigned long)SIGCHLD, 0UL, 0UL, 0UL, 0UL);
   if (pid < 0) { hu_put("hu-card-arm: clone failed - no recorder\n"); return; }
   if (pid != 0) { hu_line("hu-card-arm: recorder child pid=", pid); return; }
@@ -390,30 +495,9 @@ static void start_watchdog(int miscfd, int mountsfd, int sysrqfd, int cardfd, in
     if (cardfd >= 0) syscall(SYS_fsync, cardfd);
   }
 
-  hu_put("hu-card-arm: recorder expired with the BCB still armed and no working boot - dumping and crashing\n");
-  hu_sysrq(sysrqfd, 't');
-  for (long extra = 1; extra <= 3; extra++) {
-    hu_sleep1();
-    used = drain_kmsg(kfd, cardfd, used, cap, &full);
-    write_hb(cardfd, secs + extra, used, "dumped");
-    if (cardfd >= 0) syscall(SYS_fsync, cardfd);
-  }
-  write_hb(cardfd, secs + 3, used, "crash");
+  hu_put("hu-card-arm: recorder: done\n");
+  write_hb(cardfd, secs, used, "done");
   if (cardfd >= 0) syscall(SYS_fsync, cardfd);
-  if (!test) syscall(SYS_sync);
-
-  long crashed = hu_sysrq(sysrqfd, 'c');
-  if (crashed != 1) {
-    hu_put("hu-card-arm: recorder: falling back to the reboot syscall\n");
-    if (!test) {
-      syscall(SYS_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, LINUX_REBOOT_CMD_RESTART, 0);
-      hu_put("hu-card-arm: recorder: reboot syscall returned - it was refused\n");
-    }
-  }
-  if (test && mark) {
-    int fd = (int)syscall(SYS_openat, AT_FDCWD, mark, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-    if (fd >= 0) { syscall(SYS_write, fd, "crash\n", 6); syscall(SYS_close, fd); }
-  }
   syscall(SYS_exit_group, 0);
 }
 
@@ -539,7 +623,7 @@ int main(int argc, char **argv) {
       } else {
         hu_line("hu-card-arm: p1 starts at ", p1);
       }
-      if (HU_LOG_RAW + HU_LOG_LEN > p1) {
+      if (HU_PREV_RAW + HU_PREV_LEN > p1 || HU_LOG_RAW + HU_LOG_LEN > HU_PREV_RAW) {
         hu_put("hu-card-arm: log region would reach the first partition - sink disabled\n");
       } else if (test) {
         const char *bp = hu_getenv("HU_TEST_CARD");
@@ -555,12 +639,33 @@ int main(int argc, char **argv) {
       hu_line("hu-card-arm: mounts fd=", mountsfd);
       hu_line("hu-card-arm: kmsg read fd=", kfd);
       hu_line("hu-card-arm: log region offset=", HU_LOG_RAW);
-      const char *wd = test ? hu_getenv("HU_TEST_WATCHDOG") : 0;
-      long secs = HU_WDT_SECS;
-      if (wd) { secs = 0; for (const char *q = wd; *q >= '0' && *q <= '9'; q++) secs = secs * 10 + (*q - '0'); }
-      hu_line("hu-card-arm: watchdog delay=", secs);
-      start_watchdog(fd, mountsfd, sysrqfd, cardfd, kfd, ok_path, secs,
-                     test, test ? hu_getenv("HU_TEST_REBOOT_MARK") : 0);
+      if (cardfd >= 0) {
+        const char *pd = HU_PSTORE;
+        int pmounted = 0;
+        if (test) pd = hu_getenv("HU_TEST_PSTORE");
+        else {
+          syscall(SYS_mkdirat, AT_FDCWD, HU_PSTORE, 0755);
+          if (syscall(SYS_mount, "pstore", HU_PSTORE, "pstore", 0, 0) == 0) pmounted = 1;
+          else hu_put("hu-card-arm: prev pstore: cannot mount pstore\n");
+        }
+        if (pd) copy_prev_pstore(cardfd, pd);
+        if (pmounted) syscall(SYS_umount2, HU_PSTORE, MNT_DETACH);
+      }
+      long secs = HU_WDT_SECS, csecs = HU_CRASH_SECS;
+      if (test) {
+        const char *wd = hu_getenv("HU_TEST_WATCHDOG"), *cd = hu_getenv("HU_TEST_CRASH");
+        if (wd) { secs = 0; for (const char *q = wd; *q >= '0' && *q <= '9'; q++) secs = secs * 10 + (*q - '0'); }
+        if (cd) { csecs = 0; for (const char *q = cd; *q >= '0' && *q <= '9'; q++) csecs = csecs * 10 + (*q - '0'); }
+      }
+      hu_line("hu-card-arm: recorder ticks=", secs);
+#ifndef HU_CONTROL
+      hu_line("hu-card-arm: crasher delay=", csecs);
+      start_crasher(mountsfd, sysrqfd, ok_path, csecs, test, test ? hu_getenv("HU_TEST_REBOOT_MARK") : 0);
+#else
+      (void)csecs;
+      hu_put("hu-card-arm: CONTROL build - no crasher\n");
+#endif
+      start_recorder(fd, mountsfd, cardfd, kfd, ok_path, secs);
     }
     syscall(SYS_close, fd);
     if (!test) syscall(SYS_unlinkat, AT_FDCWD, HU_MISC, 0);
@@ -569,6 +674,21 @@ int main(int argc, char **argv) {
 handoff:
   if (mounted) syscall(SYS_umount2, HU_PROC, MNT_DETACH);
   if (sys_mounted) syscall(SYS_umount2, HU_SYS, MNT_DETACH);
+#ifdef HU_CONTROL
+  /* The step-0 control: everything above ran exactly as in a real attempt, but Android 14's init is never
+   * executed. If the recorder's heartbeat still stops about a second in, the hang is in the kernel, the
+   * card or this wrapper, and Android 14 is innocent; if it runs to tick 120, Android 14's first stage is
+   * what kills card I/O. PID 1 must never exit (the kernel panics), so it sleeps; the recorder child is
+   * reaped as it ends. A test run returns 9 after the recorder's ticks instead of sleeping forever. */
+  (void)init_real; (void)argv; (void)environ;
+  hu_put("hu-card-arm: CONTROL build - not executing init.real, idling\n");
+  for (long n = 0;; n++) {
+    struct { long s; long ns; } ts = { 1, 0 };
+    syscall(SYS_nanosleep, &ts, 0);
+    syscall(SYS_wait4, -1, 0, 1 /* WNOHANG */, 0);
+    if (test && n > HU_TEST_CONTROL_SECS) return 9;
+  }
+#endif
   if (!init_real) { hu_put("hu-card-arm: exec FAILED: no init.real target\n"); return 1; }
   hu_put("hu-card-arm: execing init.real\n");
   argv[0] = (char *)"/init";

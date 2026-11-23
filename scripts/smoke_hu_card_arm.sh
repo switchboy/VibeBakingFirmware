@@ -16,7 +16,8 @@
 #   5 passthrough       - argv[0] is not "init": no arm at all
 #   6 unwritable misc   - the misc file cannot be opened: refuses to arm, still execs init.real
 #   7 BCB bytes         - the 2048 B written equal the registered blob ceaae1a6314a…
-#   8 recorder crashes  - kmsg on the card every second, task dump, three more seconds, then the crash
+#   8 two children      - the recorder puts kmsg on the card every second; the crasher, with no block I/O,
+#                        writes sysrq t, w, l and then c
 #   9 stand-down        - a cleared BCB inside the window: nothing is written to sysrq or to the card
 #  10 no watchdog       - an arm that failed starts no child and writes nothing
 #  11 sink bounds       - the copy touches only the unpartitioned head; a record bigger than the region is
@@ -27,6 +28,8 @@
 #  15 boot alive        - the mount table shows /data mounted: the watchdog stands down, boot not crashed
 #  16 fds not leaked    - init.real sees no fd to the raw card or sysrq after execve
 #  17 early heartbeat   - the recorder writes its heartbeat and the log from time zero within 3 s
+#  18 previous boot     - the previous boot's pstore lands in 6..7 MiB before init.real runs, nowhere else
+#  19 control build     - -DHU_CONTROL arms and records for every tick but never executes init.real
 set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${OUT:-/run/media/Daan/Opslagmonster/a14-work/hu-card-arm}
@@ -55,7 +58,9 @@ newmisc() { head -c 4194304 /dev/zero > "$WORK/misc.bin"; }
 # Each scenario gets its own sink file, because a watchdog child from an earlier scenario is alive for a
 # second or two and would otherwise write into a later scenario's file.
 LOG_BASE=2097152
-LOG_LEN=5242880
+LOG_LEN=4194304
+PREV_BASE=6291456
+PREV_LEN=1048576
 FIRST_PART=8388608
 newcard() { dd if=/dev/null of="$WORK/$1" bs=1 seek=7948206080 count=0 status=none; }
 nonzero() { head -c "$2" "$WORK/$1" | tr -d '\0' | wc -c; }
@@ -83,7 +88,7 @@ run() { # run <argv0> [extra env...]
   cp "$BIN" "$WORK/$a0"
   : > "$WORK/log.txt"
   env HU_TEST=1 HU_TEST_LOG="$WORK/log.txt" HU_TEST_INIT="$WORK/init.real" \
-      HU_TEST_REBOOT_MARK="$WORK/rebooted" \
+      HU_TEST_REBOOT_MARK="$WORK/rebooted" HU_TEST_CRASH=1 \
       HU_TEST_PARTS="$WORK/partitions" HU_TEST_MISC="$WORK/misc.bin" \
       HU_TEST_MOUNTS="$WORK/mounts" "$@" \
       qemu-aarch64 "$WORK/$a0"
@@ -143,7 +148,7 @@ run init HU_TEST_FORCE_ARM=1 HU_TEST_MISC="$WORK/nope.bin"
 [ "$(cat "$WORK/rc")" = 7 ] && ok "fails open: still execs init.real" || bad "rc $(cat "$WORK/rc"), expected 7"
 grep -q "ARM FAILED" "$WORK/log.txt" && ok "logged ARM FAILED" || bad "no ARM FAILED line"
 
-echo "== 8 the watchdog reports the dead boot and crashes it =="
+echo "== 8 the recorder records, the crasher dumps and panics =="
 mkparts "$CARD_LINES"; newmisc; newcard card8.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
 rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
 run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/rebooted" \
@@ -152,13 +157,13 @@ run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/reboo
 [ "$(cat "$WORK/rc")" = 7 ] && ok "the parent still execs init.real immediately" || bad "rc $(cat "$WORK/rc"), expected 7"
 grep -q "recorder child pid=" "$WORK/log.txt" && ok "recorder child forked" || bad "no recorder child"
 sleep 4
-[ -f "$WORK/rebooted" ] && ok "watchdog reached the crash step after its delay" || bad "watchdog never reached the crash step"
-grep -q "no working boot" "$WORK/log.txt" && ok "logged why it crashed" || bad "no reason logged"
-hdr card8.bin | grep -q "state=crash" && ok "final heartbeat says crash: $(hdr card8.bin | tr -s ' ')" || bad "final heartbeat: $(hdr card8.bin)"
+[ -f "$WORK/rebooted" ] && ok "the crasher reached the panic step after its delay" || bad "the crasher never fired"
+grep -q "no /data after the deadline" "$WORK/log.txt" && ok "logged why it crashed" || bad "no reason logged"
+hdr card8.bin | grep -q "state=done" && ok "the recorder ran to its end: $(hdr card8.bin | tr -s ' ')" || bad "final heartbeat: $(hdr card8.bin)"
 dd if="$WORK/card8.bin" bs=1 skip="$LOG_BASE" count=4096 2>/dev/null | grep -a -q "init: mount /data failed" \
   && ok "the kmsg records are on the card" || bad "kmsg records missing from the card"
-[ "$(cat "$WORK/sysrq.txt" 2>/dev/null)" = "tc" ] && ok "sysrq order: task dump before crash" \
-  || bad "sysrq file is '$(cat "$WORK/sysrq.txt" 2>/dev/null)', expected tc"
+[ "$(cat "$WORK/sysrq.txt" 2>/dev/null)" = "twlc" ] && ok "sysrq order: tasks, blocked tasks, CPUs, then the panic" \
+  || bad "sysrq file is '$(cat "$WORK/sysrq.txt" 2>/dev/null)', expected twlc"
 
 echo "== 9 the watchdog stands down if the BCB is cleared inside the window =="
 mkparts "$CARD_LINES"; newmisc; newcard card9.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
@@ -166,7 +171,7 @@ rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
 reap
 cp "$BIN" "$WORK/init"; : > "$WORK/log.txt"
 env HU_TEST=1 HU_TEST_FORCE_ARM=1 HU_TEST_LOG="$WORK/log.txt" HU_TEST_INIT="$WORK/init.real" \
-    HU_TEST_PARTS="$WORK/partitions" HU_TEST_MISC="$WORK/misc.bin" HU_TEST_WATCHDOG=3 \
+    HU_TEST_PARTS="$WORK/partitions" HU_TEST_MISC="$WORK/misc.bin" HU_TEST_WATCHDOG=3 HU_TEST_CRASH=60 \
     HU_TEST_REBOOT_MARK="$WORK/rebooted" HU_TEST_SYSRQ="$WORK/sysrq.txt" \
     HU_TEST_SYS="$WORK/sysdir" HU_TEST_CARD="$WORK/card9.bin" HU_TEST_KMSG="$WORK/kmsg.txt" \
     HU_TEST_MOUNTS="$WORK/mounts" qemu-aarch64 "$WORK/init" >/dev/null 2>&1
@@ -197,7 +202,7 @@ sleep 4
 [ "$(nonzero card11.bin "$LOG_BASE")" = 0 ] && ok "no bytes before the log region (the partition table area is safe)" \
   || bad "bytes before the log region were changed: $(firstnz card11.bin "$LOG_BASE")"
 hdr card11.bin | grep -q "HULOG2" && ok "the heartbeat names the region" || bad "no HULOG2 header at offset $LOG_BASE"
-b=$(hdr card11.bin | sed -n 's/.*bytes=\([0-9]*\).*/\1/p'); [ -n "$b" ] && [ "$b" -le $((LOG_LEN - 64)) ] && [ "$b" -gt 5000000 ] \
+b=$(hdr card11.bin | sed -n 's/.*bytes=\([0-9]*\).*/\1/p'); [ -n "$b" ] && [ "$b" -le $((LOG_LEN - 64)) ] && [ "$b" -gt 4000000 ] \
   && ok "region filled to $b B and capped" || bad "fill level '$b'"
 dd if="$WORK/card11.bin" bs=1 skip="$((LOG_BASE + LOG_LEN))" count="$((FIRST_PART - LOG_BASE - LOG_LEN))" 2>/dev/null \
   | tr -d '\0' | wc -c | grep -qx 0 && ok "a 6.2 MB log was capped: nothing written between the region and p1 ($((FIRST_PART/1024)) KiB)" \
@@ -223,7 +228,7 @@ run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_REBOOT_MARK="$WORK/reboo
     HU_TEST_SYS="$WORK/sysdir" HU_TEST_CARD="$WORK/card13.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 sleep 4
 grep -q "sysrq unavailable" "$WORK/log.txt" && ok "logged that sysrq is unavailable" || bad "no sysrq-unavailable line"
-hdr card13.bin | grep -q "state=crash" && ok "the recording happened anyway" || bad "no recording: $(hdr card13.bin)"
+hdr card13.bin | grep -q "state=done" && ok "the recording happened anyway" || bad "no recording: $(hdr card13.bin)"
 grep -q "falling back to the reboot syscall" "$WORK/log.txt" && ok "logged the reboot fallback" || bad "no fallback line"
 [ -f "$WORK/rebooted" ] && ok "reached the fallback step (the syscall itself is never called in test mode)" || bad "no reboot fallback"
 
@@ -251,6 +256,7 @@ grep -q "the boot reached /data" "$WORK/log.txt" && ok "stood down on a live boo
 [ -f "$WORK/rebooted" ] && bad "crashed a working boot" || ok "no crash on a working boot"
 [ -s "$WORK/sysrq.txt" ] && bad "sysrq written on a working boot" || ok "nothing written to sysrq"
 hdr card15.bin | grep -q "state=alive" && ok "final heartbeat says alive" || bad "final heartbeat: $(hdr card15.bin)"
+grep -q "crasher: the boot reached /data" "$WORK/log.txt" && ok "the crasher stood down too" || bad "the crasher did not stand down"
 
 echo "== 16 init.real inherits no fd to the card, sysrq or the misc =="
 mkparts "$CARD_LINES"; newmisc; newcard card16.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
@@ -269,7 +275,7 @@ fi
 echo "== 17 the recorder writes its first heartbeat and the log at once, long before any deadline =="
 mkparts "$CARD_LINES"; newmisc; newcard card17.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
 rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
-run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=60 HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
+run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=60 HU_TEST_CRASH=60 HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
     HU_TEST_CARD="$WORK/card17.bin" HU_TEST_KMSG="$WORK/kmsg.txt"
 sleep 3
 hdr card17.bin | grep -qE "state=(start|rec)" && ok "heartbeat present within 3 s: $(hdr card17.bin | tr -s ' ')" || bad "no early heartbeat: '$(hdr card17.bin)'"
@@ -277,6 +283,46 @@ dd if="$WORK/card17.bin" bs=1 skip="$LOG_BASE" count=4096 2>/dev/null | grep -a 
   && ok "the log from time zero is on the card within 3 s" || bad "early log missing"
 [ -s "$WORK/sysrq.txt" ] && bad "sysrq written before the deadline" || ok "nothing crashed before the deadline"
 reap
+
+echo "== 18 the previous boot's pstore is copied to 6..7 MiB before init.real runs, and nowhere else =="
+mkparts "$CARD_LINES"; newmisc; newcard card18.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
+mkdir -p "$WORK/prevps"; printf 'Kernel panic - not syncing: sysrq triggered crash\nblocked task init\n' > "$WORK/prevps/console-ramoops-0"
+printf 'dmesg record\n' > "$WORK/prevps/dmesg-ramoops-0"
+rm -f "$WORK/rebooted" "$WORK/sysrq.txt"
+run init HU_TEST_FORCE_ARM=1 HU_TEST_WATCHDOG=1 HU_TEST_CRASH=60 HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
+    HU_TEST_CARD="$WORK/card18.bin" HU_TEST_KMSG="$WORK/kmsg.txt" HU_TEST_PSTORE="$WORK/prevps"
+ph=$(dd if="$WORK/card18.bin" bs=1 skip="$PREV_BASE" count=64 2>/dev/null | tr -d '\0')
+echo "$ph" | grep -q "HUPREV1 .*records=2" && ok "header right after the exec: $(echo "$ph" | tr -s ' ')" || bad "prev header '$ph'"
+dd if="$WORK/card18.bin" bs=1 skip="$PREV_BASE" count=4096 2>/dev/null | grep -a -q "sysrq triggered crash" \
+  && ok "the previous boot's console is in the region" || bad "previous console missing"
+dd if="$WORK/card18.bin" bs=1 skip="$((PREV_BASE + PREV_LEN))" count="$((FIRST_PART - PREV_BASE - PREV_LEN))" 2>/dev/null \
+  | tr -d '\0' | wc -c | grep -qx 0 && ok "nothing written between 7 MiB and p1" || bad "wrote past the previous-boot region"
+sleep 3
+[ "$(nonzero card18.bin "$LOG_BASE")" = 0 ] && ok "nothing written before 2 MiB" || bad "wrote before the region"
+reap
+
+echo "== 19 the step-0 control build arms and records but never executes init.real =="
+CBIN=$OUT/hu-card-arm-control
+if [ -x "$CBIN" ]; then
+  mkparts "$CARD_LINES"; newmisc; newcard card19.bin; mkpstore; mkmounts mounts; mksysfs sysdir 16384
+  rm -f "$WORK/rebooted" "$WORK/sysrq.txt" "$WORK/fd-after-exec.txt"; reap
+  cp "$CBIN" "$WORK/init"; : > "$WORK/log.txt"
+  env HU_TEST=1 HU_TEST_FORCE_ARM=1 HU_TEST_LOG="$WORK/log.txt" HU_TEST_INIT="$WORK/init.real" \
+      HU_TEST_PARTS="$WORK/partitions" HU_TEST_MISC="$WORK/misc.bin" HU_TEST_WATCHDOG=3 HU_TEST_CRASH=1 \
+      HU_TEST_REBOOT_MARK="$WORK/rebooted" HU_TEST_SYSRQ="$WORK/sysrq.txt" HU_TEST_SYS="$WORK/sysdir" \
+      HU_TEST_CARD="$WORK/card19.bin" HU_TEST_KMSG="$WORK/kmsg.txt" HU_TEST_MOUNTS="$WORK/mounts" \
+      qemu-aarch64 "$WORK/init" >/dev/null 2>&1
+  rc=$?
+  [ "$rc" = 9 ] && ok "idled and returned 9 - never executed init.real" || bad "rc $rc, expected 9"
+  [ -e "$WORK/fd-after-exec.txt" ] && bad "init.real ran" || ok "init.real never ran"
+  head -c 2048 "$WORK/misc.bin" | sha256sum | grep -q "^$want" && ok "the BCB is armed" || bad "BCB not armed"
+  hdr card19.bin | grep -q "tick=3 .*state=done" && ok "the recorder ran all its ticks: $(hdr card19.bin | tr -s ' ')" || bad "recorder: '$(hdr card19.bin)'"
+  [ -f "$WORK/rebooted" ] && bad "the control crashed" || ok "no crasher in the control"
+  [ -s "$WORK/sysrq.txt" ] && bad "sysrq written by the control" || ok "nothing written to sysrq"
+  grep -q "CONTROL build - not executing init.real" "$WORK/log.txt" && ok "logged the control" || bad "no control line"
+else
+  bad "control binary missing: build with -DHU_CONTROL to $CBIN"
+fi
 
 printf 'summary: failures=%d\n' "$fail"
 [ "$fail" = 0 ]
