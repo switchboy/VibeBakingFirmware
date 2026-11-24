@@ -5952,4 +5952,6 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   attempt 30.
 * **Attempt 31 (pending):** also `disabled` on `vendor.weaver-hal-1-0` (no VINTF entry; it exited and
   restarted every 5 s).
+* **Attempt 30, owner test on the unit:** WiFi finds networks, and a WPA2 connection to the owner's network
+  succeeded. WiFi works end to end on Android 14 (AIDL WiFi HAL + `8188eu` loaded by the HAL).
 
