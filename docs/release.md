@@ -1,5 +1,11 @@
 # Release: Android 14 on the internal eMMC (end goal)
 
+**Priority order (owner, 2026-11-24) - guard against scope creep:**
+1. Feature-complete ROM on the card (HCT port: keys, Bluetooth, CAN, radio, cameras; GApps; GPS/audio).
+2. Release hardening + the eMMC install.
+3. Niceties for the Reddit/XDA x-factor: the launcher (`docs/homescreen.md`): map/media/radar, theming, valet mode, car settings.
+4. Long-term blob-free track (end of this file) - only after the above.
+
 The end goal (owner, 2026-11-24): once the card build is feature complete, run it from the unit's internal
 eMMC as a full replacement of the stock ROM. Until then the eMMC is never written; the card is the test bed.
 

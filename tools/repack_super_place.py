@@ -79,12 +79,25 @@ class Meta:
         return hashlib.sha256(bytes(h)).digest() == bytes(self.header[12:44])
 
     def partitions(self):
+        return [(name, fe, ne) for name, fe, ne, _ in self.partitions_with_group()]
+
+    def partitions_with_group(self):
         out = []
         for i in range(self.p_num):
             b = self.tables[self.p_off + i * self.p_sz : self.p_off + (i + 1) * self.p_sz]
             name = b[:36].rstrip(b"\0").decode()
             attrs, first_extent, num_extents, group = struct.unpack("<IIII", b[36:52])
-            out.append((name, first_extent, num_extents))
+            out.append((name, first_extent, num_extents, group))
+        return out
+
+    def groups(self):
+        """LpMetadataPartitionGroup entries: name[36], flags u32 at 36, maximum_size u64 at 40."""
+        out = []
+        for i in range(self.g_num):
+            b = self.tables[self.g_off + i * self.g_sz : self.g_off + (i + 1) * self.g_sz]
+            name = b[:36].rstrip(b"\0").decode()
+            flags, maximum_size = struct.unpack("<I", b[36:40])[0], struct.unpack("<Q", b[40:48])[0]
+            out.append((name, flags, maximum_size))
         return out
 
     def extent(self, i):
@@ -95,6 +108,10 @@ class Meta:
     def set_extent_start(self, i, sector):
         base = self.e_off + i * self.e_sz
         self.tables[base + 12 : base + 20] = struct.pack("<Q", sector)
+
+    def set_extent_size(self, i, num_sectors):
+        base = self.e_off + i * self.e_sz
+        self.tables[base : base + 8] = struct.pack("<Q", num_sectors)
 
     def block_device(self):
         b = self.tables[self.b_off : self.b_off + self.b_sz]
