@@ -6010,4 +6010,8 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   input device, so on this kernel the keys do not travel over ttyV2. The 2024 kernel's mtc driver has
   `rpt_key_mode` (`swkey`/`cankey`) and `ctl_key`; HCTManagerService sends `ctl_key=13/257/800` and reads
   `sta_kmode=`. Traced next: what the driver does after `--mtc key`.
+* **Owner test, attempt 32:** the HU **back** button works under Android 14; **home** and **volume** do
+  nothing. Most HCT apps crash on opening or do nothing; the Bluetooth app shows no name or PIN, settings
+  do not stick, and no devices are found (its service `android.microntek.mtcser` is still set aside).
+  Logs saved for analysis (`a14-attempt32/hctapps/`: 58,714 logcat lines, 7 `system_app_crash`).
 
