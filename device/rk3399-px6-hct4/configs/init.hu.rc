@@ -11,6 +11,8 @@ service hu_insmod /vendor/bin/sh /vendor/etc/hu_insmod.sh
     group root
     disabled
     seclabel u:r:shell:s0
+    # attempt 31: run once (it is not a daemon; without oneshot init restarted it every 5 s)
+    oneshot
 
 on early-boot
     start hu_insmod
