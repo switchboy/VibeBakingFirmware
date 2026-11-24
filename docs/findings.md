@@ -5931,3 +5931,16 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   and logs `hu-stayon:` to kmsg; `on property:hu.disarm=1` runs `pkill -x hu-crasher` (no-root disarm).
 
   Super `b1a810b794a7…`.
+* **Attempt 30 - WiFi works (one step done live).** The WiFi service now uses the AIDL HAL (`WifiHalAidlImpl:
+  Creating the Wifi HAL using the AIDL implementation`, `Remote Version: 2`), and `hu-stayon: applied after 0
+  retries`. Enabling WiFi then failed in the HAL: `finit_module return: -1: File exists` / `Failed to load
+  WiFi driver` / `Wifi HAL start failed`. The cause was our own `hu_insmod` (`/vendor/etc/hu_insmod.sh`), which
+  preloads every WiFi module and, lacking `oneshot`, was restarted by init every 5 s (also the source of the
+  AIC8800 `sdio: host isn't initialization successfully` spam). Live: `setprop ctl.stop hu_insmod`,
+  `rmmod 8188eu 8188fu aic8800_bsp`, `cmd wifi set-wifi-enabled enabled`. The HAL loaded `8188eu` itself,
+  `Wifi is enabled` on `wlan0` (`ConcreteClientModeManager ... ROLE_CLIENT_PRIMARY`), and the scan lists the
+  surrounding 2.4 GHz networks. Left: `Failed to get driver version` / `Failed to register debug response;
+  result = -95` (cosmetic).
+* **Attempt 31 prepared (vendor image, not yet written):** `hu.rc` gets `oneshot`; `hu_insmod.sh` loads
+  only `usb_f_iap usb_f_iap2 sd_user_hid`; same change in `device/rk3399-px6-hct4/configs/`.
+

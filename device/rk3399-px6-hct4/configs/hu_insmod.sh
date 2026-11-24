@@ -4,8 +4,9 @@
 MODS=/vendor/lib/modules
 INSMOD=/vendor/bin/insmod
 [ -x "$INSMOD" ] || INSMOD=/vendor/bin/toybox_vendor
-for m in aic8800_bsp aic8800_fdrv 8188eu 8188fu 8189fs 8723bu 8733bs \
-         8821cs 8821cu 8822cs 8822bu usb_f_iap usb_f_iap2 sd_user_hid; do
+# WiFi modules are NOT preloaded (attempt 31): the Android 14 WiFi HAL loads the driver for the chip
+# it detects, and fails on "finit_module: File exists" when one is already loaded.
+for m in usb_f_iap usb_f_iap2 sd_user_hid; do
     "$INSMOD" "$MODS/$m.ko" 2>/dev/null || echo "hu_insmod: $m not loaded"
 done
 # goodix is NOT attempted: CONFIG_TOUCHSCREEN_GT9XX=y is built into both vendor kernels
