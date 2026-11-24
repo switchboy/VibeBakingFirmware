@@ -5747,3 +5747,27 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   rest of the device profile unchanged; mode, owner, `vendor_configs_file` kept; e2fsck clean).
 
   Super `57de0a9ab1a5…`.
+* **Attempt 22 - Android 14 boots and stays up on the card: no crash loop, no RescueParty (MILESTONE).** The boot
+  ran until the unattended crasher at 300 s; RescueParty never ran (0 `rescue level`/`RescueParty` lines), the card
+  BCB afterwards was our own armed blob (`ceaae1a6314a…`), no tombstone was written during the boot (newest is
+  attempt 21's), and the userspace log ring holds no `FATAL EXCEPTION`, `Fatal signal`, `ANR in` or `has died`.
+  The framework reached the UI: `Displayed com.android.settings/.FallbackHome for user 0: +699ms`,
+  `Start proc ...:com.android.launcher3/u0a142 for service {com.android.launcher3/com.android.quickstep.
+  TouchInteractionService}`, display configuration `w683dp h372dp 240dpi ... land ... mBounds=Rect(0, 0 - 1024,
+  600)`. Not yet seen on the screen itself (nobody watching) and not reachable over the network: the unit
+  does not answer ping while Android 14 runs, so ethernet/adb under Android 14 is the next thing to bring up.
+* **Left running for the owner.** Card p7 is back to `card-p7-a14-sdnames.img` (`1f4713f9f092…`): the default
+  wrapper build, whose crasher stands down once `/data` is mounted, so a working boot is not cut short; it still
+  arms the card BCB, so a button reset with the card in lands in the networked card recovery. Card p14 holds super
+  `57de0a9ab1a5…` (attempt 22), card p12 the ext4 metadata, the card GPT the `sd_super`/`sd_metadata` names. The
+  eMMC was never written all night (heads `0f2ec43e7a5c…`, `fac15a4b138e…`, `b06dc33648a3…` unchanged at every write).
+* **Changes made on the way, all on the card and reversible (attempts 9-22):** vendor manifest (health@2.0 and
+  keymaster@3.0 removed; audio/effect @5.0 -> @6.0; soundtrigger, light, gatekeeper and bluetooth removed); stock
+  Android 10 composer@2.1-service + libhwc2on1adapter (Rockchip HWC1 ABI) and stock bluetooth@1.0-impl +
+  librkwifi-ctrl; `service.sf.prime_shader_cache=0`; the stock Android 10 ueventd rules carried into
+  `/vendor/etc/ueventd.rc`, GPU nodes 0666; RT budgets for the cpuctl children; `vendor.audio-hal-2-0`,
+  `vendor.rockit-hal-1-0` and `vendor.bluetooth-1-0` disabled; Android's Bluetooth feature removed (the unit's BT
+  is the GOC module driven by the HCT apps); `/system/bin/hu-netbpfload` (fork, private JIT knobs, re-pin of
+  net_shared under a labelled bpffs) started as `hu_bpfloader`. Owner decisions still open: whether Android's own
+  Bluetooth stack should come back, and repairing the NTFS data drive (`/dev/sda2`).
+
