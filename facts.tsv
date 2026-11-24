@@ -544,3 +544,7 @@ A14-SUPER-ATT20	sha	98796271382532b4fb368e8e6d492c66c0fd1371c0273b44ec04ddeb8c21
 BT-IMPL-A14	sha	db0f24627f4f5ba958f1d84113dc4ba6db09753e215c0b633f35137d05ba3bc2	bytes	2026-11-24	docs/findings.md	The AOSP-built impl	docs/findings.md	AOSP-built bluetooth@1.0-impl in attempts 8-19
 BT-IMPL-A10	sha	39f52397bc4e5cc57588b499d4b8be32a3022b5805b1d3fbd5c4307ab3a864cc	bytes	2026-11-24	docs/findings.md	the stock Rockchip impl	docs/findings.md	stock Rockchip bluetooth@1.0-impl reading the address from vendor storage
 RKWIFI-CTRL-A10	sha	9e04d2b5f0057e25feae2fbae697d3e6c4c236f9279d07a1ee3c336de2deb533	bytes	2026-11-24	docs/findings.md	librkwifi-ctrl.so	docs/findings.md	stock librkwifi-ctrl.so, 23,920 B
+A14-SUPER-ATT21	sha	40209ef4136e03c09f0e2022fd5a8c2aa4f12596667078402eef05cd8b1f873a	bytes	2026-11-24	docs/findings.md	Super `40209ef4136e	docs/findings.md	attempt 21 super: Android Bluetooth stack off
+BT-FEATURE-XML	sha	08305a972411f4f0068c23e77e00154826f5335a3e12fc1d6042ca130e1db3fd	bytes	2026-11-24	docs/findings.md	android.hardware.bluetooth.xml	docs/findings.md	feature file removed in attempt 21 (system and vendor copies identical)
+BTLE-FEATURE-XML	sha	845f59a4e13fbdda3b48c30a3a0510db45a261af15f31d4925c939dc48d8e3e0	bytes	2026-11-24	docs/findings.md	android.hardware.bluetooth_le.xml	docs/findings.md	feature file removed in attempt 21
+LIBBT-VENDOR	sha	620f9deea1f93dfa450d0039c6e6fa2b95f8d34c4714d1343754cd90dc8ec09e	bytes	2026-11-24	docs/findings.md	libbt-vendor.so	docs/findings.md	vendor libbt-vendor.so, identical to stock, defaults to /dev/ttyS0

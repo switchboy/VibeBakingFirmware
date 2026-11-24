@@ -5720,3 +5720,18 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   Both files 0644 root, `vendor_file`; e2fsck clean.
 
   Super `987962713825…`.
+* **Attempt 20 - the stock Bluetooth impl gets further, then talks to the wrong UART.** The HAL now loads
+  `libbt-vendor.so`, finds no `/vendor/etc/bluetooth/bt_vendor.conf` and no rfkill (`init_rfkill: open
+  /sys/class/rfkill/rfkill0/type failed`), opens `/dev/ttyS0` and aborts on what it reads: `OnDataReady:
+  Unimplemented packet type 0`; com.android.bluetooth follows it down and RescueParty again went to FACTORY_RESET.
+  Our `libbt-vendor.so` is byte-identical to stock (`620f9deea1f9…`), a generic library that defaults to
+  `/dev/ttyS0`, and the stock image carries no `bt_vendor.conf` either (only `rtkbt.conf`). `/dev/ttyS0` is the
+  GPS UART on this board; the unit's Bluetooth is the GOC module on `/dev/goc_serial`, driven by the HCT apps
+  (`bt.goc.type=11`). So Android's own Bluetooth stack has no HCI controller to drive here.
+* **Attempt 21 written: Android's Bluetooth stack turned off (decision, reversible).** Removed the feature files
+  `android.hardware.bluetooth.xml` (`08305a972411…`) and `android.hardware.bluetooth_le.xml` (`845f59a4e13f…`) from
+  both `/system/etc/permissions` and `/vendor/etc/permissions`, so system_server does not start its Bluetooth
+  service; `disabled` added to `vendor.bluetooth-1-0`; the `android.hardware.bluetooth@1.0` entry dropped from the
+  vendor manifest (19 -> 18 HALs). Restoring them from the attempt-20 images undoes it. e2fsck clean on both.
+
+  Super `40209ef4136e…`.
