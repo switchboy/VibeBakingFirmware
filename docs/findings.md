@@ -5905,4 +5905,16 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   listed (this kernel's interface does not hold it), and the boot-completed `settings put` (exec as system)
   did not take. Set by hand over adb: `stay_on_while_plugged_in 7`, `screen_off_timeout 2147483647`,
   `svc power stayon true`, after which PowerManager reports `mStayOn=true`. These need to move into the image.
+* **Attempt 29, live with the owner:** the touch screen works (`goodix-ts`). The hardware buttons do nothing:
+  input devices are `gpio-keys` (event2), `mtc-key` (event0) and `goodix-ts` (event1), and while the owner
+  pressed buttons `getevent` saw nothing on event0/event2. The kernel logs `--mtc key 0111` / `--mtc key
+  0119` per press. The keys reach the MCU driver, and on Android 10 HCT's CarService turned them into key
+  events. Stock Android 10 has no `mtc`/`hct` key layout either.
+* **Owner decision (2026-11-24): port the HCT framework layer to Android 14.** Architecture chosen:
+  (1) the 33 `android.microntek.*` client classes from Android 10's `framework.jar` as a new
+  `/system/framework/hct-framework.jar` on the boot classpath; (2) `com.android.server.microntek.CarService`
+  (+ MfiService) from Android 10's `services.jar`, hosted in a new persistent system-uid app that registers
+  the binder service itself, with its JNI reduced to the `/dev/mtc-car` ioctl transport (already
+  reimplemented in `tools/hu_mtc_param.c`); (3) the set-aside HCT apps (attempts 26/28) restored afterwards.
+  Android 14's own `services.jar` stays untouched.
 
