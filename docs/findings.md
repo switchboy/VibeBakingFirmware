@@ -6039,4 +6039,10 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   Bluetooth app (`com.microntek.bluetooth`, GOC module) already covers dialing, phonebook and call log; port
   or build a dialer only if it does not. Then disable LineageOS Contacts (and the stock Dialer/Messaging if unused)
   with `pm disable-user`, as was done for the camera app.
+* **Navigation bar (owner request):** three-button mode was already selected (`navigation_mode 0`), but no
+  NavigationBar window existed (`mForceShowNavigationBarEnabled=false`; the device config assumes hardware keys).
+  Enabled with LineageOS's own switch: `content insert --uri content://lineagesettings/system --bind
+  name:s:force_show_navbar --bind value:s:1` (persists in /data). Now `mNavigationBarPosition=4` (bottom).
+  Android 14 places the bar only at the bottom, left or right; buttons in the top status bar would need a
+  SystemUI patch or a port of HCT's own button bar (`com.hct.screenbutton`, `HCTApi.NaviBarHeight`).
 
