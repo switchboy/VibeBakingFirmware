@@ -6047,7 +6047,9 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   SystemUI patch or a port of HCT's own button bar (`com.hct.screenbutton`, `HCTApi.NaviBarHeight`).
 * **Status bar battery icon hidden (owner request):** `settings put secure icon_blacklist battery` (persists in
   /data). Planned once the CAN bus works: show the car battery voltage in the status bar instead.
-* **LineageOS Trust disabled for bring-up (owner request):** `pm disable-user --user 0 org.lineageos.trust`; it
-  warns about SELinux permissive. **Release checklist:** re-enable it (`pm enable org.lineageos.trust`), together
-  with SELinux enforcing.
-
+* **LineageOS Trust warnings off for bring-up (owner request):** Trust is not an app but the `TrustInterface`
+  service in system_server (notifications from package `android`, channel `TrustInterface`, "Trust • System
+  security"), so there is nothing to disable. Its warnings are switched off with LineageOS's secure setting:
+  `content insert --uri content://lineagesettings/secure --bind name:s:trust_warnings --bind value:s:0`
+  (persists in /data; the notification went away). **Release checklist:** delete that row (or set it back to the
+  default bitmask) together with SELinux enforcing.
