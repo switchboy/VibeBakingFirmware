@@ -531,3 +531,5 @@ HU-NETBPFLOAD-LABELS-BIN	sha	08ea8311e6609d8795b373ec4119f2bc9c71ef908f87ffbfa9a
 A14-SUPER-ATT14	sha	31e6367274270108f2ebe5d43ea8651f5aa61a705ee09b0b5eb0c1fdb6032b38	bytes	2026-11-24	docs/findings.md	three chunks.	docs/findings.md	attempt 14 super: hu-netbpfload with one labelled bpffs over /sys/fs/bpf
 HU-NETBPFLOAD-ONEBPFFS-BIN	sha	1188381ad8adfb259f0522943b31b9cc40c93f45bd679910a750c80d435dad12	bytes	2026-11-24	docs/findings.md	27,488 B	docs/findings.md	netbpfload wrapper, single bpffs labelled fs_bpf_net_shared
 CARD-METADATA-EXT4	sha	4caa7500c6cc27b3380c5432de85c9f660720c1980f2b10c9c7bd1dc7d9c0508	bytes	2026-11-24	docs/findings.md	16 MiB ext4	docs/findings.md	empty ext4 for card p12 sd_metadata, 4.19-compatible features
+A14-SUPER-ATT15	sha	c2634e99e6be2c019cc41b4b574459801962024bd57dfa84230dbb719973630e	bytes	2026-11-24	docs/findings.md	Super	docs/findings.md	attempt 15 super: net_shared-only labelled bpffs
+HU-NETBPFLOAD-NETSHARED-BIN	sha	19d496147974b0dc64e5706cff3adecc29488e79bd168cdef075302972a5df87	bytes	2026-11-24	docs/findings.md	27,696 B	docs/findings.md	netbpfload wrapper mounting only net_shared as a labelled bpffs

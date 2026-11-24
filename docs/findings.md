@@ -5618,4 +5618,19 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   (2) Card p12 holds a fresh 16 MiB ext4 (`4caa7500c6cc…`, label `metadata`, made with `-O
   ^orphan_file,^metadata_csum_seed,^64bit` because the workstation's mke2fs 1.47 would otherwise enable
   `orphan_file`, which kernel 4.19 cannot mount read-write), written whole and read back equal.
+* **Attempt 14 - `/metadata` works; one bpffs labelled net_shared fails the other check.** With card p12 now
+  ext4, `mount_all` took 114 ms instead of 20 s and `/data` was up at 13.9 s. NetBpfLoad no longer failed, but
+  system_server aborted again (tombstone_06, `system_server_native_crash`) after `context of '/sys/fs/bpf' is
+  'u:object_r:fs_bpf_net_shared:s0' != 'u:object_r:fs_bpf:s0'`: ClatCoordinator checks the root as `fs_bpf`
+  AND `net_shared` as `fs_bpf_net_shared`. Still cycling every boot: `vendor.audio-hal` (18x),
+  `vendor.rockit-hal-1-0` (19x), `vendor.sensors-hal-1-0` (exit 255, 10x); zygote restarted 10x.
+* **Relabelling bpffs is impossible on this kernel (MEASURED in the card recovery, 4.19.111+, permissive).**
+  On a throwaway bpffs at `/tmp/bt`: `chcon u:object_r:fs_bpf_net_shared:s0 /tmp/bt/net_shared` ->
+  `Operation not supported on transport endpoint` (EOPNOTSUPP); the directory stays `fs_bpf`. So neither
+  path-based genfs labelling nor in-core relabelling exists for bpffs here.
+* **Attempt 15 written: only `/sys/fs/bpf/net_shared` is a separate labelled bpffs.** init's root bpffs stays
+  `fs_bpf`; `hu-netbpfload` (`19d496147974…`, 27,696 B) mounts a bpffs on `net_shared` with
+  `context=u:object_r:fs_bpf_net_shared:s0` and mode 01777. A loader rename into or out of `net_shared` from
+  another directory would still fail with EXDEV; the clatd objects live in `net_shared` itself. Super
+  `c2634e99e6be…`, three chunks.
 
