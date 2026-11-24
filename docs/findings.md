@@ -5954,4 +5954,20 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   restarted every 5 s).
 * **Attempt 30, owner test on the unit:** WiFi finds networks, and a WPA2 connection to the owner's network
   succeeded. WiFi works end to end on Android 14 (AIDL WiFi HAL + `8188eu` loaded by the HAL).
+* **HCT framework port - survey** (local model, `docs/hct-framework-port-survey.md`): Android 10 registered
+  `com.android.server.microntek.CarService` as `carservice` and `MfiService` as `mfiservice` in
+  `SystemServer.startOtherServices()`; CarService reads MCU frames (0xFA-framed) from `/dev/ttyV2` at
+  38400 baud through `SerialManager`, dispatches them to `ICarManageCallback`s, and talks back through the
+  `/dev/mtc-car` ioctl (2 JNI natives); MfiService sits on the vendor HIDL HAL `android.hardware.mtc.mfi@1.0`.
+  The client side is 33 `android.microntek.*` classes (no natives). About 40 hook sites in stock framework
+  and services code (permission/broadcast exemptions for `com.microntek.`/`com.hct.`, audio focus, the
+  MCU beep, PhoneWindowManager key forwarding) are listed for later.
+* **Attempt 31 written - step 1 of the port: `android.microntek.*` on the boot classpath.**
+  `/system/framework/hct-framework.jar` (`4ddb63b30b70…`, built by the local model: the 33 classes from Android 10's
+  `framework.jar` classes2.dex, hiddenapi flags stripped, 15 `HCTApi` stack/density method bodies stubbed;
+  `tools/dex_api_check.py` reports nothing missing against Android 14; notes in
+  `hct/hct-framework-NOTES.md`). `/system/etc/classpaths/bootclasspath.pb` gains one `BOOTCLASSPATH`-only
+  entry after `core-icu4j.jar` (not `DEX2OATBOOTCLASSPATH`, so the boot image stays a valid prefix). Also
+  in this image: the attempt-31 vendor fixes (`hu_insmod` oneshot without WiFi modules, weaver disabled).
 
+  Super `bc4f6adb6ce5…`.
