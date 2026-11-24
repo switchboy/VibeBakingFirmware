@@ -15,14 +15,24 @@ rebuilt - so that the damaged offsets fall between extents, where the image is z
 bit under a zero byte is invisible, so the whole partition then reads back byte-exact and the
 verification is meaningful again.
 
-What is changed in the metadata: only each extent's `target_data` (its start sector). Partition
-names, sizes, groups, attributes, the geometry and the block-device descriptor are untouched. Both
-metadata slots and the backup copy of each are rewritten, and `tables_checksum` plus
-`header_checksum` (both plain SHA-256 - verified against the source image before writing) are
-recomputed.
+What is changed in the metadata: only each extent's `target_data` (its start sector), and - when
+`--size` is given - that extent's `num_sectors`. Partition names, groups, attributes, the geometry
+and the block-device descriptor are untouched. Both metadata slots and the backup copy of each are
+rewritten, and `tables_checksum` plus `header_checksum` (both plain SHA-256 - verified against the
+source image before writing) are recomputed.
+
+Resizing (added Nov 24): `--size NAME=MIB` sets that partition's single LINEAR extent to
+MIB*2048 sectors (512 B); partitions with more than one extent or a non-linear target are refused.
+A grown extent is filled by copying the partition's old bytes and zero-filling the rest;
+`--image NAME=PATH` instead writes the given file's bytes (must be <= the new size) followed by
+zeros. Shrinking is only accepted together with `--image`. Without `--size`/`--image` the behaviour
+is exactly the old one: every partition needs a `--place`. With them, partitions without a
+`--place` stay at their current start. The group table (header bytes 104..116) is parsed, and the
+sum of a group's new partition sizes must stay <= that group's `maximum_size` (0 = unbounded).
 
 Usage:
   tools/repack_super_place.py SRC DST --place system=1 --place product=967 ... --avoid 1551079141 ...
+  tools/repack_super_place.py SRC DST --place product=2304 --size product=803 --avoid ...
 Placements are in MiB from the start of the container and must respect the block device's alignment.
 The tool refuses to write unless every check passes.
 """
@@ -55,6 +65,7 @@ class Meta:
         (self.tables_size,) = struct.unpack("<I", hdr[44:48])
         self.p_off, self.p_num, self.p_sz = struct.unpack("<III", hdr[80:92])
         self.e_off, self.e_num, self.e_sz = struct.unpack("<III", hdr[92:104])
+        self.g_off, self.g_num, self.g_sz = struct.unpack("<III", hdr[104:116])
         self.b_off, self.b_num, self.b_sz = struct.unpack("<III", hdr[116:128])
         t0 = offset + self.header_size
         self.tables = bytearray(blob[t0 : t0 + self.tables_size])
