@@ -107,10 +107,19 @@ static void repin_net_shared(const char *dir) {
     if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
       snprintf(msg, sizeof(msg), "repin: skipping non-object %s", path); say(msg); continue;
     }
+    /* The service has CAP_CHOWN but not CAP_DAC_OVERRIDE, and the loader pins programs with restrictive
+     * owners and modes: attempt 16 got EACCES opening all three clatd programs. So the old pin is first made
+     * root-owned and owner-readable - it ends up hidden under the labelled mount anyway, and its owner and
+     * mode are put back if that mount fails. */
+    (void)chown(path, 0, 0);
+    (void)chmod(path, 0600);
     union bpf_attr at; memset(&at, 0, sizeof(at));
     at.pathname = (unsigned long)path;
     int fd = (int)bpf_call(BPF_OBJ_GET, &at);
-    if (fd < 0) { snprintf(msg, sizeof(msg), "repin: BPF_OBJ_GET %s failed (errno %d)", path, errno); say(msg); continue; }
+    if (fd < 0) {
+      snprintf(msg, sizeof(msg), "repin: BPF_OBJ_GET %s failed (errno %d)", path, errno); say(msg);
+      (void)chmod(path, st.st_mode & 07777); (void)chown(path, st.st_uid, st.st_gid); continue;
+    }
     snprintf(obj[n].name, sizeof(obj[n].name), "%s", e->d_name);
     obj[n].fd = fd; obj[n].mode = st.st_mode & 07777; obj[n].uid = st.st_uid; obj[n].gid = st.st_gid; n++;
   }
@@ -118,7 +127,12 @@ static void repin_net_shared(const char *dir) {
   const char *opt = "context=u:object_r:fs_bpf_net_shared:s0";
   if (mount("bpf", dir, "bpf", MS_NOSUID | MS_NODEV | MS_NOEXEC, opt) != 0) {
     snprintf(msg, sizeof(msg), "repin: labelled bpffs over %s failed (errno %d) - objects stay fs_bpf", dir, errno);
-    say(msg); return;
+    say(msg);
+    for (int i = 0; i < n; i++) {
+      snprintf(path, sizeof(path), "%s/%s", dir, obj[i].name);
+      (void)chmod(path, obj[i].mode); (void)chown(path, obj[i].uid, obj[i].gid); close(obj[i].fd);
+    }
+    return;
   }
   (void)chmod(dir, dst.st_mode & 07777);
   (void)chown(dir, dst.st_uid, dst.st_gid);

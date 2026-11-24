@@ -5651,4 +5651,22 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   declared with nothing installed (endless lazy-start retries); the rockit HAL has no seccomp policy in any stock
   tree and nothing on Android 14 depends on it, so it can be disabled. Its claim that the composer is still the
   blocker is out of date: attempt 11 measured the stock pair working.
+* **Attempt 16 - the re-pin half-worked; RescueParty escalated to FACTORY_RESET.** The wrapper re-pinned the
+  three clatd maps, but `BPF_OBJ_GET` on the three clatd programs failed with errno 13 (EACCES): the service has
+  `CHOWN SYS_ADMIN NET_ADMIN` but not `DAC_OVERRIDE`, and the loader pins programs with restrictive owner/mode.
+  Their net_shared paths were then missing (`context of '.../prog_clatd_...' is '' != ...`), system_server
+  aborted again (tombstone_38), and RescueParty went to `FACTORY_RESET`: it wrote the card's BCB as
+  `boot-recovery`, `recovery`, `--prompt_and_wipe_data`, `--reason=RescueParty`, `--locale=en_US`
+  (`5370ef096334…`) and rebooted. The card recovery resolves `misc` to the eMMC (p8's dtbo), whose BCB was clear
+  and whose head was unchanged (`0f2ec43e7a5c…`), so nothing acted on it; the card's `/data` was intact
+  (tombstones up to tombstone_49 present). The next attempt's bcb-clear overwrites it, as before every attempt.
+* **Attempt 17 written: re-pin with chown-first, plus the vendor HAL cleanups.** `hu-netbpfload`
+  (`fa9a506917ce…`, 38,376 B) first makes each old pin root-owned and 0600 (CAP_CHOWN suffices; the old pin is
+  hidden under the labelled mount afterwards, and restored if that mount fails), then opens it. Vendor (checked
+  against the image before use): manifest `android.hardware.audio` and `audio.effect` `@5.0` -> `@6.0` (only
+  `@6.0` impls ship, 32- and 64-bit), and the declared-but-absent `soundtrigger@2.0`, `light@2.0` and
+  `gatekeeper@1.0` entries removed (22 -> 19 HALs); `disabled` added to the stock `vendor.audio-hal-2-0` service
+  (two services would both register `IDevicesFactory/default`) and to `vendor.rockit-hal-1-0` (no seccomp policy
+  for it exists in any stock tree, nothing on Android 14 uses it). Each file keeps mode, owner and label; e2fsck
+  clean. Super `60bfc7a95603…`, seven chunks.
 
