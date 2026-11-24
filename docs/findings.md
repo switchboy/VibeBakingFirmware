@@ -6035,4 +6035,8 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
 * **Camera app hidden (owner request):** `pm disable-user --user 0 org.lineageos.aperture` (it crashed with
   "Device reporting less cameras than anticipated ... Available cameras: 0"; no camera is connected). Persists in
   /data; undo with `pm enable org.lineageos.aperture`.
+* **Planned (owner, 2026-11-24):** once Bluetooth works, provide the car dialer: check first whether the HCT
+  Bluetooth app (`com.microntek.bluetooth`, GOC module) already covers dialing, phonebook and call log; port
+  or build a dialer only if it does not. Then disable LineageOS Contacts (and the stock Dialer/Messaging if unused)
+  with `pm disable-user`, as was done for the camera app.
 
