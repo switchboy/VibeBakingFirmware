@@ -5971,3 +5971,17 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   in this image: the attempt-31 vendor fixes (`hu_insmod` oneshot without WiFi modules, weaver disabled).
 
   Super `bc4f6adb6ce5…`.
+* **Attempt 31 - port step 1 works.** Boots; `hct-framework.jar` is entry 15 of `BOOTCLASSPATH` (right
+  after `core-icu4j.jar`); `odrefresh` saw `BootClasspath components mismatch: Component count differs (40 != 39)`
+  and recompiled the boot-classpath extension and system_server jars into `/data` (first boot slow:
+  post-fs-data at 137 s instead of ~24 s). No `ClassNotFoundException: android.microntek` this boot;
+  `android.rockchip.update.service` now fails one step later with a `NullPointerException` (no `carservice`
+  behind `CarManager` yet). Stay-on applied on the first try.
+* **Port step 2 inputs:** the serial service exists but its port list is empty (`service call serial 1` ->
+  empty parcel), so `SerialManager.openSerialPort("/dev/ttyV2")` would be refused; `/dev/ttyV2` is
+  `crwxrwxrwx system system`, so CarService will open it directly. `tools/hu_hctcar_jni.c` ->
+  `libhctcar.so` (`215a5dbd6f30…`, freestanding, no `DT_NEEDED`, exports only `JNI_OnLoad`) registers
+  `native_setParameters`/`native_getParameters` on `com/android/server/microntek/CarService` with the
+  Android 10 ioctl semantics. The local model is moving CarService into HCTManagerService (ManageService runs in
+  system_server as uid system), with the `clearLock` call removed and `carservice` registered from `onCreate`.
+

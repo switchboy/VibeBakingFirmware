@@ -563,3 +563,4 @@ A14-SUPER-ATT29	sha	893cac8902a52b9e3e729c535f606340f80119c66939fa96302d2edec083
 A14-SUPER-ATT30	sha	b1a810b794a77932e8ddea13df870228c1ef1cdf5060315f5ba476f601d4af99	bytes	2026-11-24	docs/findings.md	Super `b1a810b794a7	docs/findings.md	attempt 30 super: wifi HIDL entries dropped, stay-on, hu.disarm
 A14-SUPER-ATT31	sha	bc4f6adb6ce578e7e0fb8318e783a45553047a3070b517fd4827d65de1bd99d8	bytes	2026-11-24	docs/findings.md	Super `bc4f6adb6ce5	docs/findings.md	attempt 31: hct-framework.jar on BOOTCLASSPATH
 HCT-FRAMEWORK-JAR	sha	4ddb63b30b70f4a9b43ab408ab9c3464381a95f676ced61d6c9488472f568be	bytes	2026-11-24	docs/findings.md	4ddb63b30b70	docs/findings.md	android.microntek.* for Android 14
+LIBHCTCAR-SO	sha	215a5dbd6f30fb32f6fcd87f0ec560b174e1f04307e7677249541682bb26d062	bytes	2026-11-24	docs/findings.md	215a5dbd6f30	docs/findings.md	CarService JNI for Android 14
