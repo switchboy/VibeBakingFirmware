@@ -556,3 +556,5 @@ A14-SUPER-ATT26	sha	ed0c18014bdd86664514e72d9f03e52571c3cfa7be643b0f572ffccd1ec0
 A14-CARD-P7-DEADMAN-IMG	sha	0fab10a5f2b4e2866613a969621bd3c4f09a3912f73388439eaa86e2d87155ef	bytes	2026-11-24	docs/findings.md	card p7 `0fab10a5f2b4	docs/findings.md	dead-man boot image
 HU-MTC-PARAM-BIN	sha	0052e2a021747d7d8a3b81458f918784811e493cbe859c759c26825e369b14a6	bytes	2026-11-24	docs/findings.md	hu-mtc-param `0052e2a02174	docs/findings.md	MCU parameter sender
 HU-CARD-ARM-DEADMAN-BIN	sha	c0624f4132b16e6aeadb6113fb41f74f978a570801c414cfdb69f06d2a944584	bytes	2026-11-24	docs/findings.md	dead-man wrapper `c0624f4132b1	docs/findings.md	wrapper -DHU_DEADMAN -DHU_CRASH_SECS=300
+A14-CARD-P7-DEADMAN2-IMG	sha	9424c98a66dcf508276704768bbaac3894fe23f0061205d2dc11c4663e48c6ab	bytes	2026-11-24	docs/findings.md	Card p7 `9424c98a66dc	docs/findings.md	dead-man 600 s, full-boot recorder
+HU-CARD-ARM-DEADMAN2-BIN	sha	c12f53e6b4c2df2b79a9364d80454ace16260d01b363e1860ed4839f9b872950	bytes	2026-11-24	docs/findings.md	wrapper `c12f53e6b4c2	docs/findings.md	wrapper -DHU_DEADMAN 600 s

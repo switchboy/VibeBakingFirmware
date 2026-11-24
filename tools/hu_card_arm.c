@@ -503,6 +503,7 @@ static void start_recorder(int miscfd, int mountsfd, int cardfd, int kfd, const 
       if (cardfd >= 0) syscall(SYS_fsync, cardfd);
       syscall(SYS_exit_group, 0);
     }
+#ifndef HU_DEADMAN
     if (boot_looks_alive(mountsfd, ok_path)) {
       hu_put("hu-card-arm: recorder: the boot reached /data - standing down, not crashing a working boot\n");
       used = drain_kmsg(kfd, cardfd, used, cap, &full);
@@ -510,8 +511,15 @@ static void start_recorder(int miscfd, int mountsfd, int cardfd, int kfd, const 
       if (cardfd >= 0) syscall(SYS_fsync, cardfd);
       syscall(SYS_exit_group, 0);
     }
+#endif
     write_hb(cardfd, tick, used, "rec");
+#ifdef HU_DEADMAN
+    /* -DHU_DEADMAN (attempt 27): keep recording the whole boot (Android 14 shares the card, so fsync once a
+     * second instead of every tick); pkill -x hu-recorder stops it once adb is up. */
+    if (cardfd >= 0 && tick % HU_TICKS_PER_SEC == 0) syscall(SYS_fsync, cardfd);
+#else
     if (cardfd >= 0) syscall(SYS_fsync, cardfd);
+#endif
   }
 
   hu_put("hu-card-arm: recorder: done\n");

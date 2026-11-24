@@ -5839,3 +5839,16 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   address) by `ro.build.version.release` and disarms on the first answer.
 
   Super `ed0c18014bdd…`; card p7 `0fab10a5f2b4…`; hu-mtc-param `0052e2a02174…`; dead-man wrapper `c0624f4132b1…`.
+* **Attempt 26 - adbd runs, the MCU takes `rpt_boot_complete`, but the boot completes late and nothing is
+  seen on the network.** The dead-man crasher fired at 301 s as designed (nobody answered on adb). The console
+  ring (276-302 s) shows `sys.boot_completed=1` only at 295.5 s, `adbd` already running ("requested start,
+  but it is already running"), and `--mtc b boot comp` / `hu-mtc: sent 'rpt_boot_complete=true' ret=0`.
+  The unit never answered ping while Android 14 ran, and whether the 60 s fallback ran and what USB did
+  between 15 s and 276 s is not visible: the recorder stood down at `/data` (14 s), the console ring holds only
+  the last 26 s, and `hu_insmod` restarts every 5 s fill it.
+* **Attempt 27 written: observability only.** Card p7 `card-p7-a14-deadman2.img`: dead-man wrapper rebuilt
+  `-DHU_DEADMAN -DHU_CRASH_SECS=600 -DHU_WDT_SECS=600`. Its recorder no longer stands down at `/data` and
+  records kmsg for the whole boot into the card's 4 MiB region (fsync once a second), so the MCU sends, the
+  USB enumeration and the network bring-up are visible after the crash. Super unchanged (attempt 26).
+
+  Card p7 `9424c98a66dc…`; wrapper `c12f53e6b4c2…`.
