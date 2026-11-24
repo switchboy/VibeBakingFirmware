@@ -42,3 +42,13 @@ are never suspended.
 | Exit | a trusted phone connects over BT (needs the HCT Bluetooth stack), or the valet PIN on the launcher |
 
 Expected and accepted: banking apps will complain about the unlocked, uncertified build regardless.
+
+## Car settings (owner, 2026-11-24) - in the launcher's settings
+| Setting | Options | Default (owner's preference) | Hook |
+|---|---|---|---|
+| Car lights on -> backlight | nothing / dim to N % | **nothing** | illumination signal from CarService (`sta_ill`, sysprop `headlight`) |
+| Car lights on -> theme | nothing / dark | **nothing** | same signal |
+| Dark mode | follow day/night cycle (sunset/sunrise from location) / always light / always dark / follow car lights | **day/night cycle** | `UiModeManager` night mode (auto / custom schedule); the launcher's own theme follows the system night mode |
+| Reverse gear -> volume | unchanged / lower to N % / mute | **lower** (owner lowers volume while reversing/parking) | reverse event from CarService (`CAR_A_RPT_BACKVIEW_START` / backview start); the MCU driver also has a native `ctl_backview_vol` command, so the attenuation can be left to the MCU, with the launcher only setting the level |
+
+The launcher itself follows the system light/dark theme, so one setting drives both.
