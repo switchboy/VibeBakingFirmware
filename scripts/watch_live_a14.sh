@@ -24,7 +24,10 @@ while [ "$t" -lt 90 ]; do      # 15 min
     rel=$(adb shell getprop ro.build.version.release 2>/dev/null | tr -d '\r')
     echo "=== $(date +%H:%M:%S) adb answered: release='$rel' ==="
     if [ "$rel" = 14 ]; then
-      adb root >/dev/null 2>&1; sleep 4; adb connect "$IP:5555" >/dev/null 2>&1; sleep 1
+      # LineageOS gates "adb root"; on this userdebug build with SELinux permissive the shell may set
+      # service.adb.root and restart adbd through init, and adbd then starts as root (attempt 29).
+      adb shell 'setprop service.adb.root 1; setprop ctl.restart adbd' >/dev/null 2>&1; sleep 6
+      adb connect "$IP:5555" >/dev/null 2>&1; sleep 2; echo "adb uid: $(adb shell id -u | tr -d '\r')"
       echo "--- disarming the dead-man crasher"
       adb shell 'ps -A -o PID,NAME | grep -E "hu-crasher|hu-recorder"; pkill -x hu-crasher; sleep 1; ps -A -o PID,NAME | grep -c hu-crasher' 2>&1 | tr -d '\r'
       {

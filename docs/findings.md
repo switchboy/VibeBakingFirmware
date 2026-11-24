@@ -5888,3 +5888,21 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   (`hu-diag[late]`) to show whether `otg_drv` went high.
 
   Super `893cac8902a5…`.
+* **Attempt 29 - MILESTONE: ethernet and adb under Android 14.** At 82.6 s `hu-mtc` sent
+  `rpt_boot_android=true`, `rpt_logo_complete=true` and `rpt_boot_complete=true` (`--mtc b android`,
+  `--mtc b logo comp`, `--mtc b boot comp`); at 82.7 s the MCU answered `--mtc @ usb on`, `@ >on3`,
+  `@ first boot`; at 82.9 s `usb 1-1` (SMSC 2514 hub) enumerated, then `usb 1-1.2` AX88179 (`eth0`,
+  `00:0a:cd:27:a5:b2`) and `usb 1-1.4` (Realtek `0bda:0179` WLAN). eth0 got `192.168.1.127/24`, and Android 14's
+  adbd answered at 13:01:38, 97 s after the reboot. The owner saw the dongle come online after the boot animation. Which of the
+  three strings switches USB (and with it `otg_drv`) is not yet separated; `rpt_boot_android` is the candidate,
+  because Android 10's libbootanimation sent it. No system_server crash this boot; two app crashes
+  (`android.rockchip.update.service`, `NoClassDefFoundError: android.microntek.CarManager`).
+* **Root over adb on LineageOS 21:** `adb root` is refused ("ADB Root access is disabled by system setting"),
+  and neither `persist.sys.root_access=3` nor `lineage.service.adb.root=1` lifts it. On this userdebug build with
+  SELinux permissive, `adb shell 'setprop service.adb.root 1; setprop ctl.restart adbd'` restarts adbd as uid 0.
+  That disarmed the dead-man crasher (`pkill -x hu-crasher`) at 183 s; `scripts/watch_live_a14.sh` now does this.
+* **Staying awake:** attempt 29's early-boot `write /sys/power/wake_lock hu_keepawake` is accepted but never
+  listed (this kernel's interface does not hold it), and the boot-completed `settings put` (exec as system)
+  did not take. Set by hand over adb: `stay_on_while_plugged_in 7`, `screen_off_timeout 2147483647`,
+  `svc power stayon true`, after which PowerManager reports `mStayOn=true`. These need to move into the image.
+
