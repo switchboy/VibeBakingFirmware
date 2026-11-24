@@ -5943,4 +5943,13 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   result = -95` (cosmetic).
 * **Attempt 31 prepared (vendor image, not yet written):** `hu.rc` gets `oneshot`; `hu_insmod.sh` loads
   only `usb_f_iap usb_f_iap2 sd_user_hid`; same change in `device/rk3399-px6-hct4/configs/`.
+* **Attempt 29 logcat digest** (written by the local model, spot-checked): `docs/a14-attempt29-logcat-digest.md`. Open items it
+  lists beyond what is fixed: `android.rockchip.update.service` crash-loops on `android.microntek.CarManager`
+  (crash dialog; fixed by the framework port), the `memtrack@1.0` HAL aborts once (`FORTIFY: readdir: null
+  DIR*`), USB gadget mode is dead (`configfs-gadget fe800000.dwc3: failed to start g1: -19`, so adb only over
+  ethernet), the radio HAL is old (`getCurrentCalls not supported on service VOICE < 1.4`), mtc GPS writes
+  fail (`--mtc write_gps: could not send $PCAS06,6*1D`), and many unused HAL lookups. Its WiFi section predates
+  attempt 30.
+* **Attempt 31 (pending):** also `disabled` on `vendor.weaver-hal-1-0` (no VINTF entry; it exited and
+  restarted every 5 s).
 
