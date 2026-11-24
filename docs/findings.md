@@ -5871,3 +5871,20 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   HCTExtAppDocker, HCTExtScreenClock.
 
   Super `4186828d6b36…`.
+* **Attempt 28 - system_server stable; USB 5 V found; the unit then suspended.** No system_server crash in the
+  recorder; BOOT_COMPLETED at 91 s. The owner saw a black screen and restarts: at 152.5 s the panel switched
+  off (`--mtc mtc_lcd_dis`), and at 154.5 s the kernel went to `PM: suspend entry (deep)`. The recorder ends
+  there, and the unit came back cold into the card recovery. `hu-diag[pfd]` shows the cause of the dark dongle:
+  **`gpio-155 otg_drv` is `out lo` under Android 14** but `out hi` in the card recovery. Every other line
+  matches (sdio_en hi, lcdc_en hi, gps_pwr hi, ...). The USB device list has only the root hubs, and there is no eth0.
+* **What Android 10 sent the MCU driver besides CarService:** its `libbootanimation.so` opens
+  `/dev/mtc-car` and sends `rpt_logo_runing=true`, `rpt_boot_android=true`, `rpt_logo_complete=true` (and
+  `rpt_android_cid=%s`); the 2024 kernel's mtc-car parser knows them (`--mtc b android`, `--mtc b logo comp`)
+  together with `ctl_keep_wake` and `sta_sleep_enable`. Android 14's own boot animation sends nothing.
+* **Attempt 29 written:** `hu-mtc.rc` sends `rpt_logo_runing=true rpt_service_ready=true` at post-fs-data and
+  `rpt_boot_android=true rpt_logo_complete=true rpt_boot_complete=true` at boot completion (and 60 s after
+  post-fs-data); a kernel wakelock `hu_keepawake` at early-boot and, at boot completion,
+  `stay_on_while_plugged_in 7` plus a maximal `screen_off_timeout`; `hu-diag` runs a third time 90 s after post-fs-data
+  (`hu-diag[late]`) to show whether `otg_drv` went high.
+
+  Super `893cac8902a5…`.
