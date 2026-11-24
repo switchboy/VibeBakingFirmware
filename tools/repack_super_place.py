@@ -155,6 +155,10 @@ def main() -> int:
     ap.add_argument("dst")
     ap.add_argument("--place", action="append", default=[], metavar="NAME=MIB",
                     help="new start of a partition's single extent, in MiB")
+    ap.add_argument("--size", action="append", default=[], metavar="NAME=MIB",
+                    help="new size of a partition's single LINEAR extent, in MiB (num_sectors = MIB*2048)")
+    ap.add_argument("--image", action="append", default=[], metavar="NAME=PATH",
+                    help="fill the (possibly grown) extent with PATH's bytes, then zero-pad; PATH must be <= the new size")
     ap.add_argument("--avoid", action="append", type=int, default=[], metavar="BYTE",
                     help="byte offset that must end up outside every extent and read 0x00")
     args = ap.parse_args()
@@ -163,6 +167,18 @@ def main() -> int:
     for p in args.place:
         name, _, mib = p.partition("=")
         placements[name] = int(mib)
+    sizes = {}
+    for p in args.size:
+        name, _, mib = p.partition("=")
+        sizes[name] = int(mib)
+    images = {}
+    for p in args.image:
+        name, _, path = p.partition("=")
+        images[name] = path
+
+    # With --size/--image a partition without --place keeps its current start; without them the
+    # original contract stands: every partition must be placed explicitly.
+    resizing = bool(sizes or images)
 
     with open(args.src, "rb") as f:
         head = f.read(MIB)
@@ -180,11 +196,15 @@ def main() -> int:
         first_sector, alignment, align_off, dev_size = ref.block_device()
         print(f"block device: size {dev_size} B, alignment {alignment} B, "
               f"first_logical_sector {first_sector}")
-        parts = ref.partitions()
+        groups = ref.groups()
+        print("groups: " + ", ".join(f"{name!r} flags {flags:#x} maximum_size {ms}"
+                                     for name, flags, ms in groups))
+        parts = ref.partitions_with_group()
 
-        # old layout, and the moves we are asked for
-        moves = []  # (name, extent_index, num_sectors, old_sector, new_sector)
-        for name, fe, ne in parts:
+        # old layout, and the moves/resizes we are asked for
+        moves = []  # (name, extent_index, new_ns, old_ns, old_sector, new_sector, image_path|None)
+        new_sizes = {}  # name -> new num_sectors
+        for name, fe, ne, group in parts:
             if ne != 1:
                 print(f"ABORT: {name} has {ne} extents; this tool only moves single-extent partitions")
                 return 1
@@ -193,20 +213,64 @@ def main() -> int:
                 print(f"ABORT: {name} extent target_type {ttype} is not linear")
                 return 1
             if name not in placements:
-                print(f"ABORT: no --place given for {name}")
+                if not resizing:
+                    print(f"ABORT: no --place given for {name}")
+                    return 1
+                new = old
+            else:
+                new = placements[name] * MIB // SECTOR
+            new_ns = sizes[name] * 2048 if name in sizes else num_sectors
+            image = images.get(name)
+            if new_ns < num_sectors and image is None:
+                print(f"ABORT: {name} would shrink from {num_sectors * SECTOR} to {new_ns * SECTOR} B; "
+                      f"refusing, only growth is supported without --image")
                 return 1
-            new = placements[name] * MIB // SECTOR
-            moves.append((name, fe, num_sectors, old, new))
+            if image is not None:
+                if not os.path.isfile(image):
+                    print(f"ABORT: no replacement image {image}")
+                    return 1
+                if os.path.abspath(image) == os.path.abspath(args.src):
+                    print(f"ABORT: the image for {name} is the source container itself")
+                    return 1
+                if os.path.getsize(image) > new_ns * SECTOR:
+                    print(f"ABORT: the image for {name} is {os.path.getsize(image)} B but the new "
+                          f"extent is {new_ns * SECTOR} B; the image must be <= the new size")
+                    return 1
+            if name in sizes and new_ns == num_sectors:
+                print(f"  {name:<12} --size keeps its current size ({num_sectors * SECTOR} B)")
+            new_sizes[name] = new_ns
+            moves.append((name, fe, new_ns, num_sectors, old, new, image))
+
+        # --- group capacity -------------------------------------------------------------------
+        # Sum of each group's partition sizes must stay <= the group's maximum_size (0 = unbounded).
+        sums = {}
+        for name, fe, ne_unused, group_unused, _g in [
+            (n, fe, nn, g, None) for n, fe, nn, _o, _new, _g, _img
+            in [(name, fe, ns, grp, img) for name, fe, ns, old_ns, old, new, img in moves
+                for grp, img in [(dict((p[0], p[3]) for p in parts)[name], None)]]
+        ]:
+            sums[group] = sums.get(group, 0) + new_sizes[name]
+        for idx, (gname, flags, gmax) in enumerate(groups):
+            s = sums.get(idx, 0)
+            if gmax and s > gmax:
+                print(f"ABORT: group {gname!r} would hold {s} B in its partitions, over its "
+                      f"maximum_size {gmax} B")
+                return 1
+            print(f"  group {gname!r}: {s} B of partitions, maximum_size {gmax or 'unbounded'}")
 
         # --- placement checks -----------------------------------------------------------------
+        meta_end = RESERVED + GEOMETRY_SIZE * 2 + max_size * slots * 2
         spans = []
-        for name, fe, ns, old, new in moves:
+        for name, fe, ns, old_ns, old, new, image in moves:
             start, end = new * SECTOR, (new + ns) * SECTOR
             if new * SECTOR % alignment:
                 print(f"ABORT: {name} start {start} is not aligned to {alignment}")
                 return 1
             if new < first_sector:
                 print(f"ABORT: {name} would start below first_logical_sector")
+                return 1
+            if start < meta_end:
+                print(f"ABORT: {name} start {start} overlaps the metadata region ending at {meta_end}")
                 return 1
             if end > dev_size:
                 print(f"ABORT: {name} would end at {end}, past the device size {dev_size}")
@@ -229,8 +293,10 @@ def main() -> int:
 
         # --- build ----------------------------------------------------------------------------
         for m in metas:
-            for name, fe, ns, old, new in moves:
+            for name, fe, ns, old_ns, old, new, image in moves:
                 m.set_extent_start(fe, new)
+                if ns != old_ns:
+                    m.set_extent_size(fe, ns)
             m.reseal()
             if not m.checksums_ok():
                 print(f"ABORT: resealed metadata at {m.offset} fails its own check")
@@ -242,20 +308,35 @@ def main() -> int:
         with open(args.dst, "wb") as g:
             g.write(newhead)
             g.truncate(dev_size)
-            for name, fe, ns, old, new in moves:
-                f.seek(old * SECTOR)
+            for name, fe, ns, old_ns, old, new, image in moves:
+                h = hashlib.sha256()
                 g.seek(new * SECTOR)
                 left = ns * SECTOR
-                h = hashlib.sha256()
+                src = open(image, "rb") if image is not None else f
+                try:
+                    src.seek(0 if image is not None else old * SECTOR)
+                    copy = os.path.getsize(image) if image is not None else old_ns * SECTOR
+                    while copy:
+                        chunk = src.read(min(8 * MIB, copy))
+                        if len(chunk) != min(8 * MIB, copy):
+                            print(f"ABORT: short read of {name}")
+                            return 1
+                        h.update(chunk)
+                        g.write(chunk)
+                        copy -= len(chunk)
+                        left -= len(chunk)
+                finally:
+                    if image is not None:
+                        src.close()
                 while left:
-                    chunk = f.read(min(8 * MIB, left))
-                    if len(chunk) != min(8 * MIB, left):
-                        print(f"ABORT: short read of {name}")
-                        return 1
-                    h.update(chunk)
-                    g.write(chunk)
-                    left -= len(chunk)
-                print(f"  copied {name:<12} {ns * SECTOR:12d} B  sha256 {h.hexdigest()[:16]}")
+                    chunk = min(8 * MIB, left)
+                    h.update(b"\0" * chunk)
+                    g.write(b"\0" * chunk)
+                    left -= chunk
+                note = "zero-filled" if left == 0 and ns * SECTOR != copy else ""
+                srcname = image if image is not None else "old bytes"
+                print(f"  wrote {name:<12} {ns * SECTOR:12d} B from {srcname}"
+                      f"{', ' + note if note else ''}  sha256 {h.hexdigest()[:16]}")
             g.flush()
 
     # --- verify the result independently -----------------------------------------------------
@@ -270,19 +351,30 @@ def main() -> int:
             if not m.checksums_ok():
                 print(f"ABORT: written metadata at {m.offset} does not verify")
                 return 1
-        for name, fe, ns, old, new in moves:
+        for name, fe, ns, old_ns, old, new, image in moves:
             got_ns, _, got_new = metas2[0].extent(fe)
             if (got_ns, got_new) != (ns, new):
                 print(f"ABORT: {name} reads back as sectors={got_ns} start={got_new}")
                 return 1
-        print("written metadata verifies, and every extent reads back at its new start")
+        print("written metadata verifies, and every extent reads back at its new start and size")
 
-        # each filesystem must be byte-identical to the source and carry its own volume name
+        # the group capacities must hold in the written metadata too
+        sums2 = {}
+        for name, fe, ne, group in metas2[0].partitions_with_group():
+            sums2[group] = sums2.get(group, 0) * 0 + metas2[0].extent(fe)[0] * SECTOR
+        for idx, (gname, flags, gmax) in enumerate(metas2[0].groups()):
+            s = sums2.get(idx, 0)
+            if gmax and s > gmax:
+                print(f"ABORT: written group {gname!r} holds {s} B, over maximum_size {gmax} B")
+                return 1
+
+        # the kept part of each filesystem must be byte-identical to its source
         with open(args.src, "rb") as f:
-            for name, fe, ns, old, new in moves:
-                f.seek(old * SECTOR)
+            for name, fe, ns, old_ns, old, new, image in moves:
+                copy = os.path.getsize(image) if image is not None else old_ns * SECTOR
+                f.seek(0 if image is not None else old * SECTOR)
                 g.seek(new * SECTOR)
-                left = ns * SECTOR
+                left = copy
                 ha, hb = hashlib.sha256(), hashlib.sha256()
                 while left:
                     n = min(8 * MIB, left)
@@ -292,12 +384,22 @@ def main() -> int:
                 if ha.digest() != hb.digest():
                     print(f"ABORT: {name} content differs after the move")
                     return 1
+                if ns * SECTOR > copy:
+                    g.seek(new * SECTOR + copy)
+                    left = ns * SECTOR - copy
+                    while left:
+                        n = min(8 * MIB, left)
+                        if g.read(n) != b"\0" * n:
+                            print(f"ABORT: {name}: the grown part of the extent is not all zero")
+                            return 1
+                        left -= n
                 g.seek(new * SECTOR + 1024)
                 sb = g.read(1024)
                 (ext4_magic,) = struct.unpack("<H", sb[56:58])
                 vol = sb[120:136].rstrip(b"\0").decode(errors="replace")
                 tag = "ext4" if ext4_magic == 0xEF53 else f"magic {ext4_magic:#x}"
-                print(f"  {name:<12} content identical, {tag}, volume name {vol!r}")
+                note = f" kept {copy} B, rest zero" if ns * SECTOR != copy else ""
+                print(f"  {name:<12} content identical{note}, {tag}, volume name {vol!r}")
 
         for off in args.avoid:
             g.seek(off)

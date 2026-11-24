@@ -9,6 +9,14 @@
 The end goal (owner, 2026-11-24): once the card build is feature complete, run it from the unit's internal
 eMMC as a full replacement of the stock ROM. Until then the eMMC is never written; the card is the test bed.
 
+## Openness / distribution model
+The ROM is meant to be fully open and reproducible, not closed or paywalled:
+- No proprietary files are redistributed (the Android 10 vendor partition, the prebuilt kernel, the HCT apps and
+  libraries). As in LineageOS, an extract step pulls them from the user's own unit or stock firmware package.
+- Everything else is in the repo: device tree, patches, the HU tools (`tools/`, `scripts/`), the HCT port as
+  scripted patches (smali diffs / build scripts, not patched APKs), and the build + install recipe (`README.md`).
+- Request the kernel's GPL source from the vendor (it would also unlock the kernel work).
+
 ## Gate: feature complete on the card
 - [ ] HCT framework port: hardware keys, radio, CAN bus, HCT Bluetooth (calls, phonebook), front/rear camera
       (incl. reverse-gear trigger), AV-in/DVD video (`libcvbs_jni.so`), MFI/CarPlay bridge if wanted
