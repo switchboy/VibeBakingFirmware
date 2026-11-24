@@ -25,12 +25,17 @@ stock Android 14 (map, media, radar, clock) first; radio and battery voltage aft
 
 ## Valet mode (owner idea 2026-11-24)
 When no known phone is connected over Bluetooth (or a valet PIN has not been entered), the unit runs in valet
-mode: only Google Maps and the radio are usable, every other app is hidden, and ALL notifications are
-suppressed.
+mode: only the allowed apps are usable, every other app is hidden, and ALL notifications are suppressed.
+
+Allowed in valet mode (owner, 2026-11-24): Google Maps; the radio (`com.microntek.radio`); the HCT Bluetooth app
+(`com.microntek.bluetooth`, hands-free calls); the front and rear camera apps (`com.microntek.frontview`,
+`com.microntek.backview`). The rear camera is started by CarService on reverse gear and must never be
+suspended. System packages the allowed apps depend on (SystemUI, the HCT services, the launcher itself)
+are never suspended.
 
 | Part | Mechanism (stock Android 14, needs the launcher as a platform-signed system app) |
 |---|---|
-| Only Maps + radio | `PackageManager.setPackagesSuspended()` for every other user-facing app: suspended apps cannot start and cannot show notifications; lifted on unlock |
+| Only the allowed apps | `PackageManager.setPackagesSuspended()` for every other user-facing app: suspended apps cannot start and cannot show notifications; lifted on unlock |
 | No notifications | Do Not Disturb "total silence" (`NotificationManager.setInterruptionFilter(INTERRUPTION_FILTER_NONE)`) while in valet mode |
 | No escape routes | `StatusBarManager.disable()` (no notification shade, no quick settings); Settings suspended; home/recents only show the allowed apps |
 | Enter | automatically when no trusted phone connects over BT within a timeout after start; or manually |
