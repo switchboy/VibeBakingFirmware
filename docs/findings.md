@@ -5669,4 +5669,23 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   (two services would both register `IDevicesFactory/default`) and to `vendor.rockit-hal-1-0` (no seccomp policy
   for it exists in any stock tree, nothing on Android 14 uses it). Each file keeps mode, owner and label; e2fsck
   clean. Super `60bfc7a95603…`, seven chunks.
+* **Attempt 17 - the bpffs labels pass; system_server reaches phase 550 and SystemUI starts; system_server then
+  dies in Codec2's ION setup.** `hu-netbpfload: repin: 9 of 9 net_shared objects pinned again under
+  fs_bpf_net_shared`, and no `context of ...` mismatch was logged. system_server got to `Starting phase 550`,
+  SystemUI's KeyguardService started, and the boot animation went on to part1. The audio HAL no longer aborts
+  on its own and rockit is gone. RescueParty still escalated to FACTORY_RESET (the same BCB `5370ef096334…`) after
+  nine system_server deaths, every one the same native crash (tombstones 41-49): SIGSEGV at 0 in
+  `std::string(...)` <- `C2AllocatorIon::setUsageMapper` <- `UseComponentStoreForIonAllocator` <-
+  `C2PlatformAllocatorStoreImpl::fetchIonAllocator` <- `CCodecBufferChannel::start`, thread `NDK MediaCodec_`.
+  There is no vendor Codec2 service; kernel 4.19 has no DMA-BUF heaps, so Codec2 uses ION, and the allocator's
+  traits are only set if `/dev/ion` opens - so system_server could not open `/dev/ion`.
+* **Why `/dev/ion` was root-only: Android 14 ignores the legacy `/vendor/ueventd.rc`.** The rule
+  `/dev/ion 0666 system system` (and 149 others: sensor nodes, `mpp_service`/`vpu_service`, cameras) is in the
+  stock `/vendor/ueventd.rc`; this build sets `ro.product.first_api_level=34`, so ueventd reads only
+  `/system/etc/ueventd.rc` and its import `/vendor/etc/ueventd.rc`, which carried only the curated MTC/GPU/USB rules.
+  The sensors HAL exiting with status 255 every cycle (8x) is consistent with the same missing sensor-node rules.
+* **Attempt 18 written: the legacy rules carried into `/vendor/etc/ueventd.rc`.** All 150 legacy `/dev` and `/sys`
+  rules come first, then the curated rules, which take precedence for the same node because they are later.
+  Mode, owner and `vendor_configs_file` label kept; e2fsck clean. Super `8b274a84de8e…`, six chunks. The bcb-clear
+  allowlist now also takes the exact RescueParty command (read in full first).
 
