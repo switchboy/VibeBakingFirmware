@@ -5688,4 +5688,19 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   rules come first, then the curated rules, which take precedence for the same node because they are later.
   Mode, owner and `vendor_configs_file` label kept; e2fsck clean. Super `8b274a84de8e…`, six chunks. The bcb-clear
   allowlist now also takes the exact RescueParty command (read in full first).
+* **Attempt 18 - BOOT_COMPLETED.** With `/dev/ion` openable, system_server no longer crashes:
+  `Posting BOOT_COMPLETED user #0`, `broadcastIntent-0-android.intent.action.BOOT_COMPLETED took to complete: 18ms`,
+  and the stock HCT app logged `MicrontekReceiver>>>>> BOOT_COMPLETED`. RescueParty still escalated to
+  `FACTORY_RESET` (same card BCB) because of app crash loops, read from the card's `/data/tombstones`:
+  `com.android.systemui` and `com.android.launcher3` abort with `Failed to create context, error =
+  EGL_NOT_INITIALIZED` in `libhwui EglManager::initialize`, and `com.android.bluetooth` aborts with
+  `main_thread_start_up: unable to enable real time scheduling`.
+* **Why.** (1) The curated ueventd rule `/dev/mali0 0660 system graphics` overrides the stock `0666` (stock
+  Android 10 `/vendor/ueventd.rc` line 77), so app processes, which are not in group graphics, cannot open the
+  GPU; surfaceflinger can. (2) The kernel config has `CONFIG_RT_GROUP_SCHED=y`, and Android 14's init.rc creates
+  the cpuctl children without any `cpu.rt_runtime_us`, so no task in a child group may use SCHED_FIFO/RR.
+* **Attempt 19 written.** `/dev/mali0`, `/dev/dri/card0` and `/dev/dri/renderD128` 0666 in `/vendor/etc/ueventd.rc`;
+  new `/vendor/etc/init/hu-rt-cgroups.rc` giving each of the seven cpuctl children 100000 us of RT runtime in
+  `on init` (the root keeps 950000 per 1000000 us). Labels kept/set to `vendor_configs_file`; e2fsck clean.
 
+  Super `6f2059d9d175…`.

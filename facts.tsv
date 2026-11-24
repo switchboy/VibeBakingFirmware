@@ -539,3 +539,4 @@ A14-SUPER-ATT17	sha	60bfc7a956037a72b12e8176f2e9ee3de509d21a47b855e1bf7fbcbc7993
 HU-NETBPFLOAD-CHOWN-BIN	sha	fa9a506917cebddb1990e927e45af8873fa551b56733cd74b234c70acf25053f	bytes	2026-11-24	docs/findings.md	38,376 B	docs/findings.md	netbpfload wrapper, chown-first re-pin of net_shared
 CARD-BCB-RESCUEPARTY	sha	5370ef09633442526209ab5c592206a9f72605bca141a27115c6d16d079e0989	bytes	2026-11-24	docs/findings.md	--locale=en_US	docs/findings.md	card BCB written by Android 14 RescueParty FACTORY_RESET on attempt 16
 A14-SUPER-ATT18	sha	8b274a84de8e09e469f878b64c93056548c01bc0c2b38da9f99f49b032958a87	bytes	2026-11-24	docs/findings.md	six chunks	docs/findings.md	attempt 18 super: legacy ueventd rules in /vendor/etc/ueventd.rc
+A14-SUPER-ATT19	sha	6f2059d9d1758b610e785a7fc5ce2cb086d36af7bc6b75781dcc578a72f2b80b	bytes	2026-11-24	docs/findings.md	Super `6f2059d9d175	docs/findings.md	attempt 19 super: GPU nodes 0666 + RT cgroup budgets
