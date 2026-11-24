@@ -5633,4 +5633,22 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `context=u:object_r:fs_bpf_net_shared:s0` and mode 01777. A loader rename into or out of `net_shared` from
   another directory would still fail with EXDEV; the clatd objects live in `net_shared` itself. Super
   `c2634e99e6be…`, three chunks.
+* **Attempt 15 - net_shared is also a staging directory.** With only `/sys/fs/bpf/net_shared` mounted as a
+  separate labelled bpffs before loading, NetBpfLoader failed at 22.3 s with `rename
+  /sys/fs/bpf/net_shared/tmp_map_netd_uid_counterset_map /sys/fs/bpf/netd_shared/map_netd_uid_counterset_map ->
+  -1 [18:Cross-device link]` and init rebooted with `bpfloader-failed`. So no separate mount may exist while
+  loading; `rename(2)` also needs the same mount, not just the same filesystem, so bind mounts cannot help.
+* **Attempt 16 written: re-pin `net_shared` under a labelled bpffs after loading.** `hu-netbpfload`
+  (`7ce1467065b8…`, 38,208 B) forks: the child loads exactly as on attempt 12 (private JIT knobs, init's single
+  bpffs); the parent waits in the shared namespace and, only on success, opens every object in
+  `/sys/fs/bpf/net_shared` with `BPF_OBJ_GET`, mounts a bpffs with `context=u:object_r:fs_bpf_net_shared:s0`
+  over that directory, and pins each object again under the same name with its mode and owner (and the
+  directory's). The root stays `fs_bpf`. init's `exec_start` waits for the wrapper, so this completes before
+  netd or system_server start. Super `4c765d10575d…`, three chunks.
+* **Queued from the local model's read-only HAL analysis (a14-work/qwen-hal-report.md), to be checked before
+  use:** the vendor manifest declares `android.hardware.audio@5.0`/`audio.effect@5.0` while the image ships only
+  `@6.0` impls (the audio HAL's `Could not register Audio Core API`); `light@2.0` and `gatekeeper@1.0` are
+  declared with nothing installed (endless lazy-start retries); the rockit HAL has no seccomp policy in any stock
+  tree and nothing on Android 14 depends on it, so it can be disabled. Its claim that the composer is still the
+  blocker is out of date: attempt 11 measured the stock pair working.
 

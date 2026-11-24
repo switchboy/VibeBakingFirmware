@@ -28,9 +28,9 @@
  * libservice-connectivity's ClatCoordinator check `context of '/sys/fs/bpf/net_shared/...' is
  * 'u:object_r:fs_bpf:s0' != 'u:object_r:fs_bpf_net_shared:s0'`. Android 14 labels bpffs subdirectories by
  * path (`genfscon bpf "/net_shared" ...`), which this vendor 4.19 kernel does not do, so every object gets
- * the root's fs_bpf. So before anything else, in the SHARED mount namespace, the wrapper mounts a separate
- * bpffs on /sys/fs/bpf/net_shared with SELinux's `context=` option (see label_bpffs for why only that one).
- * A mount that fails is logged and the loader runs on the original bpffs.
+ * the root's fs_bpf. The wrapper therefore forks: the child loads exactly as netbpfload expects, and the
+ * parent, still in the shared mount namespace, re-pins net_shared under a labelled bpffs afterwards (see
+ * repin_net_shared).
  *
  * HU_NB_DIR (test only) replaces /proc/sys/net/core, and HU_NB_REAL replaces the exec target, so the
  * offline gate can run it without touching the workstation's /proc.
@@ -69,28 +69,75 @@ static int put(const char *dir, const char *name, const char *val) {
   return ok ? 0 : -1;
 }
 
-/* Only /sys/fs/bpf/net_shared gets its own bpffs (attempt 15). What each attempt measured:
+/* Re-pin net_shared into a labelled bpffs AFTER loading (attempt 16). What each attempt measured:
  *   12: one bpffs, every object fs_bpf -> ClatCoordinator aborts: net_shared must be fs_bpf_net_shared.
- *   13: one bpffs per policy subdirectory -> NetBpfLoader's cross-directory rename fails with EXDEV.
- *   14: one bpffs over /sys/fs/bpf labelled fs_bpf_net_shared -> ClatCoordinator aborts: the root itself must
- *       be fs_bpf (`context of '/sys/fs/bpf' is 'u:object_r:fs_bpf_net_shared:s0' != 'u:object_r:fs_bpf:s0'`).
- *   And relabelling is impossible on this kernel: chcon on a bpffs directory returns EOPNOTSUPP (tested in the
- *   card recovery on the same 4.19.111+ kernel).
- * Those two paths are the only labels any component checked. So init's root bpffs stays as it is (fs_bpf),
- * and only net_shared is a separate instance with its label. A rename into or out of net_shared from
- * another directory would still fail; if the loader needs one, its log names the object. */
-static void label_bpffs(const char *root) {
-  char path[160], msg[220];
+ *   13: one bpffs per policy subdirectory, mounted before loading -> NetBpfLoader's cross-directory
+ *       rename fails with EXDEV (netd_readonly -> netd_shared).
+ *   14: one bpffs over /sys/fs/bpf labelled fs_bpf_net_shared -> ClatCoordinator aborts: the root must be fs_bpf.
+ *   15: only net_shared as a separate bpffs, mounted before loading -> EXDEV again: net_shared is also a
+ *       staging directory (`rename .../net_shared/tmp_map_netd_uid_counterset_map .../netd_shared/...`).
+ *   And bpffs cannot be relabelled on this kernel: chcon returns EOPNOTSUPP.
+ * So loading runs on init's single bpffs, where every rename works, and only afterwards are the objects that
+ * ended up in /sys/fs/bpf/net_shared opened (BPF_OBJ_GET), a bpffs labelled fs_bpf_net_shared is mounted over
+ * that directory, and each object is pinned again under the same name with the same mode and owner. The
+ * kernel objects are the same; only their net_shared paths now carry the label ClatCoordinator checks, and
+ * the root stays fs_bpf. init's `exec_start` waits for this process, so it finishes before netd or
+ * system_server can start. */
+#include <dirent.h>
+#include <linux/bpf.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
+
+struct pinned { char name[200]; int fd; mode_t mode; uid_t uid; gid_t gid; };
+
+static long bpf_call(int cmd, union bpf_attr *attr) { return syscall(__NR_bpf, cmd, attr, sizeof(*attr)); }
+
+static void repin_net_shared(const char *dir) {
+  static struct pinned obj[256];
+  int n = 0; char msg[300], path[460];
+  struct stat dst;
+  if (stat(dir, &dst) != 0) { say("repin: net_shared missing - nothing to do"); return; }
+  DIR *d = opendir(dir);
+  if (!d) { say("repin: cannot open net_shared"); return; }
+  struct dirent *e;
+  while ((e = readdir(d)) && n < 256) {
+    if (e->d_name[0] == '.') continue;
+    snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+    struct stat st;
+    if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+      snprintf(msg, sizeof(msg), "repin: skipping non-object %s", path); say(msg); continue;
+    }
+    union bpf_attr at; memset(&at, 0, sizeof(at));
+    at.pathname = (unsigned long)path;
+    int fd = (int)bpf_call(BPF_OBJ_GET, &at);
+    if (fd < 0) { snprintf(msg, sizeof(msg), "repin: BPF_OBJ_GET %s failed (errno %d)", path, errno); say(msg); continue; }
+    snprintf(obj[n].name, sizeof(obj[n].name), "%s", e->d_name);
+    obj[n].fd = fd; obj[n].mode = st.st_mode & 07777; obj[n].uid = st.st_uid; obj[n].gid = st.st_gid; n++;
+  }
+  closedir(d);
   const char *opt = "context=u:object_r:fs_bpf_net_shared:s0";
-  snprintf(path, sizeof(path), "%s/net_shared", root);
-  if (mkdir(path, 01777) != 0 && errno != EEXIST) {
-    snprintf(msg, sizeof(msg), "mkdir %s failed (errno %d)", path, errno); say(msg); return;
+  if (mount("bpf", dir, "bpf", MS_NOSUID | MS_NODEV | MS_NOEXEC, opt) != 0) {
+    snprintf(msg, sizeof(msg), "repin: labelled bpffs over %s failed (errno %d) - objects stay fs_bpf", dir, errno);
+    say(msg); return;
   }
-  if (mount("bpf", path, "bpf", MS_NOSUID | MS_NODEV | MS_NOEXEC, opt) != 0) {
-    snprintf(msg, sizeof(msg), "bpffs %s with %s failed (errno %d)", path, opt, errno); say(msg); return;
+  (void)chmod(dir, dst.st_mode & 07777);
+  (void)chown(dir, dst.st_uid, dst.st_gid);
+  int ok = 0;
+  for (int i = 0; i < n; i++) {
+    snprintf(path, sizeof(path), "%s/%s", dir, obj[i].name);
+    union bpf_attr at; memset(&at, 0, sizeof(at));
+    at.pathname = (unsigned long)path; at.bpf_fd = (unsigned)obj[i].fd;
+    if (bpf_call(BPF_OBJ_PIN, &at) != 0) {
+      snprintf(msg, sizeof(msg), "repin: BPF_OBJ_PIN %s failed (errno %d)", path, errno); say(msg); continue;
+    }
+    (void)chmod(path, obj[i].mode);
+    (void)chown(path, obj[i].uid, obj[i].gid);
+    close(obj[i].fd);
+    ok++;
   }
-  (void)chmod(path, 01777);
-  snprintf(msg, sizeof(msg), "bpffs %s mounted with %s; the root stays fs_bpf", path, opt); say(msg);
+  snprintf(msg, sizeof(msg), "repin: %d of %d net_shared objects pinned again under fs_bpf_net_shared (dir mode %o uid %d gid %d)",
+           ok, n, (unsigned)(dst.st_mode & 07777), (int)dst.st_uid, (int)dst.st_gid);
+  say(msg);
 }
 
 int main(int argc, char **argv) {
@@ -103,7 +150,18 @@ int main(int argc, char **argv) {
                         ? "/apex/com.android.tethering/bin/netbpfload" : "/system/bin/netbpfload";
   kfd = open(test ? "/dev/null" : "/dev/kmsg", O_WRONLY | O_CLOEXEC);
 
-  if (!test) label_bpffs("/sys/fs/bpf");
+  pid_t child = test ? 0 : fork();
+  if (child > 0) {
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+      say("netbpfload failed - not re-pinning, passing its status on");
+      return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+    }
+    repin_net_shared("/sys/fs/bpf/net_shared");
+    return 0;
+  }
+  if (child < 0) say("fork failed - running netbpfload without the re-pin");
 
   if (test) {
     /* the gate exercises the file step only; namespaces and mounts need privileges it does not have */
