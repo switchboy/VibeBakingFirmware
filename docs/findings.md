@@ -5999,3 +5999,15 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   aside. First Android 14 test of an unsigned modified system APK.
 
   Super `64ae84cff222…`.
+* **Attempt 32 - port step 2 works: `carservice` runs on Android 14.** The unsigned, modified HCTManagerService
+  was accepted by the package manager; logcat `CarService: mtc >>> CarService start`, `HCTPort: carservice
+  registered`; `service list`: `carservice: [android.microntek.ICarService]`; no system_server crash; boot
+  completed at 82 s. system_server holds `/dev/ttyV2` open, and the reader thread waits in `wait_woken`. The
+  `MicrontekServer.InitData` stack in logcat is only the "Sending non-protected broadcast
+  com.microntek.report.event from system" warning.
+* **Buttons, measured with the owner pressing:** the kernel logs `--mtc key 0111` (IR_VOLUP), `0119`
+  (IR_VOLDOWN), `0128`, `0134`, `0136`. Nothing arrives on `/dev/ttyV2` (no CarService frames) and nothing on any
+  input device, so on this kernel the keys do not travel over ttyV2. The 2024 kernel's mtc driver has
+  `rpt_key_mode` (`swkey`/`cankey`) and `ctl_key`; HCTManagerService sends `ctl_key=13/257/800` and reads
+  `sta_kmode=`. Traced next: what the driver does after `--mtc key`.
+
