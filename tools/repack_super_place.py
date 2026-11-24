@@ -331,7 +331,7 @@ def main() -> int:
                     h.update(b"\0" * chunk)
                     g.write(b"\0" * chunk)
                     left -= chunk
-                note = "zero-filled" if left == 0 and ns * SECTOR != copy else ""
+                note = "zero-filled tail" if ns * SECTOR != copy else ""
                 srcname = image if image is not None else "old bytes"
                 print(f"  wrote {name:<12} {ns * SECTOR:12d} B from {srcname}"
                       f"{', ' + note if note else ''}  sha256 {h.hexdigest()[:16]}")
@@ -359,7 +359,7 @@ def main() -> int:
         # the group capacities must hold in the written metadata too
         sums2 = {}
         for name, fe, ne, group in metas2[0].partitions_with_group():
-            sums2[group] = sums2.get(group, 0) * 0 + metas2[0].extent(fe)[0] * SECTOR
+            sums2[group] = sums2.get(group, 0) + metas2[0].extent(fe)[0] * SECTOR
         for idx, (gname, flags, gmax) in enumerate(metas2[0].groups()):
             s = sums2.get(idx, 0)
             if gmax and s > gmax:
@@ -370,15 +370,20 @@ def main() -> int:
         with open(args.src, "rb") as f:
             for name, fe, ns, old_ns, old, new, image in moves:
                 copy = os.path.getsize(image) if image is not None else old_ns * SECTOR
-                f.seek(0 if image is not None else old * SECTOR)
-                g.seek(new * SECTOR)
-                left = copy
-                ha, hb = hashlib.sha256(), hashlib.sha256()
-                while left:
-                    n = min(8 * MIB, left)
-                    ha.update(f.read(n))
-                    hb.update(g.read(n))
-                    left -= n
+                src = open(image, "rb") if image is not None else f
+                try:
+                    src.seek(0 if image is not None else old * SECTOR)
+                    g.seek(new * SECTOR)
+                    left = copy
+                    ha, hb = hashlib.sha256(), hashlib.sha256()
+                    while left:
+                        n = min(8 * MIB, left)
+                        ha.update(src.read(n))
+                        hb.update(g.read(n))
+                        left -= n
+                finally:
+                    if image is not None:
+                        src.close()
                 if ha.digest() != hb.digest():
                     print(f"ABORT: {name} content differs after the move")
                     return 1
