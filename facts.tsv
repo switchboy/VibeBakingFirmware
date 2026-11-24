@@ -549,3 +549,5 @@ BT-FEATURE-XML	sha	08305a972411f4f0068c23e77e00154826f5335a3e12fc1d6042ca130e1db
 BTLE-FEATURE-XML	sha	845f59a4e13fbdda3b48c30a3a0510db45a261af15f31d4925c939dc48d8e3e0	bytes	2026-11-24	docs/findings.md	android.hardware.bluetooth_le.xml	docs/findings.md	feature file removed in attempt 21
 LIBBT-VENDOR	sha	620f9deea1f93dfa450d0039c6e6fa2b95f8d34c4714d1343754cd90dc8ec09e	bytes	2026-11-24	docs/findings.md	libbt-vendor.so	docs/findings.md	vendor libbt-vendor.so, identical to stock, defaults to /dev/ttyS0
 A14-SUPER-ATT22	sha	57de0a9ab1a5a725698b5e361f4bc0564d9eaa8fcd62548834c10c1b340fa462	bytes	2026-11-24	docs/findings.md	Super `57de0a9ab1a5	docs/findings.md	attempt 22 super: bluetooth feature removed from tablet_core_hardware.xml
+A14-CARD-P7-STAY-IMG	sha	47c863467e1f966180243d5985cc8c92f4f7ea959e6166982e549e269f0830d6	bytes	2026-11-24	docs/findings.md	Card p7 image `47c863467e1f	docs/findings.md	attempt 24 boot image left running: no crasher
+HU-CARD-ARM-STAY-BIN	sha	84657a3ba1dfc0fdc6d49de28f065e266e41698380725e62717486f52516f626	bytes	2026-11-24	docs/findings.md	HU_NO_CRASHER	docs/findings.md	wrapper without crasher, recorder only

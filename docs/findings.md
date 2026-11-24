@@ -5770,4 +5770,16 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   is the GOC module driven by the HCT apps); `/system/bin/hu-netbpfload` (fork, private JIT knobs, re-pin of
   net_shared under a labelled bpffs) started as `hu_bpfloader`. Owner decisions still open: whether Android's own
   Bluetooth stack should come back, and repairing the NTFS data drive (`/dev/sda2`).
+* **Attempt 23 - the setup wizard is on screen; the default build's crasher is not trustworthy.** With
+  `card-p7-a14-sdnames.img` (default wrapper: crasher at 90 s, meant to stand down once `/data` is mounted) the
+  userspace log has `Displayed org.lineageos.setupwizard/.WelcomeActivity for user 0: +3s955ms`, so Android 14 got
+  as far as the LineageOS setup wizard's welcome screen. But the boot panicked at 91.25 s (`dmesg-ramoops-0` holds
+  the sysrq dump): the crasher's single 4 KiB `pread` of a mount table opened at boot did not find ` /data ` at
+  90 s, although the recorder's identical check had found it at 12 s. Not yet measured why (mount table grown past
+  4 KiB, or the bootstrap-vs-default mount namespace init switches to); the heuristic needs fixing before the
+  crasher is used again on a working boot.
+* **Left running for the owner (attempt 24): card p7 `card-p7-a14-stay.img`.** The same image with the wrapper
+  built `-DHU_NO_CRASHER` (`84657a3ba1df…`): no crasher at all; the recorder still stands down at `/data`; the card
+  BCB is still armed, so a button reset with the card in lands in the networked card recovery.
 
+  Card p7 image `47c863467e1f…`.

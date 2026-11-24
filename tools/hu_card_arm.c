@@ -672,12 +672,15 @@ int main(int argc, char **argv) {
         if (cd) { csecs = 0; for (const char *q = cd; *q >= '0' && *q <= '9'; q++) csecs = csecs * 10 + (*q - '0'); }
       }
       hu_line("hu-card-arm: recorder ticks=", secs);
-#ifndef HU_CONTROL
+#if !defined(HU_CONTROL) && !defined(HU_NO_CRASHER)
       hu_line("hu-card-arm: crasher delay=", csecs);
       start_crasher(mountsfd, sysrqfd, ok_path, csecs, test, test ? hu_getenv("HU_TEST_REBOOT_MARK") : 0);
 #else
       (void)csecs;
-      hu_put("hu-card-arm: CONTROL build - no crasher\n");
+      /* -DHU_NO_CRASHER (attempt 24): the build left running for the owner. Attempt 23 measured the default
+       * crasher firing at 90 s on a boot that had reached the setup wizard, so its /data check is not
+       * trustworthy yet; a boot meant to stay up gets no crasher at all. */
+      hu_put("hu-card-arm: no crasher in this build\n");
 #endif
       start_recorder(fd, mountsfd, cardfd, kfd, ok_path, secs);
     }
