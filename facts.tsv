@@ -548,3 +548,4 @@ A14-SUPER-ATT21	sha	40209ef4136e03c09f0e2022fd5a8c2aa4f12596667078402eef05cd8b1f
 BT-FEATURE-XML	sha	08305a972411f4f0068c23e77e00154826f5335a3e12fc1d6042ca130e1db3fd	bytes	2026-11-24	docs/findings.md	android.hardware.bluetooth.xml	docs/findings.md	feature file removed in attempt 21 (system and vendor copies identical)
 BTLE-FEATURE-XML	sha	845f59a4e13fbdda3b48c30a3a0510db45a261af15f31d4925c939dc48d8e3e0	bytes	2026-11-24	docs/findings.md	android.hardware.bluetooth_le.xml	docs/findings.md	feature file removed in attempt 21
 LIBBT-VENDOR	sha	620f9deea1f93dfa450d0039c6e6fa2b95f8d34c4714d1343754cd90dc8ec09e	bytes	2026-11-24	docs/findings.md	libbt-vendor.so	docs/findings.md	vendor libbt-vendor.so, identical to stock, defaults to /dev/ttyS0
+A14-SUPER-ATT22	sha	57de0a9ab1a5a725698b5e361f4bc0564d9eaa8fcd62548834c10c1b340fa462	bytes	2026-11-24	docs/findings.md	Super `57de0a9ab1a5	docs/findings.md	attempt 22 super: bluetooth feature removed from tablet_core_hardware.xml

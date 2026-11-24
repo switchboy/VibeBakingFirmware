@@ -5735,3 +5735,15 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   vendor manifest (19 -> 18 HALs). Restoring them from the attempt-20 images undoes it. e2fsck clean on both.
 
   Super `40209ef4136e…`.
+* **Attempt 21 - the boot ran to the 300 s crasher; RescueParty still fired, on the Bluetooth app.** With the HAL
+  and the two feature files gone, `Posting BOOT_COMPLETED user #0` again and the unattended crasher ended the boot
+  at 301.1 s (`dmesg-ramoops-0` written). But `com.android.bluetooth` (persistent, in the btservices APEX) was
+  still started and aborted every few seconds with `assertion 'bt_hci_ != nullptr' failed` in
+  `bluetooth::hal::HciHalHidl::start_hidl()`, and RescueParty went to FACTORY_RESET once more.
+  BluetoothManagerService was running (`MESSAGE_TIMEOUT_BIND`): the feature was still declared, by
+  `/vendor/etc/permissions/tablet_core_hardware.xml` line 33 (`<feature name="android.hardware.bluetooth" />`); no
+  other permissions or sysconfig file in system, vendor, product or system_ext declares it.
+* **Attempt 22 written: the feature line removed from `tablet_core_hardware.xml`** (replaced by a comment; the
+  rest of the device profile unchanged; mode, owner, `vendor_configs_file` kept; e2fsck clean).
+
+  Super `57de0a9ab1a5…`.
