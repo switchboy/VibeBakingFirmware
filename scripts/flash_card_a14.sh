@@ -139,6 +139,10 @@ if [ "$TARGET" = bcb-clear ]; then
   say "BCB 2048 B before $bcb_before"
   case "$bcb_before" in
     ceaae1a6314a19927ab431d55b46d08a6aaf73e9bcceb578244783c06bffd00e) say "  (our armed BCB)" ;;
+    # Android 14 RescueParty's FACTORY_RESET command (boot-recovery / --prompt_and_wipe_data /
+    # --reason=RescueParty / --locale=en_US), written to the card misc on attempt 16 and read in full
+    # before it was allowed here (docs/findings.md). Clearing it is the intended action.
+    5370ef09633442526209ab5c592206a9f72605bca141a27115c6d16d079e0989) say "  (Android 14 RescueParty prompt_and_wipe_data BCB)" ;;
     e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad) say "  (already clear - nothing to do)"; exit 0 ;;
     *) die "BCB $bcb_before is neither our armed blob nor all zeros - nothing written" ;;
   esac
