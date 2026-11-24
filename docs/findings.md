@@ -5783,3 +5783,19 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   BCB is still armed, so a button reset with the card in lands in the networked card recovery.
 
   Card p7 image `47c863467e1f…`.
+* **Attempt 24 (owner watching) - boot animation, a mis-fitting LineageOS welcome screen, then back to the boot
+  animation.** The owner's cold reset emptied pstore; the post-mortem came from card `/data/system/dropbox`: 20 of
+  20 `system_server_crash` entries are the same: `Unable to start receiver
+  android.microntek.service.MicrontekReceiver: android.app.BackgroundServiceStartNotAllowedException: Not allowed
+  to start service Intent { cmp=com.microntek.radio/.RadioService }: app is in background uid null`
+  (`MicrontekReceiver.java:40` -> `:67`, `startServiceAsUser`). The HCT receiver (HCTManagerService, uid 1000) runs
+  on system_server's main looper, so the exception kills system_server and the framework restarts from the boot
+  animation. Android 10 allowed the background start; Android 14 does not. The receiver also starts BlueToothService,
+  ManageService, OBD, CanBus and TXZ services. Density is 240 as in stock Android 10, so the wizard's fit is left alone
+  for now.
+* **Attempt 25 written: `/system/etc/sysconfig/hct-background-allowlist.xml`** puts the 30 HCT/Microntek app
+  packages that are not uid 1000 (from the card's `packages.list`) on the power-save allowlist with
+  `<allow-in-power-save>`. ActivityManager exempts allowlisted apps from background service start restrictions.
+  Mode 0644, root, `system_file`; e2fsck clean. Card p7 stays `card-p7-a14-stay.img` (no crasher).
+
+  Super `134f7bc2a996…`.
