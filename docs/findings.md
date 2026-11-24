@@ -6053,3 +6053,16 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `content insert --uri content://lineagesettings/secure --bind name:s:trust_warnings --bind value:s:0`
   (persists in /data; the notification went away). **Release checklist:** delete that row (or set it back to the
   default bitmask) together with SELinux enforcing.
+* **GApps prepared (local model, reviewed).** `tools/repack_super_place.py` gains `--size NAME=MIB` / `--image
+  NAME=PATH` and enforces the group `maximum_size`. The free tail of the card's super is only **808 MiB**
+  (2304 MiB .. end), so `product` can move there at up to 807 MiB (`--place product=2304 --size product=807`,
+  dry run passes every check, group total 2,800,758,784 B <= 3,258,974,208 B). D102's three "stuck" offsets
+  were corrupt reads of the *second* card; every write to this boot card this session ended with a
+  whole-partition digest match, so `--avoid` is not needed here. MindTheGapps
+  `MindTheGapps-14.0.0-arm64-20250203_200051.zip` (431,524,182 B, sha256 `6e1c3616862c…`, matches the release's
+  .sha256sum); its full set needs 613.42 MiB in `/product` + 16.22 MiB in `/system_ext`, too much.
+  **Plan:** a head-unit subset in `/product` (~336 MiB: GmsCore, Phonesky, GoogleServicesFramework, SpeechServices,
+  sync adapters, the permission/sysconfig XMLs, overlays, `gapps.rc`), without Velvet (277 MiB), TalkBack,
+  Markup, Wellbeing, GoogleRestore, AndroidAutoStub, PartnerSetup, Exchange and Google's SetupWizard (the unit is
+  already set up; LineageOS Provision stays). Maps/Waze from the Play Store.
+
