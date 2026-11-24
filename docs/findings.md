@@ -6032,3 +6032,7 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   (`android.microntek.canbus`) restored unchanged; `tools/dex_api_check.py`: nothing missing for either.
 
   Super `3ede7108ad10…`.
+* **Camera app hidden (owner request):** `pm disable-user --user 0 org.lineageos.aperture` (it crashed with
+  "Device reporting less cameras than anticipated ... Available cameras: 0"; no camera is connected). Persists in
+  /data; undo with `pm enable org.lineageos.aperture`.
+
