@@ -5799,3 +5799,43 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   Mode 0644, root, `system_file`; e2fsck clean. Card p7 stays `card-p7-a14-stay.img` (no crasher).
 
   Super `134f7bc2a996…`.
+* **Attempt 25 - the radio crash is gone; system_server now dies in HCT ManageService.** 4 of 4 new
+  `system_server_crash` entries: `java.lang.NoSuchMethodError: No virtual method clearLock([BI)Z in class
+  Lcom/android/internal/widget/LockPatternUtils;` at `android.microntek.service.ManageService.onCreate
+  (ManageService.java:225)`; the call sits in a `catch (Exception)`, which does not catch an Error.
+  The owner saw the welcome screen fall back to a shorter boot animation, three times, and the ethernet dongle
+  without lights.
+* **The HCT framework layer is missing from Android 14 (finding, roadblock for the HCT apps).**
+  `tools/dex_api_check.py` (reads the dex tables directly; baksmali 2.5.2 cannot read Android 14's
+  framework dexes) checks HCTManagerService's 903 invoke references against the Android 14 boot-classpath
+  jars in /system: missing are `LockPatternUtils.clearLock([BI)Z`, `DisplayManager.setTemporaryBrightness(I)V`,
+  `INetworkManagementService.setDataUidRule(IZ)V`, and every `android.microntek.*` class (`CarManager`,
+  `HCTApi`, `MfiManager`, ...). Stock Android 10 carries 33 `android.microntek.*` classes in `framework.jar`
+  (`classes2.dex`) and the MCU service itself, `com.android.server.microntek.CarService` (+ `MfiService`,
+  `HCT_CMD`), in `services.jar`, with its JNI in `libandroid_servers.so`. Porting that layer to Android 14
+  is a project of its own and an owner decision.
+* **Why the ethernet dongle is dark: USB power comes from the car MCU.** The dongle (AX88179, `0b95:1790`)
+  sits behind the onboard SMSC hub (`0424:2514`, `usb 1-1` on `fe3c0000.usb`). In the card recovery the
+  kernel logs `--mtc @ usb on` (an MCU message) at 0.26 s and the hub at 0.75 s; in Android 14's log the
+  MCU says `@ >boot 2` instead of `@ >boot 1`, never `usb on`, and `usb 1-1` never appears. The two kernels
+  differ (recovery: HCT 4.19.111 #2416, 2020; Android 14: 4.19.111 #190, 2024), but both carry the same
+  mtc driver and run `car_init` and `otg force host`. CarService's `native_setParameters` is
+  `open("/dev/mtc-car", O_RDWR); ioctl(fd, strlen(s), s)` (disassembled), and it sends
+  `rpt_service_ready=true` on start and `rpt_boot_complete=true` at BOOT_COMPLETED. Sent by hand in the
+  card recovery, `rpt_service_ready=true` returned 0 and the kernel logged `--mtc b sready`. The hypothesis is
+  that on a warm boot the MCU powers USB only after the host reports in; attempt 26 tests it.
+* **Attempt 26 written (four separately visible changes):**
+  (1) `tools/hu_mtc_param.c` -> `/system/bin/hu-mtc-param` with `/system/etc/init/hu-mtc.rc`:
+  `rpt_service_ready=true` at post-fs-data, `rpt_boot_complete=true` at `sys.boot_completed=1` and, as a
+  fallback, 60 s after post-fs-data; every send is logged to kmsg as `hu-mtc: sent ...`.
+  (2) adb over ethernet: `ro.adb.secure=0` in `/system/build.prop`; `/system/etc/init/hu-adb-tcp.rc` sets
+  `service.adb.tcp.port 5555` at init and starts adbd at boot_completed.
+  (3) HCTManagerService set aside (`HCTManagerService.apk` -> `HCTManagerService.apk.disabled-attempt26`):
+  without the HCT framework it can only crash system_server.
+  (4) Card p7 `card-p7-a14-deadman.img`: wrapper built `-DHU_DEADMAN -DHU_CRASH_SECS=300`. Every boot
+  crashes into the networked card recovery at 300 s **unless disarmed over adb with `pkill -x
+  hu-crasher`** (the crasher and recorder now name themselves `hu-crasher`/`hu-recorder` via PR_SET_NAME);
+  the next boot re-arms it. `scripts/watch_live_a14.sh` tells Android 14's adbd from the recovery's (same
+  address) by `ro.build.version.release` and disarms on the first answer.
+
+  Super `ed0c18014bdd…`; card p7 `0fab10a5f2b4…`; hu-mtc-param `0052e2a02174…`; dead-man wrapper `c0624f4132b1…`.

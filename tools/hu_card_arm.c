@@ -372,9 +372,13 @@ __attribute__((unused)) static void start_crasher(int mountsfd, int sysrqfd, con
   long pid = syscall(SYS_clone, (unsigned long)SIGCHLD, 0UL, 0UL, 0UL, 0UL);
   if (pid < 0) { hu_put("hu-card-arm: clone failed - no crasher\n"); return; }
   if (pid != 0) { hu_line("hu-card-arm: crasher child pid=", pid); return; }
+  /* Its own name (PR_SET_NAME = 15), so `adb shell pkill -x hu-crasher` disarms it without touching the
+   * recorder. -DHU_DEADMAN (attempt 26): every boot crashes into the networked card recovery at the
+   * deadline unless someone disarms it over adb first; the next boot re-arms it. */
+  syscall(SYS_prctl, 15L, (long)"hu-crasher", 0L, 0L, 0L);
   struct { long s; long ns; } ts = { secs, 0 };
   syscall(SYS_nanosleep, &ts, 0);
-#ifndef HU_CRASH_ALWAYS
+#if !defined(HU_CRASH_ALWAYS) && !defined(HU_DEADMAN)
   if (boot_looks_alive(mountsfd, ok_path)) {
     hu_put("hu-card-arm: crasher: the boot reached /data - standing down\n");
     syscall(SYS_exit_group, 0);
@@ -481,6 +485,7 @@ static void start_recorder(int miscfd, int mountsfd, int cardfd, int kfd, const 
   long pid = syscall(SYS_clone, (unsigned long)SIGCHLD, 0UL, 0UL, 0UL, 0UL);
   if (pid < 0) { hu_put("hu-card-arm: clone failed - no recorder\n"); return; }
   if (pid != 0) { hu_line("hu-card-arm: recorder child pid=", pid); return; }
+  syscall(SYS_prctl, 15L, (long)"hu-recorder", 0L, 0L, 0L);
 
   const long cap = HU_LOG_LEN - HU_LOG_HDR;
   long used = 0; int full = 0;

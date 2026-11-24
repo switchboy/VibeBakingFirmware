@@ -552,3 +552,7 @@ A14-SUPER-ATT22	sha	57de0a9ab1a5a725698b5e361f4bc0564d9eaa8fcd62548834c10c1b340f
 A14-CARD-P7-STAY-IMG	sha	47c863467e1f966180243d5985cc8c92f4f7ea959e6166982e549e269f0830d6	bytes	2026-11-24	docs/findings.md	Card p7 image `47c863467e1f	docs/findings.md	attempt 24 boot image left running: no crasher
 HU-CARD-ARM-STAY-BIN	sha	84657a3ba1dfc0fdc6d49de28f065e266e41698380725e62717486f52516f626	bytes	2026-11-24	docs/findings.md	HU_NO_CRASHER	docs/findings.md	wrapper without crasher, recorder only
 A14-SUPER-ATT25	sha	134f7bc2a996d51e90d5ee7f76ee0dc59e733fabe03ce8fcce0cad502ebd5baf	bytes	2026-11-24	docs/findings.md	Super `134f7bc2a996	docs/findings.md	attempt 25 super: HCT packages power-save allowlisted
+A14-SUPER-ATT26	sha	ed0c18014bdd86664514e72d9f03e52571c3cfa7be643b0f572ffccd1ec082eb	bytes	2026-11-24	docs/findings.md	Super `ed0c18014bdd	docs/findings.md	attempt 26 super
+A14-CARD-P7-DEADMAN-IMG	sha	0fab10a5f2b4e2866613a969621bd3c4f09a3912f73388439eaa86e2d87155ef	bytes	2026-11-24	docs/findings.md	card p7 `0fab10a5f2b4	docs/findings.md	dead-man boot image
+HU-MTC-PARAM-BIN	sha	0052e2a021747d7d8a3b81458f918784811e493cbe859c759c26825e369b14a6	bytes	2026-11-24	docs/findings.md	hu-mtc-param `0052e2a02174	docs/findings.md	MCU parameter sender
+HU-CARD-ARM-DEADMAN-BIN	sha	c0624f4132b16e6aeadb6113fb41f74f978a570801c414cfdb69f06d2a944584	bytes	2026-11-24	docs/findings.md	dead-man wrapper `c0624f4132b1	docs/findings.md	wrapper -DHU_DEADMAN -DHU_CRASH_SECS=300
