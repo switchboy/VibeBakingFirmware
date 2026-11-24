@@ -540,3 +540,7 @@ HU-NETBPFLOAD-CHOWN-BIN	sha	fa9a506917cebddb1990e927e45af8873fa551b56733cd74b234
 CARD-BCB-RESCUEPARTY	sha	5370ef09633442526209ab5c592206a9f72605bca141a27115c6d16d079e0989	bytes	2026-11-24	docs/findings.md	--locale=en_US	docs/findings.md	card BCB written by Android 14 RescueParty FACTORY_RESET on attempt 16
 A14-SUPER-ATT18	sha	8b274a84de8e09e469f878b64c93056548c01bc0c2b38da9f99f49b032958a87	bytes	2026-11-24	docs/findings.md	six chunks	docs/findings.md	attempt 18 super: legacy ueventd rules in /vendor/etc/ueventd.rc
 A14-SUPER-ATT19	sha	6f2059d9d1758b610e785a7fc5ce2cb086d36af7bc6b75781dcc578a72f2b80b	bytes	2026-11-24	docs/findings.md	Super `6f2059d9d175	docs/findings.md	attempt 19 super: GPU nodes 0666 + RT cgroup budgets
+A14-SUPER-ATT20	sha	98796271382532b4fb368e8e6d492c66c0fd1371c0273b44ec04ddeb8c2160b5	bytes	2026-11-24	docs/findings.md	Super `987962713825	docs/findings.md	attempt 20 super: stock bluetooth impl + librkwifi-ctrl
+BT-IMPL-A14	sha	db0f24627f4f5ba958f1d84113dc4ba6db09753e215c0b633f35137d05ba3bc2	bytes	2026-11-24	docs/findings.md	The AOSP-built impl	docs/findings.md	AOSP-built bluetooth@1.0-impl in attempts 8-19
+BT-IMPL-A10	sha	39f52397bc4e5cc57588b499d4b8be32a3022b5805b1d3fbd5c4307ab3a864cc	bytes	2026-11-24	docs/findings.md	the stock Rockchip impl	docs/findings.md	stock Rockchip bluetooth@1.0-impl reading the address from vendor storage
+RKWIFI-CTRL-A10	sha	9e04d2b5f0057e25feae2fbae697d3e6c4c236f9279d07a1ee3c336de2deb533	bytes	2026-11-24	docs/findings.md	librkwifi-ctrl.so	docs/findings.md	stock librkwifi-ctrl.so, 23,920 B

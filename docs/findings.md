@@ -5704,3 +5704,19 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `on init` (the root keeps 950000 per 1000000 us). Labels kept/set to `vendor_configs_file`; e2fsck clean.
 
   Super `6f2059d9d175…`.
+* **Attempt 19 - SystemUI and Launcher3 run; Bluetooth is the last crash loop.** `Posting BOOT_COMPLETED user #0`
+  again; the RT budgets were applied (`processing action (init) from (/vendor/etc/init/hu-rt-cgroups.rc:7)`), and
+  the newest ten tombstones are all Bluetooth: `android.hardware.bluetooth@1.0-service` aborts with `Open: No
+  Bluetooth Address!` in `VendorInterface::Open` of `/vendor/lib64/hw/android.hardware.bluetooth@1.0-impl.so`,
+  and `com.android.bluetooth` then aborts on the dead HAL (`Failed HIDL return status not checked`). RescueParty
+  again went to FACTORY_RESET (same BCB). The AOSP-built impl (`db0f24627f4f…`) only looks for the address in
+  properties (`persist.service.bdroid.bdaddr`, `ro.boot.btmacaddr`, `ro.bt.bdaddr_path`); the stock Rockchip impl
+  (`39f52397bc4e…`) also reads it from Rockchip vendor storage (`Get local bdaddr from vflash`), and
+  `/dev/vflash 0660 bluetooth net_bt_stack` is among the carried-over ueventd rules.
+* **Attempt 20 written: the stock Bluetooth impl.** `/vendor/lib64/hw/android.hardware.bluetooth@1.0-impl.so` is the
+  stock one, plus the library it needs that the image lacked, `/vendor/lib64/librkwifi-ctrl.so` (`9e04d2b5f005…`,
+  23,920 B). All 89 imports of the impl and every C++ import of librkwifi-ctrl resolve against the Android 14 vendor
+  libraries (libbase still exports the old `LogMessage(..., LogId, ...)` constructor); the rest are bionic names.
+  Both files 0644 root, `vendor_file`; e2fsck clean.
+
+  Super `987962713825…`.
