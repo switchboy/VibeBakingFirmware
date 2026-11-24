@@ -560,3 +560,4 @@ A14-CARD-P7-DEADMAN2-IMG	sha	9424c98a66dcf508276704768bbaac3894fe23f0061205d2dc1
 HU-CARD-ARM-DEADMAN2-BIN	sha	c12f53e6b4c2df2b79a9364d80454ace16260d01b363e1860ed4839f9b872950	bytes	2026-11-24	docs/findings.md	wrapper `c12f53e6b4c2	docs/findings.md	wrapper -DHU_DEADMAN 600 s
 A14-SUPER-ATT28	sha	4186828d6b368b6f161fcadfc5ac0c0a1897930aefd1c9d59d006a0379a0dec6	bytes	2026-11-24	docs/findings.md	Super `4186828d6b36	docs/findings.md	attempt 28 super: hu-diag, HCT system apps set aside
 A14-SUPER-ATT29	sha	893cac8902a52b9e3e729c535f606340f80119c66939fa96302d2edec083559b	bytes	2026-11-24	docs/findings.md	Super `893cac8902a5	docs/findings.md	attempt 29 super: bootanim MCU reports, wakelock, late diag
+A14-SUPER-ATT30	sha	b1a810b794a77932e8ddea13df870228c1ef1cdf5060315f5ba476f601d4af99	bytes	2026-11-24	docs/findings.md	Super `b1a810b794a7	docs/findings.md	attempt 30 super: wifi HIDL entries dropped, stay-on, hu.disarm

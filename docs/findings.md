@@ -5917,4 +5917,17 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   the binder service itself, with its JNI reduced to the `/dev/mtc-car` ioctl transport (already
   reimplemented in `tools/hu_mtc_param.c`); (3) the set-aside HCT apps (attempts 26/28) restored afterwards.
   Android 14's own `services.jar` stays untouched.
+* **WiFi under Android 14 (attempt 29, analysis by the local model, verified):** `wlan0`/`p2p0` exist (8188eu/8188fu loaded);
+  the WiFi module checks HIDL before AIDL, finds `android.hardware.wifi@1.3::IWifi/default` declared in
+  `/vendor/etc/vintf/manifest.xml` and waits forever for `@1.0::IWifi/default` ("Could not find
+  'android.hardware.wifi@1.0::IWifi/default' for ctl.interface_start", `dumpsys wifi`: "Wifi Service is not
+  started"), while the AIDL HAL `vendor.wifi_hal_legacy` (`android.hardware.wifi-service`, IWifi V2) is
+  declared by its fragment and running. The vendor manifest also still declared HIDL hostapd@1.1 and
+  supplicant@1.2 next to the AIDL fragments.
+* **Attempt 30 written:** the three HIDL WiFi entries removed from the vendor manifest (18 -> 15 HALs; the AIDL
+  fragments `android.hardware.wifi-service.xml`, `...hostapd.xml`, `...supplicant.xml` stay);
+  `/system/bin/hu-stayon.sh` + `/system/etc/init/hu-stayon.rc`: at boot completion a root service retries
+  `settings put global stay_on_while_plugged_in 7`, `screen_off_timeout 2147483647`, `svc power stayon true`
+  and logs `hu-stayon:` to kmsg; `on property:hu.disarm=1` runs `pkill -x hu-crasher` (no-root disarm).
 
+  Super `b1a810b794a7…`.
