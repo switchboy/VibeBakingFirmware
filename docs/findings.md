@@ -6045,4 +6045,6 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   name:s:force_show_navbar --bind value:s:1` (persists in /data). Now `mNavigationBarPosition=4` (bottom).
   Android 14 places the bar only at the bottom, left or right; buttons in the top status bar would need a
   SystemUI patch or a port of HCT's own button bar (`com.hct.screenbutton`, `HCTApi.NaviBarHeight`).
+* **Status bar battery icon hidden (owner request):** `settings put secure icon_blacklist battery` (persists in
+  /data). Planned once the CAN bus works: show the car battery voltage in the status bar instead.
 
