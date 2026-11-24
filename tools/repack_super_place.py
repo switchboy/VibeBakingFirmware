@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import struct
 import sys
 
@@ -243,13 +244,10 @@ def main() -> int:
 
         # --- group capacity -------------------------------------------------------------------
         # Sum of each group's partition sizes must stay <= the group's maximum_size (0 = unbounded).
+        group_of = {name: group for name, _, _, group in parts}
         sums = {}
-        for name, fe, ne_unused, group_unused, _g in [
-            (n, fe, nn, g, None) for n, fe, nn, _o, _new, _g, _img
-            in [(name, fe, ns, grp, img) for name, fe, ns, old_ns, old, new, img in moves
-                for grp, img in [(dict((p[0], p[3]) for p in parts)[name], None)]]
-        ]:
-            sums[group] = sums.get(group, 0) + new_sizes[name]
+        for name, *_ in moves:
+            sums[group_of[name]] = sums.get(group_of[name], 0) + new_sizes[name] * SECTOR
         for idx, (gname, flags, gmax) in enumerate(groups):
             s = sums.get(idx, 0)
             if gmax and s > gmax:

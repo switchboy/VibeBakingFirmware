@@ -17,6 +17,18 @@ The ROM is meant to be fully open and reproducible, not closed or paywalled:
   scripted patches (smali diffs / build scripts, not patched APKs), and the build + install recipe (`README.md`).
 - Request the kernel's GPL source from the vendor (it would also unlock the kernel work).
 
+## One-step installer (planned, once the recipe is complete)
+A single Python script driving the unit over adb (USB or WiFi):
+1. **Probe** (read-only): SoC/board, kernel version + `--mtc` driver lines + MCU firmware (`MTCE_*`), partition map,
+   kernel config, input devices, WiFi/BT chips, HCT app versions - the measurements in `docs/head-unit-findings.md`.
+2. **Compatibility check** against a table of known-good units (SoC, MCU firmware, mtc driver, vendor fingerprint).
+3. **Backup first**: byte-exact stock backup with a verified digest manifest, before any write is possible.
+4. **Cook**: extract the proprietary files from that unit, apply the patches, build super + boot.
+5. **Flash**: to an SD card by default (reversible); the eMMC only as an explicit second step, with a verified backup.
+6. **Unsupported hardware**: generate a hardware report to paste as a pull request / issue, or to give the user's own
+   LLM together with the recipe and where their unit differs. Personal data (serial numbers, MAC addresses,
+   accounts, network names) is stripped from the report.
+
 ## Gate: feature complete on the card
 - [ ] HCT framework port: hardware keys, radio, CAN bus, HCT Bluetooth (calls, phonebook), front/rear camera
       (incl. reverse-gear trigger), AV-in/DVD video (`libcvbs_jni.so`), MFI/CarPlay bridge if wanted
