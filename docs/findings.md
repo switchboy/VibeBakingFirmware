@@ -5852,3 +5852,22 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   USB enumeration and the network bring-up are visible after the crash. Super unchanged (attempt 26).
 
   Card p7 `9424c98a66dc…`; wrapper `c12f53e6b4c2…`.
+* **Attempt 27 - the full-boot recorder works (2.16 MB, 505 s); the MCU reports do not power USB.**
+  `hu-mtc: sent 'rpt_service_ready=true' ret=0` (`--mtc b sready`) at 22.3 s and `rpt_boot_complete=true`
+  (`--mtc b boot comp`) at 82.3 s; BOOT_COMPLETED at 87 s. No `@ usb on`, no `usb 1-1`, no eth0, and the owner
+  saw no dongle lights. HCT's own `up_eth0` fails (`Cannot find '/system/bin/busybox'`). system_server died at
+  94.5 s and 18 more times (19 `system_server_crash`, all `NoClassDefFoundError: Failed resolution of:
+  Landroid/microntek/CarManager;` at `android.microntek.mtcser.BlueToothService.onCreate`), then an orderly
+  reboot at 504 s, before the 600 s deadline.
+* **The trigger for USB power is in the kernel, not in warm vs cold boot.** The card recovery that came up
+  after this warm reboot (`@ >boot 5`) logged `--mtc @ usb on` at 0.23 s again. Both device trees' `mtc-init`
+  nodes (board 0x/1x/2x/3x tables, `otg_drv`, `sdio_en`, `mac_pwr`) are identical in structure, so the
+  difference is in the 2024 kernel's mtc code or in another node; the recovery's live GPIOs have `otg_drv`
+  (gpio-155) and `sdio_en` (gpio-91) high.
+* **Attempt 28 written:** (1) `/system/bin/hu-diag.sh` + `/system/etc/init/hu-diag.rc` dump
+  `/sys/kernel/debug/gpio`, the regulator summary, the USB device list and `/sys/class/net` into kmsg
+  (`hu-diag[pfd]:`, `hu-diag[boot]:`) for the recorder; (2) the five remaining uid-1000 HCT apps that run in
+  system_server set aside (`.apk.disabled-attempt28`): HCTCanBus, HCTBlueToothManager, HCTFactorySettings,
+  HCTExtAppDocker, HCTExtScreenClock.
+
+  Super `4186828d6b36…`.

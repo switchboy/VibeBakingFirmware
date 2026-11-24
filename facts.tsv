@@ -558,3 +558,4 @@ HU-MTC-PARAM-BIN	sha	0052e2a021747d7d8a3b81458f918784811e493cbe859c759c26825e369
 HU-CARD-ARM-DEADMAN-BIN	sha	c0624f4132b16e6aeadb6113fb41f74f978a570801c414cfdb69f06d2a944584	bytes	2026-11-24	docs/findings.md	dead-man wrapper `c0624f4132b1	docs/findings.md	wrapper -DHU_DEADMAN -DHU_CRASH_SECS=300
 A14-CARD-P7-DEADMAN2-IMG	sha	9424c98a66dcf508276704768bbaac3894fe23f0061205d2dc11c4663e48c6ab	bytes	2026-11-24	docs/findings.md	Card p7 `9424c98a66dc	docs/findings.md	dead-man 600 s, full-boot recorder
 HU-CARD-ARM-DEADMAN2-BIN	sha	c12f53e6b4c2df2b79a9364d80454ace16260d01b363e1860ed4839f9b872950	bytes	2026-11-24	docs/findings.md	wrapper `c12f53e6b4c2	docs/findings.md	wrapper -DHU_DEADMAN 600 s
+A14-SUPER-ATT28	sha	4186828d6b368b6f161fcadfc5ac0c0a1897930aefd1c9d59d006a0379a0dec6	bytes	2026-11-24	docs/findings.md	Super `4186828d6b36	docs/findings.md	attempt 28 super: hu-diag, HCT system apps set aside
