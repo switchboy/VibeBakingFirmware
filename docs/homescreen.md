@@ -52,3 +52,20 @@ Expected and accepted: banking apps will complain about the unlocked, uncertifie
 | Reverse gear -> volume | unchanged / lower to N % / mute | **lower** (owner lowers volume while reversing/parking) | reverse event from CarService (`CAR_A_RPT_BACKVIEW_START` / backview start); the MCU driver also has a native `ctl_backview_vol` command, so the attenuation can be left to the MCU, with the launcher only setting the level |
 
 The launcher itself follows the system light/dark theme, so one setting drives both.
+
+## Day and night theming
+The home screen has a **day** and a **night** theme and switches with the system night mode (by default the
+day/night cycle, see Car settings), animated rather than abrupt.
+
+| Element | Day | Night |
+|---|---|---|
+| Background / cards | light, high-contrast for sunlight | dark, low-luminance surfaces, no pure white anywhere (no glare while driving) |
+| Map card | Maps/Waze in light mode | Maps/Waze in their own night style; both follow the system night mode, so no extra work |
+| Media card | album art with a light tinted backdrop | album art dimmed, backdrop tinted from the art's dark palette |
+| Rain radar | light basemap, saturated rain colours | dark basemap, muted rain colours so the radar does not glow |
+| Clock | dark digits | dimmed light digits |
+| Accent colour | from the album art / wallpaper (Material You palette) | same hue, lower brightness |
+
+Implementation: Android resources with `-night` qualifiers (`values-night`, `drawable-night`), so the switch is
+the standard `UiModeManager` configuration change; Material 3 dynamic colour for the accents. Night mode can
+also dim the panel backlight if the owner later enables "car lights -> backlight".
