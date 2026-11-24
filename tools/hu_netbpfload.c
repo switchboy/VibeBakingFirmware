@@ -28,10 +28,9 @@
  * libservice-connectivity's ClatCoordinator check `context of '/sys/fs/bpf/net_shared/...' is
  * 'u:object_r:fs_bpf:s0' != 'u:object_r:fs_bpf_net_shared:s0'`. Android 14 labels bpffs subdirectories by
  * path (`genfscon bpf "/net_shared" ...`), which this vendor 4.19 kernel does not do, so every object gets
- * the root's fs_bpf. So before anything else, in the SHARED mount namespace, the wrapper mounts a separate
- * bpffs instance on each labelled subdirectory with SELinux's `context=` option, which gives every file in
- * that mount the policy's label. The list is the platform policy's genfscon bpf entries. Pinning works into
- * any bpffs instance, and every process sees these mounts. A mount that fails is logged and skipped.
+ * the root's fs_bpf. So before anything else, in the SHARED mount namespace, the wrapper mounts one fresh
+ * bpffs over /sys/fs/bpf with SELinux's `context=` option (see label_bpffs for why one, not one per
+ * subdirectory). A mount that fails is logged and the loader runs on the original bpffs.
  *
  * HU_NB_DIR (test only) replaces /proc/sys/net/core, and HU_NB_REAL replaces the exec target, so the
  * offline gate can run it without touching the workstation's /proc.
@@ -70,27 +69,20 @@ static int put(const char *dir, const char *name, const char *val) {
   return ok ? 0 : -1;
 }
 
-static const char *const bpf_labels[][2] = {
-  {"loader", "fs_bpf_loader"},           {"net_private", "fs_bpf_net_private"},
-  {"net_shared", "fs_bpf_net_shared"},   {"netd_readonly", "fs_bpf_netd_readonly"},
-  {"netd_shared", "fs_bpf_netd_shared"}, {"tethering", "fs_bpf_tethering"},
-  {"uprobestats", "fs_bpf_uprobestats"}, {"vendor", "fs_bpf_vendor"},
-};
-
+/* One bpffs over /sys/fs/bpf, labelled fs_bpf_net_shared (attempt 14). Attempt 13 mounted one instance per
+ * policy subdirectory and NetBpfLoader failed: it pins an object in one directory and renames it into another
+ * (`rename /sys/fs/bpf/netd_readonly/tmp_map_netd_configuration_map /sys/fs/bpf/netd_shared/... -> -1
+ * [18:Cross-device link]`), which only works inside a single filesystem. So: a single fresh bpffs, in the shared
+ * namespace, before anything is pinned, with `context=` set to the label ClatCoordinator checks
+ * (fs_bpf_net_shared) - the only label any component was seen to check (attempt 12). */
 static void label_bpffs(const char *root) {
-  for (size_t i = 0; i < sizeof(bpf_labels) / sizeof(bpf_labels[0]); i++) {
-    char path[160], opt[96], msg[200];
-    snprintf(path, sizeof(path), "%s/%s", root, bpf_labels[i][0]);
-    snprintf(opt, sizeof(opt), "context=u:object_r:%s:s0", bpf_labels[i][1]);
-    if (mkdir(path, 01777) != 0 && errno != EEXIST) {
-      snprintf(msg, sizeof(msg), "mkdir %s failed (errno %d)", path, errno); say(msg); continue;
-    }
-    if (mount("bpf", path, "bpf", MS_NOSUID | MS_NODEV | MS_NOEXEC, opt) != 0) {
-      snprintf(msg, sizeof(msg), "bpffs %s with %s failed (errno %d)", path, opt, errno); say(msg); continue;
-    }
-    (void)chmod(path, 01777);
-    snprintf(msg, sizeof(msg), "bpffs %s mounted with %s", path, opt); say(msg);
+  char msg[200];
+  const char *opt = "context=u:object_r:fs_bpf_net_shared:s0";
+  if (mount("bpf", root, "bpf", MS_NOSUID | MS_NODEV | MS_NOEXEC, opt) != 0) {
+    snprintf(msg, sizeof(msg), "bpffs over %s with %s failed (errno %d)", root, opt, errno); say(msg); return;
   }
+  (void)chmod(root, 01777);
+  snprintf(msg, sizeof(msg), "bpffs over %s mounted with %s", root, opt); say(msg);
 }
 
 int main(int argc, char **argv) {

@@ -528,3 +528,6 @@ COMPOSER-SVC-A10	sha	11870e3b9af647c4461185878da082552ebfb0502b3824684dcd35b0625
 A14-SUPER-ATT12	sha	f15cf47dbc8141152ed29b42a2c5c32e984e1f5d9465c4e1ab6ff173202c6444	bytes	2026-11-24	docs/findings.md	Super	docs/findings.md	attempt 12 super: vendor build.prop with service.sf.prime_shader_cache=0
 A14-SUPER-ATT13	sha	ff51ee63d69e8523e50997bfc9db70753d9ed9fd68a7f872f8cb4b3c1894764b	bytes	2026-11-24	docs/findings.md	three chunks	docs/findings.md	attempt 13 super: hu-netbpfload with labelled bpffs mounts
 HU-NETBPFLOAD-LABELS-BIN	sha	08ea8311e6609d8795b373ec4119f2bc9c71ef908f87ffbfa9a8fdaca8e6e0cf	bytes	2026-11-24	docs/findings.md	28,048 B	docs/findings.md	netbpfload wrapper with labelled bpffs mounts, 28,048 B
+A14-SUPER-ATT14	sha	31e6367274270108f2ebe5d43ea8651f5aa61a705ee09b0b5eb0c1fdb6032b38	bytes	2026-11-24	docs/findings.md	three chunks.	docs/findings.md	attempt 14 super: hu-netbpfload with one labelled bpffs over /sys/fs/bpf
+HU-NETBPFLOAD-ONEBPFFS-BIN	sha	1188381ad8adfb259f0522943b31b9cc40c93f45bd679910a750c80d435dad12	bytes	2026-11-24	docs/findings.md	27,488 B	docs/findings.md	netbpfload wrapper, single bpffs labelled fs_bpf_net_shared
+CARD-METADATA-EXT4	sha	4caa7500c6cc27b3380c5432de85c9f660720c1980f2b10c9c7bd1dc7d9c0508	bytes	2026-11-24	docs/findings.md	16 MiB ext4	docs/findings.md	empty ext4 for card p12 sd_metadata, 4.19-compatible features

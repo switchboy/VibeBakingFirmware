@@ -5603,4 +5603,19 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   eight policy paths (`loader`, `net_private`, `net_shared`, `netd_readonly`, `netd_shared`, `tethering`,
   `uprobestats`, `vendor`) with `context=u:object_r:<label>:s0`, so every object pinned there carries the
   policy's label; then the private JIT knobs and the exec as before. Super `ff51ee63d69e…`, three chunks.
+* **Attempt 13 - per-directory bpffs mounts break the loader; and `/metadata` never mounted.** All eight
+  labelled mounts succeeded (`hu-netbpfload: bpffs /sys/fs/bpf/net_shared mounted with
+  context=u:object_r:fs_bpf_net_shared:s0`, ...), but NetBpfLoader pins into one directory and renames into
+  another: `rename /sys/fs/bpf/netd_readonly/tmp_map_netd_configuration_map
+  /sys/fs/bpf/netd_shared/map_netd_configuration_map -> -1 [18:Cross-device link]`, then `CRITICAL FAILURE
+  LOADING BPF PROGRAMS FROM .../netd_shared/`, and init rebooted with `bpfloader-failed` at 62 s. Separately,
+  first stage logged `Invalid ext4 superblock on '/dev/block/by-name/sd_metadata'` at 1.33 s: card p12 is a
+  clone of an eMMC partition that was never ext4, so `/metadata` was never mounted and every `mkdir
+  /metadata/...` in init.rc failed (`Read-only file system`).
+* **Attempt 14 written.** (1) `hu-netbpfload` (`1188381ad8ad…`, 27,488 B) mounts ONE fresh bpffs over
+  `/sys/fs/bpf` with `context=u:object_r:fs_bpf_net_shared:s0` before anything is pinned, so renames stay inside
+  one filesystem and every object carries the label ClatCoordinator checks; super `31e636727427…`, three chunks.
+  (2) Card p12 holds a fresh 16 MiB ext4 (`4caa7500c6cc…`, label `metadata`, made with `-O
+  ^orphan_file,^metadata_csum_seed,^64bit` because the workstation's mke2fs 1.47 would otherwise enable
+  `orphan_file`, which kernel 4.19 cannot mount read-write), written whole and read back equal.
 
