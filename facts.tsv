@@ -566,3 +566,4 @@ HCT-FRAMEWORK-JAR	sha	4ddb63b30b70f4a9b43ab408ab9c3464381a95f676ced61d6c9488472f
 LIBHCTCAR-SO	sha	215a5dbd6f30fb32f6fcd87f0ec560b174e1f04307e7677249541682bb26d062	bytes	2026-11-24	docs/findings.md	215a5dbd6f30	docs/findings.md	CarService JNI for Android 14
 A14-SUPER-ATT32	sha	64ae84cff222dea505200e8441bb1198306c6ad676078d57d29b9397e147d6f9	bytes	2026-11-24	docs/findings.md	Super `64ae84cff222	docs/findings.md	attempt 32: CarService in HCTManagerService
 HCTMGR-APK-ATT32	sha	08f7eea6da03ebe7a139c19935afc52e8fe2bc1d87c9518251cce41b417970a5	bytes	2026-11-24	docs/findings.md	08f7eea6da03	docs/findings.md	patched HCTManagerService.apk
+A14-SUPER-ATT33	sha	3ede7108ad1027a4582f1bd82d393301392d2ebeaadf15812b426b8e3689f602	bytes	2026-11-24	docs/findings.md	Super `3ede7108ad10	docs/findings.md	attempt 33: mtcser + canbus restored

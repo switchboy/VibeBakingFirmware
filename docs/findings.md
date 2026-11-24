@@ -6014,4 +6014,21 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   nothing. Most HCT apps crash on opening or do nothing; the Bluetooth app shows no name or PIN, settings
   do not stick, and no devices are found (its service `android.microntek.mtcser` is still set aside).
   Logs saved for analysis (`a14-attempt32/hctapps/`: 58,714 logcat lines, 7 `system_app_crash`).
+* **HCT apps under attempt 32** (local model's digest: `docs/a14-attempt32-hct-apps-digest.md`): no `NoSuchMethodError`,
+  `NoClassDefFoundError` or hidden-API failures, so the boot-classpath port holds. The failures are:
+  `libcvbs_jni.so` missing (AV-in, DVD: `com.microntek.gl.GLFrameSurface`); CAN-bus clients get a null
+  `CanBase` (HCTCanBus set aside); `WRITE_SETTINGS` / "You cannot keep your settings in the secure settings"
+  (ControlInfo, Radio); Travel crash-loops 306 times on missing location permission; `com.android.settings.GPS_APPCHOOSE`
+  unresolved; the Bluetooth app logs nothing (no backend: Android's BT stack is off, `mtcser` set aside).
+  `MicrontekServer` sends `com.microntek.time.fresh` about once a second as a non-protected system broadcast (log noise).
+* **Live grants (persist in /data):** runtime permissions (location, storage, audio, phone, camera, contacts, BT,
+  notifications) for the 30 HCT/Microntek packages via `pm grant`; appops `WRITE_SETTINGS` (op 23) and
+  `SYSTEM_ALERT_WINDOW` (op 24) via `cmd appops set <pkg> 23 0`, which sticks only for apps that declare the
+  permission (Radio yes, ControlInfo no). Travel: `ACCESS_FINE_LOCATION: granted=true`.
+* **`libcvbs_jni.so` (Android 10, 37 KB)** links `libgui`, `libui`, `libhwui`, `libmedia`, `libandroidfw`, `libbinder`:
+  private platform libraries with changed ABIs and not loadable by apps on Android 14. AV-in/DVD video needs a real
+  port, deferred.
+* **Attempt 33 prepared (not yet written):** HCTBlueToothManager (`android.microntek.mtcser`) and HCTCanBus
+  (`android.microntek.canbus`) restored unchanged; `tools/dex_api_check.py`: nothing missing for either.
 
+  Super `3ede7108ad10…`.
