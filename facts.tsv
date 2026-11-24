@@ -564,3 +564,5 @@ A14-SUPER-ATT30	sha	b1a810b794a77932e8ddea13df870228c1ef1cdf5060315f5ba476f601d4
 A14-SUPER-ATT31	sha	bc4f6adb6ce578e7e0fb8318e783a45553047a3070b517fd4827d65de1bd99d8	bytes	2026-11-24	docs/findings.md	Super `bc4f6adb6ce5	docs/findings.md	attempt 31: hct-framework.jar on BOOTCLASSPATH
 HCT-FRAMEWORK-JAR	sha	4ddb63b30b70f4a9b43ab408ab9c3464381a95f676ced61d6c9488472f568be	bytes	2026-11-24	docs/findings.md	4ddb63b30b70	docs/findings.md	android.microntek.* for Android 14
 LIBHCTCAR-SO	sha	215a5dbd6f30fb32f6fcd87f0ec560b174e1f04307e7677249541682bb26d062	bytes	2026-11-24	docs/findings.md	215a5dbd6f30	docs/findings.md	CarService JNI for Android 14
+A14-SUPER-ATT32	sha	64ae84cff222dea505200e8441bb1198306c6ad676078d57d29b9397e147d6f9	bytes	2026-11-24	docs/findings.md	Super `64ae84cff222	docs/findings.md	attempt 32: CarService in HCTManagerService
+HCTMGR-APK-ATT32	sha	08f7eea6da03ebe7a139c19935afc52e8fe2bc1d87c9518251cce41b417970a5	bytes	2026-11-24	docs/findings.md	08f7eea6da03	docs/findings.md	patched HCTManagerService.apk

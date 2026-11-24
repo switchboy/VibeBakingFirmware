@@ -5984,4 +5984,18 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `native_setParameters`/`native_getParameters` on `com/android/server/microntek/CarService` with the
   Android 10 ioctl semantics. The local model is moving CarService into HCTManagerService (ManageService runs in
   system_server as uid system), with the `clearLock` call removed and `carservice` registered from `onCreate`.
+* **Attempt 32 written - port step 2: CarService hosted in HCTManagerService.** The local model's build (notes in
+  `hct/hctmanager-step2-NOTES.md`): the 16 non-Mfi `com.android.server.microntek` classes from Android 10's
+  `services.jar` merged into HCTManagerService's dex; CarService opens `/dev/ttyV2` with a
+  `FileInputStream` (the serial service lists no ports) and its reader thread reads into a 4 KiB `byte[]`
+  before the unchanged `DataProc`; `ManageService.onCreate` loads `/system/lib64/libhctcar.so` and
+  `ServiceManager.addService("carservice", new CarService(this))` (in a `catch (Throwable)`, logged under the tag
+  `HCTPort`), and its `clearLock` call is removed. Review fixes before use: the registration guard was
+  inverted (`if-eqz` skipped registration exactly when `carservice` was absent; now `if-nez`), and the two
+  remaining removed-API calls in `MicrontekServiceBase` (`INetworkManagementService.setDataUidRule(IZ)V`,
+  `DisplayManager.setTemporaryBrightness(I)V`, each a `NoSuchMethodError` that `catch (Exception)` misses)
+  are now `nop`. `tools/dex_api_check.py`: nothing missing. Only `classes.dex` in the APK changed (STORED,
+  other 27 entries byte-identical, not re-signed); APK `08f7eea6da03…`. The other HCT system apps stay
+  aside. First Android 14 test of an unsigned modified system APK.
 
+  Super `64ae84cff222…`.
