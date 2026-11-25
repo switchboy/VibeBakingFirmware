@@ -6097,4 +6097,12 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   value:code})` -> `MicrontekServer.DoPressKeyTask`: `0x111`/`0x119` -> `MTCAdjVolume` (`setParameters("av_volume=…")`),
   `0x102` -> mute (`av_mute`), `0x128` -> DVD app, `0x131` -> GPS app, `0x136` -> HOME via `injectInputEvent` (double
   press: dual screen). The earlier "nothing happens" test ran right after the live raw switch.
+* **Attempt 33 re-scoped before writing.** Android 14's serial service throws `IllegalArgumentException` (over binder)
+  for a port that is not in `config_serialPorts`; HCTCanBus (`/dev/ttyV0`) and TPMS (`/dev/ttyV1`) catch only
+  `IOException` around `openSerialPort`, and HCTBlueToothManager opens `/dev/goc_serial` and `/dev/ttyS4` the same way
+  (and writes to the GOC module). Restoring them now would crash-loop. **The serial-port overlay is a prerequisite**, with
+  `config_serialPorts` = `/dev/ttyV0`, `/dev/ttyV1`, `/dev/ttyV2`, `/dev/goc_serial`, `/dev/ttyS4`.
+  Attempt 33 is therefore only the `/dev/ttyV2` raw-mode rc on top of attempt 32 (HCTBlueToothManager and HCTCanBus stay
+  aside); the overlay plus both apps become attempt 34.
 
+  Super `682f112aa679…`.

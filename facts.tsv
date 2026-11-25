@@ -569,3 +569,4 @@ HCTMGR-APK-ATT32	sha	08f7eea6da03ebe7a139c19935afc52e8fe2bc1d87c9518251cce41b417
 A14-SUPER-ATT33	sha	3ede7108ad1027a4582f1bd82d393301392d2ebeaadf15812b426b8e3689f602	bytes	2026-11-24	docs/findings.md	Super `3ede7108ad10	docs/findings.md	attempt 33: mtcser + canbus restored
 MINDTHEGAPPS-14-ZIP	sha	6e1c3616862ce5b33e2b96074f86ae846eb1351a26a980e1ed140f8a7e7a4fd6	bytes	2026-11-25	docs/findings.md	6e1c3616862c	docs/findings.md	MindTheGapps 14.0.0 arm64 20250203_200051
 A14-SUPER-ATT33B	sha	f07d31ab18044d1a5f6ed035397b77064b5f647f473aa7c295fbb4cb913a14f7	bytes	2026-11-25	docs/findings.md	Super `f07d31ab1804	docs/findings.md	attempt 33 rebuilt: + ttyV2 raw mode
+A14-SUPER-ATT33C	sha	682f112aa679dcc7f813e815a7d291e4af8b3b3c47fb3e10999be54ee28af034	bytes	2026-11-25	docs/findings.md	Super `682f112aa679	docs/findings.md	attempt 33 reduced: ttyV2 raw only
