@@ -6236,4 +6236,14 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   opening its dex (`DexFile.openDexFileNative`), one Launcher3 crash on `USER_UNLOCKED` ("Existing input consumer found with
   name: recents_animation_input_consumer").
 * **Google Maps works (owner test, attempt 38):** Play Store sign-in and installing Maps worked; Maps runs on the unit.
+* **Radio crash cause:** `RadioService.getFistBootPreference` (line 999) writes the custom key `microntek.firstboot` with
+  `Settings.System.putInt`. Android 14's SettingsProvider lets only system or privileged apps write non-public System settings and
+  throws `IllegalArgumentException: You cannot keep your settings in the secure settings.` otherwise; HCT4Radio (targetSdk 26)
+  lives in `/system/app`, so it is not privileged. `ro.control_privapp_permissions=enforce`, but Radio requests no permission
+  with the `privileged` flag (MODIFY_AUDIO_SETTINGS normal; POST_NOTIFICATIONS; SYSTEM_ALERT_WINDOW and WRITE_SETTINGS
+  signature|appop|...), so it can move without an allowlist entry. (ControlInfo requests SET_TIME_ZONE, `signature|privileged`, and
+  needs an allowlist entry before it can move; its crash is an undeclared WRITE_SETTINGS, a separate issue.)
+* **Attempt 39 written:** `/system/app/HCT4Radio` -> `/system/priv-app/HCT4Radio` (same inode, APK byte-identical,
+  `system_file`), nothing else changed.
 
+  Super `0e5dc1c8be73…`.
