@@ -147,9 +147,17 @@ if [ -n "$ONLY_CHUNKS" ]; then
   echo "predecessor and ONLY_CHUNKS lists every chunk that differs, the digests below must be EQUAL;"
   echo "a difference means the partition was not in the expected state or a chunk list was incomplete"
 fi
-sh_ "echo 3 > /proc/sys/vm/drop_caches; /system/bin/sha256sum $NODE"
-echo "image digest: $(sha256sum "$IMG" | cut -d' ' -f1)"
+part_digest=$(sh_ "echo 3 > /proc/sys/vm/drop_caches; /system/bin/sha256sum $NODE" | cut -d' ' -f1)
+img_digest=$(sha256sum "$IMG" | cut -d' ' -f1)
+echo "$part_digest  $NODE"
+echo "image digest: $img_digest"
 echo "== eMMC heads after =="; emmc_heads
+if [ "$part_digest" != "$img_digest" ]; then
+  # Nov 25: a chunk list computed against an image that had never been written left the partition 3 chunks short;
+  # the two digests were printed but the run still looked successful. A mismatch is now a failure.
+  echo "DIGEST MISMATCH: $NODE does not equal the image (chunk list built against the wrong predecessor?)"
+  exit 3
+fi
 if [ -n "$bad" ]; then
   echo "chunks that did not verify:$bad"
   echo "(a 'medium' chunk means frozen cells - narrow it per MiB and feed the byte offsets to"

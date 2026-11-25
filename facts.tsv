@@ -578,3 +578,5 @@ LIBHUGOC-SO	sha	11a451000bd042ac3ef7188d19f2e455dcaf9fa0d8aacb4c8601051ee2825364
 GOCSDKRF210-A10-BIN	sha	f63cfeb5a726abaa85c77db06aad3401b587c94b472b500d0d3917a078143984	bytes	2026-11-25	docs/findings.md	f63cfeb5a726	docs/findings.md	original HCT GOC BT daemon (Android 10, 32-bit)
 A14-SUPER-ATT37	sha	1946056739b2bcef4b43008c84329e9960a6ef57c692be2e3f0818c341a4a380	bytes	2026-11-25	docs/findings.md	Super `1946056739b2	docs/findings.md	attempt 37: av_active=1 at boot
 HU-MTC-PARAM2-BIN	sha	c9a8cb464d3bbe6383748ab57996cf678c8314fdc6cccf5c441afbf0d1b7f573	bytes	2026-11-25	docs/findings.md	c9a8cb464d3b	docs/findings.md	hu-mtc-param with --dev
+A14-SUPER-ATT38	sha	cc335aa575f12a42e99a41e88f97b625bbfce07f0c1161ce54e3f3d6f1de0068	bytes	2026-11-25	docs/findings.md	Super `cc335aa575f1	docs/findings.md	attempt 38: GApps + av_active
+A14-SUPER-ATT38-PARTIAL	sha	294ad14285eb686b048d767a147a3f305656588199d5d56562415b2fb9e33a3b	bytes	2026-11-25	docs/findings.md	294ad14285eb	docs/findings.md	card after the incomplete first write pass

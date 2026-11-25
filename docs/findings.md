@@ -6211,4 +6211,20 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   and boot `b449aee98c01…` rollback images) in `/home/Daan/vbf-work/a14-work/rollback-captures/` (`<sha12>-<name>`,
   `MANIFEST.sha256`, all verify); duplicates and unreferenced scratch were deleted. `/tmp/opencode/fw` (dex set for
   `tools/dex_api_check.py`) and the build-host access wrapper stay.
+* **Attempt 38 written: GApps + attempt 37 together** (the launcher moved to the next run, see below). New super layout via
+  `tools/repack_super_place.py --place product=2304 --size product=807 --image product=product-g.img`: `product` moved into the
+  super's free tail and grown to 807 MiB (system/vendor/system_ext/odm untouched, metadata verifies). Product holds the
+  head-unit subset of MindTheGapps (25 files, 279 MiB, all read back byte-identical, `system_file`, e2fsck clean; Google
+  Services Framework and its allowlist moved from `system_ext`, which is full, to `/product/priv-app` and
+  `/product/etc/permissions`); system holds attempt 37 (`av_active=1` at boot). Write: 291 chunks of 4 MiB in 12 min. **First
+  pass left the card at `294ad14285eb…` instead of the image's `cc335aa575f1…`:** the chunk list had been computed against
+  attempt 37's image, which was never written (the card held attempt 36), so chunks 224/226/241 were missing. Rewritten, the
+  card equals the image. `scripts/write_card_chunked.sh` printed both digests but did not fail; it now exits 3 on a
+  digest mismatch.
+* **VibeLauncher build:** soong's analysis (`m VibeLauncher` regenerates the whole 3.4 GB graph) was OOM-killed at 21 GB RSS
+  after 65 min with the NAS services running (`Out of memory: Killed process ... (soong_build)`); the first attempt had also
+  needed `platform_apis: true`. Built by hand instead (aapt2 + javac against the turbine jars of the boot classpath):
+  35 app-code errors, listed with root causes in `homescreen/BUILD-ERRORS-A14.md` for the local model, which is editing the same
+  code (Bluetooth valet).
 
+  Super `cc335aa575f1…`.
