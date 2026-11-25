@@ -52,6 +52,21 @@ public class AudioAttenuator {
         catch (Throwable t) { }
     }
 
+    /**
+     * ACC_OFF / SLEEP: the reverse spell may have ended without a BACKVIEW_STOP frame (the MCU
+     * drops frames while powering down). Restore the captured volume so it cannot stay low (S31).
+     */
+    public void onAccOff() {
+        if (captured == null) return;
+        if (VolumePolicy.delegateToMcu(store.reverseMcu()) && car.isAvailable()) {
+            car.sendCommand(VolumePolicy.mcuVolumeCommand(100));
+        } else if (am != null) {
+            try { am.setStreamVolume(AudioManager.STREAM_MUSIC, captured, 0); }
+            catch (Throwable t) { /* quietly degrade */ }
+        }
+        captured = null;
+    }
+
     int current() {
         try { return am.getStreamVolume(AudioManager.STREAM_MUSIC); } catch (Throwable t) { return 0; }
     }

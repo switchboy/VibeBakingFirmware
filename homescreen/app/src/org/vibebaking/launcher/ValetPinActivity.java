@@ -26,13 +26,13 @@ public class ValetPinActivity extends Activity {
         status = new TextView(this);
         status.setTextSize(18f);
         status.setPadding(24, 16, 24, 16);
-        final String hash = store.valetPinHash();
         EditText pin = new EditText(this);
         pin.setHint("PIN");
         pin.setInputType(android.input.InputType.TYPE_CLASS_NUMBER);
         Button unlock = new Button(this);
         unlock.setText("Unlock valet mode");
         unlock.setOnClickListener(v -> {
+            // Re-read the hash on every attempt: a PIN saved while this screen is open must work.
             long now = System.currentTimeMillis();
             String hash = store.valetPinHash();
             ValetPin.Verdict verdict = guard.verify(pin.getText().toString(), hash, now);
@@ -41,7 +41,9 @@ public class ValetPinActivity extends Activity {
                 finish();
                 return;
             }
-            if (verdict.locked) {
+            if (hash.isEmpty()) {
+                status.setText(getString(R.string.pin_unset));
+            } else if (verdict.locked) {
                 status.setText(getString(R.string.pin_locked, verdict.retryInMs / 1000));
             } else {
                 status.setText(getString(R.string.pin_wrong, verdict.remaining));
@@ -52,6 +54,6 @@ public class ValetPinActivity extends Activity {
         page.addView(unlock);
 
         if (!App.valet().isActive()) status.setText(getString(R.string.pin_not_active));
-        if (hash.isEmpty()) status.setText(getString(R.string.pin_unset));
+        if (store.valetPinHash().isEmpty()) status.setText(getString(R.string.pin_unset));
     }
 }

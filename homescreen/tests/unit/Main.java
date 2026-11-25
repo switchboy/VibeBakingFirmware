@@ -331,11 +331,14 @@ public class Main {
         check("U15.decDay", !DayNight.isNight(52.09, 5.29, decNoon, 1));
         long decLate = Instant.parse("2026-12-21T16:00:00Z").toEpochMilli();   // 17:00 CET
         check("U15.decNight", DayNight.isNight(52.09, 5.29, decLate, 1));
-        // Polar edge: sun never rises Dec at 78N -> local fallback, still night at 03:00.
+        // Polar truth: Dec at 78N the sun never rises (night all day); June it never sets (day all day).
         long polarNight = Instant.parse("2026-12-21T02:00:00Z").toEpochMilli();
         check("U15.polarNight", DayNight.isNight(78.0, 15.0, polarNight, 1));
-        long polarDay = Instant.parse("2026-12-21T11:00:00Z").toEpochMilli();
-        check("U15.polarDay", !DayNight.isNight(78.0, 15.0, polarDay, 1));
+        long polarDecNoon = Instant.parse("2026-12-21T11:00:00Z").toEpochMilli();
+        check("U15.polarDecNoonNight", DayNight.isNight(78.0, 15.0, polarDecNoon, 1));
+        long polarJuneNightHour = Instant.parse("2026-06-21T02:00:00Z").toEpochMilli();
+        check("U15.polarMidnightSunDay", !DayNight.isNight(78.0, 15.0, polarJuneNightHour, 1));
+        check("U15.polarSunriseNull", DayNight.sunriseUtcMinutes(78.0, 15.0, dec) == null);
         check("U15.tz", DayNight.tzOffsetHours(0, ZoneOffset.ofHours(2)) == 2);
     }
 

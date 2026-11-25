@@ -38,4 +38,11 @@ public final class SettingsKeys {
     public static final double DEFAULT_LON = 5.29;
 
     public static final String MCU_BACKVIEW_VOL_CMD = "ctl_backview_vol";
+
+    /** Timeout pref clamp: garbage values must never fire the auto-entry timer immediately. */
+    public static int clampTimeoutS(int v) {
+        if (v < 10) return 10;
+        if (v > 3600) return 3600;
+        return v;
+    }
 }

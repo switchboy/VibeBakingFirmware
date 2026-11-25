@@ -89,35 +89,47 @@ public class ValetController {
         if (!active) return;
         List<String> list = split(store.getString("valet_suspend", ""));
         suspend(list, false);
-        try {
-            int restore = savedFilter >= 0 ? savedFilter : NotificationManager.INTERRUPTION_FILTER_ALL;
-            nm.setInterruptionFilter(restore);
-        } catch (Throwable t) { }
+        restoreInterruptionFilter();
         statusBarDisable(false);
         store.put("valet_active", false);
         store.put("valet_suspend", "");
         active = false;
     }
 
-    /** After a crash/restart: if the persisted state says valet, re-apply it (idempotent). */
+    /**
+     * After a crash/restart: replay the persisted valet state. ValetPolicy.replayAction decides:
+     * APPLY re-suspends, EXIT unsuspends - the EXIT case covers the master switch being turned off
+     * AND the exit path disappearing (PIN wiped while active, BT dead), which must never re-trap
+     * the owner (spec S22/S26a/S27a).
+     */
     public void replayPending() {
         if (active) return;
-        if (!store.getBool("valet_active", false)) return;
-        if (!store.valetEnabled()) {
-            // Master switch turned off while active (or between crash and restart): fully exit.
-            suspend(split(store.getString("valet_suspend", "")), false);
+        boolean persisted = store.getBool("valet_active", false);
+        ValetPolicy.Replay action = ValetPolicy.replayAction(persisted, store.valetEnabled(),
+            !store.valetPinHash().isEmpty(), trustedPhonePresent());
+        if (action == ValetPolicy.Replay.NONE) return;
+        List<String> list = split(store.getString("valet_suspend", ""));
+        if (action == ValetPolicy.Replay.EXIT) {
+            suspend(list, false);
             statusBarDisable(false);
-            try { nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL); }
-            catch (Throwable t) { }
+            restoreInterruptionFilter();
             store.put("valet_active", false);
             store.put("valet_suspend", "");
+            android.util.Log.i("ValetController", "valet replay: exiting (master off / no exit configured)");
             return;
         }
-        suspend(split(store.getString("valet_suspend", "")), true);
+        suspend(list, true);
         statusBarDisable(true);
         try { nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE); }
         catch (Throwable t) { }
         active = true;
+    }
+
+    private void restoreInterruptionFilter() {
+        try {
+            int restore = savedFilter >= 0 ? savedFilter : NotificationManager.INTERRUPTION_FILTER_ALL;
+            nm.setInterruptionFilter(restore);
+        } catch (Throwable t) { /* no policy access: nothing more we can do */ }
     }
 
     List<String> suspendList() {

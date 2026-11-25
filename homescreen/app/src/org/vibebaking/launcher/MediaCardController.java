@@ -89,11 +89,12 @@ public class MediaCardController {
 
     MediaCardPolicy.Ctl mirror(MediaController m) {
         MediaCardPolicy.Ctl c = new MediaCardPolicy.Ctl();
-        c.pkg = m.getPackageName();
+        // A session can publish a null package; keep everything non-null so the card never NPEs.
+        c.pkg = m.getPackageName() == null ? "" : m.getPackageName();
         try {
             c.pkgLabel = ctx.getPackageManager().getApplicationLabel(
                 ctx.getPackageManager().getApplicationInfo(c.pkg, 0));
-        } catch (Throwable t) { c.pkgLabel = c.pkg; }
+        } catch (Throwable t) { c.pkgLabel = ""; }
         MediaMetadata md = null;
         try { md = m.getMetadata(); } catch (Throwable ignore) { }
         if (md != null) {
@@ -119,7 +120,7 @@ public class MediaCardController {
         String station = isRadioPackage(c.pkg) ? radioStationHook() : "";
         title.setText(MediaCardPolicy.radioLabel(station, c));
         artist.setText(night ? MediaCardPolicy.album(c) : "");
-        source.setText(c.pkgLabel.isEmpty() ? c.pkg : c.pkgLabel);
+        source.setText(MediaCardPolicy.sourceLabel(c));
         MediaCardPolicy.Ctl pick = c;
         int enabled = MediaCardPolicy.transportEnabled(pick);
         prev.setEnabled((enabled & MediaCardPolicy.TR_PREV) != 0);

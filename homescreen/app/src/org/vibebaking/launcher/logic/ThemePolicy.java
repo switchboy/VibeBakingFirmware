@@ -19,7 +19,8 @@ public final class ThemePolicy {
     public static boolean night(String darkMode, boolean headlightOn, boolean cycleNight,
                                 String lightsTheme) {
         boolean base;
-        switch (darkMode) {
+        // Unknown/null pref value (corrupted prefs, older build wrote another value): cycle.
+        switch (darkMode == null ? MODE_CYCLE : darkMode) {
             case MODE_ALWAYS_LIGHT: base = false; break;
             case MODE_ALWAYS_DARK:  base = true;  break;
             case MODE_CAR_LIGHTS:   base = headlightOn; break;

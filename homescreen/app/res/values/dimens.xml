@@ -5,6 +5,8 @@
     <dimen name="battery_size">18sp</dimen>
     <dimen name="badge_size">16sp</dimen>
     <dimen name="art_size">96dp</dimen>
+    <dimen name="drawer_icon">72dp</dimen>
+    <dimen name="drawer_cell_height">120dp</dimen>
     <dimen name="card_margin">8dp</dimen>
     <dimen name="card_padding">12dp</dimen>
 </resources>

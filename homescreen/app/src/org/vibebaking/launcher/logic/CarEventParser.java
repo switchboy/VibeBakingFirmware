@@ -27,8 +27,13 @@ public final class CarEventParser {
 
     public static CarEvent parse(String callbackType, Map<String, Object> bundle) {
         if (bundle == null) return new CarEvent(Kind.UNKNOWN, 0, "", false);
-        String type = String.valueOf(bundle.getOrDefault("type", ""));
-        String mode = String.valueOf(bundle.getOrDefault("mode", ""));
+        // Protocol fact: cmd1=0x16 frames dispatch under the callback type string "CarEvent".
+        // Anything else is a stray callback from another CarService client -> ignore, never crash.
+        if (!"CarEvent".equals(callbackType)) return new CarEvent(Kind.UNKNOWN, 0, "", false);
+        Object rawType = bundle.get("type");
+        String type = rawType == null ? "" : String.valueOf(rawType);
+        Object rawMode = bundle.get("mode");
+        String mode = rawMode == null ? "" : String.valueOf(rawMode);
         Object value = bundle.get("value");
         switch (type) {
             case "headlight":

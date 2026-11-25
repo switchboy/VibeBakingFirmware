@@ -57,6 +57,33 @@ public final class ValetPolicy {
         return enabled && !entryAllowed(enabled, pinSet, trustedPhonePresent);
     }
 
+    /** What to do with persisted valet state after a launcher restart (spec S22/S26a/S27a). */
+    public enum Replay { NONE, APPLY, EXIT }
+
+    /**
+     * Crash-replay decision. APPLY re-suspends; EXIT unsuspends everything. The exit-path check is
+     * here on purpose: if a PIN was cleared (prefs wiped) while valet was active and the BT stack is
+     * dead, re-applying would lock the owner out of the unit permanently (S26a) -> EXIT instead.
+     */
+    public static Replay replayAction(boolean persistedActive, boolean enabled,
+                                      boolean pinSet, boolean trustedPhonePresent) {
+        if (!persistedActive) return Replay.NONE;
+        if (!enabled) return Replay.EXIT;                     // master switch turned off (S27a)
+        if (!entryAllowed(true, pinSet, trustedPhonePresent)) return Replay.EXIT; // exit path lost
+        return Replay.APPLY;
+    }
+
+    /** Parse the owner's extras CSV tolerantly (blank/space/duplicate entries are dropped). */
+    public static Set<String> parseExtrasCsv(String csv) {
+        Set<String> s = new HashSet<>();
+        if (csv == null) return s;
+        for (String t : csv.split(",")) {
+            String v = t.trim();
+            if (!v.isEmpty()) s.add(v);
+        }
+        return s;
+    }
+
     /** Allowed set = defaults + launcher + owner opt-in extras. */
     public static Set<String> allowedSet(Set<String> extras) {
         Set<String> s = new HashSet<>(DEFAULT_ALLOWED);

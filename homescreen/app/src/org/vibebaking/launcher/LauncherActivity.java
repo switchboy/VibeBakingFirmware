@@ -91,7 +91,9 @@ public class LauncherActivity extends Activity {
                 case BACKVIEW_START: audio.onReverseStart(); break;   // spec S31
                 case BACKVIEW_STOP:  audio.onReverseStop(); break;
                 case BATTERY:        batteryRaw = e.intValue; updateBattery(); break; // spec S19
-                default: break; // KEY handled by framework paths; acc_off/sleep: screen off anyway
+                case ACC_OFF:
+                case SLEEP:          audio.onAccOff(); break; // lost BACKVIEW_STOP: restore volume (S31)
+                default: break; // KEY handled by framework paths; screen off anyway
             }
         }
     };
@@ -162,20 +164,23 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        badge.setVisibility(valet.isActive() ? View.VISIBLE : View.GONE);
+        badge.setVisibility(valet.isActive() && store.valetEnabled() ? View.VISIBLE : View.GONE);
         media.refresh();
+        if (radar != null) radar.restart(); // one refresh timer per visible activity (S18')
     }
 
     @Override
     public void onPause() {
         super.onPause();
         // The home screen stays as-is; valet state is owned by ValetController + persisted prefs.
+        if (radar != null) radar.stop();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         MediaListenerService.callback = null;
+        if (radar != null) radar.stop();
         if (map != null) map.release();
     }
 }

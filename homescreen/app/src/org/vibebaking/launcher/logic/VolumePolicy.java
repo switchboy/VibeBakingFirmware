@@ -13,11 +13,13 @@ public final class VolumePolicy {
      * percent = attenuation level as % of max volume (owner default 30%).
      */
     public static Integer targetVolume(String mode, int percent, int maxVolume, int currentVolume) {
+        if (maxVolume <= 0) return null; // stream max unknown: don't touch anything (no accidental mute)
+        int p = Math.max(0, Math.min(100, percent));
         switch (mode) {
             case MODE_UNCHANGED: return null;
             case MODE_MUTE: return 0;
             case MODE_LOWER: {
-                int t = (int) Math.round(maxVolume * percent / 100.0);
+                int t = (int) Math.round(maxVolume * p / 100.0);
                 return Math.max(0, Math.min(t, maxVolume));
             }
             default: return null;

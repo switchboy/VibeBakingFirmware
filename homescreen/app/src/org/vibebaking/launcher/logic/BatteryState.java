@@ -14,18 +14,30 @@ public final class BatteryState {
 
     public static final double DEFAULT_LOW_THRESHOLD_V = 11.5;
 
+    /** Plausible lead-acid battery window: a 12 V head unit, 24 V trucks possible (spec S20). */
+    public static final double MIN_PLAUSIBLE_V = 4.0;
+    public static final double MAX_PLAUSIBLE_V = 32.0;
+
     private BatteryState() {}
 
     public static double volts(int raw) { return raw / RAW_SCALE; }
 
-    /** false = chip stays hidden (no believable value yet). */
-    public static boolean known(int raw) { return raw > 0; }
+    /** A believable value for a car battery; junk frames (1210 = 121 V, overflow) are rejected. */
+    public static boolean plausible(int raw) {
+        if (raw <= 0) return false;
+        double v = volts(raw);
+        return !Double.isNaN(v) && v >= MIN_PLAUSIBLE_V && v <= MAX_PLAUSIBLE_V;
+    }
+
+    /** false = chip stays hidden (no believable value yet, spec S19). */
+    public static boolean known(int raw) { return plausible(raw); }
 
     public static String label(int raw) {
+        if (!plausible(raw)) return ""; // implausible value must never reach the panel
         return String.format(Locale.ROOT, "%.1f V", volts(raw));
     }
 
     public static boolean low(int raw, double thresholdV) {
-        return known(raw) && volts(raw) < thresholdV;
+        return plausible(raw) && volts(raw) < thresholdV;
     }
 }

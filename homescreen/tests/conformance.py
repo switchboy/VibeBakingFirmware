@@ -32,7 +32,8 @@ bp = read("app/Android.bp")
 priv = read("app/privapp-permissions-vibelauncher.xml")
 
 ok("C01", 'package="org.vibebaking.launcher"' in man and 'android:sharedUserId="android.uid.system"' in man)
-ok("C03", re.search(r'name:\s*"VibeLauncher"', bp) and 'certificate:\s*"platform"' in bp and "privileged:\s*true" in bp)
+ok("C03", re.search(r'name:\s*"VibeLauncher"', bp) and re.search(r'certificate:\s*"platform"', bp)
+   and re.search(r"privileged:\s*true", bp))
 ok("C02", 'android.intent.category.HOME' in man and 'android.intent.category.DEFAULT' in man
         and 'android.intent.action.MAIN' in man)
 ok("C04", "org.vibebaking.launcher" in priv and all(
@@ -139,8 +140,17 @@ for dirpath, _, files in os.walk(os.path.join(ROOT, "app/src")):
 allsrc = "".join(open(p, encoding="utf-8").read() for p in src_files)
 ok("C15b", "import com.google.android.material" not in allsrc,
    "material must stay optional (reflection only)")
-ok("C16", "Class.forName(\"android.microntek" in allsrc and "import android.microntek" not in allsrc,
+ok("C16", "Class.forName(" in allsrc and '"android.microntek' in allsrc
+   and "import android.microntek" not in allsrc,
    "CarManager via reflection only; missing jar must not crash the app")
+ok("C23", "RadarPlan" in read("app/src/org/vibebaking/launcher/RadarView.java")
+   and "hasTiles" in read("app/src/org/vibebaking/launcher/logic/RadarPlan.java")
+   and "sanitizeCoords" in read("app/src/org/vibebaking/launcher/logic/RadarPlan.java"),
+   "radar degrade decisions live in pure RadarPlan (offline/empty/partial -> placeholder)")
+ok("C25", "plausible" in read("app/src/org/vibebaking/launcher/logic/BatteryState.java")
+   and "clampTimeoutS" in read("app/src/org/vibebaking/launcher/logic/SettingsKeys.java")
+   and "maxVolume <= 0" in read("app/src/org/vibebaking/launcher/logic/VolumePolicy.java"),
+   "junk signal values are rejected (implausible battery, garbage timeout, unknown stream max)")
 ok("C35", "nightTint" in read("app/src/org/vibebaking/launcher/logic/ArtPalette.java")
         and "nightArtDim" in read("app/src/org/vibebaking/launcher/logic/ArtPalette.java"))
 

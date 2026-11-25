@@ -31,7 +31,9 @@ public class SettingsStore {
     public String reverseVolume() { return getString(SettingsKeys.KEY_REVERSE_VOLUME, SettingsKeys.DEFAULT_REVERSE_VOLUME); }
     public int reversePercent() { return getInt(SettingsKeys.KEY_REVERSE_VOLUME_PERCENT, SettingsKeys.DEFAULT_REVERSE_VOLUME_PERCENT); }
     public boolean reverseMcu() { return getBool(SettingsKeys.KEY_REVERSE_MCU, SettingsKeys.DEFAULT_REVERSE_MCU); }
-    public int valetTimeoutS() { return getInt(SettingsKeys.KEY_VALET_TIMEOUT_S, SettingsKeys.DEFAULT_VALET_TIMEOUT_S); }
+    public int valetTimeoutS() {
+        return SettingsKeys.clampTimeoutS(getInt(SettingsKeys.KEY_VALET_TIMEOUT_S, SettingsKeys.DEFAULT_VALET_TIMEOUT_S));
+    }
     public boolean valetAuto() { return getBool(SettingsKeys.KEY_VALET_AUTO, SettingsKeys.DEFAULT_VALET_AUTO); }
     public boolean valetEnabled() { return getBool(SettingsKeys.KEY_VALET_ENABLED, SettingsKeys.DEFAULT_VALET_ENABLED); }
     public String mapTarget() { return getString(SettingsKeys.KEY_MAP_TARGET, SettingsKeys.DEFAULT_MAP_TARGET); }
@@ -39,11 +41,8 @@ public class SettingsStore {
     public double radarLon() { return getDouble(SettingsKeys.KEY_LON, SettingsKeys.DEFAULT_LON); }
     public String valetPinHash() { return getString("valet_pin_hash", ""); }
     public void setValetPin(String pin) { put("valet_pin_hash", org.vibebaking.launcher.logic.ValetPin.hashPin(pin)); }
-    /** Owner opt-in extra packages allowed in valet mode (spec S21). */
+    /** Owner opt-in extra packages allowed in valet mode (spec S21). Garbage CSV is tolerated. */
     public java.util.Set<String> valetExtras() {
-        java.util.Set<String> s = new java.util.HashSet<>();
-        String csv = getString("valet_extras", "");
-        for (String t : csv.split(",")) if (!t.isEmpty()) s.add(t.trim());
-        return s;
+        return org.vibebaking.launcher.logic.ValetPolicy.parseExtrasCsv(getString("valet_extras", ""));
     }
 }

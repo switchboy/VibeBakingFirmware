@@ -6169,4 +6169,8 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `/dev/goc_serial -> /dev/pts/0`; HCT `BlueToothService` (in system_server) initialises over it: `INIT bt NAME ...
   name: CAR-KIT`, `pin code: 0000`, `RF210 BT read: OK`; the daemon answers commands (`CMD:CV0` ... `send_ind: [OK]`).
   No crashes. Owner test of pairing/calls/A2DP pending.
+* **Bluetooth pairing works (owner test, attempt 36).** The owner's phone paired with `CAR-KIT` and connected; the GOC
+  daemon stores it in its pair list and receives HFP indicator updates (`handleCievInd ... signal=…`). Contacts did not
+  sync automatically; the next check is the phone's "contacts and call history" permission for the car and a manual
+  phonebook download in the HCT Bluetooth app (PBAP).
 

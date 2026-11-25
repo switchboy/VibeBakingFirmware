@@ -42,7 +42,14 @@ public final class MediaCardPolicy {
         if (notEmpty(c.title)) {
             return notEmpty(c.artist) ? c.title + " \u2022 " + c.artist : c.title;
         }
-        return notEmpty(c.pkgLabel) ? c.pkgLabel : c.pkg;
+        return notEmpty(c.pkgLabel) ? c.pkgLabel : (notEmpty(c.pkg) ? c.pkg : "");
+    }
+
+    /** Source line (tap to cycle): package label, package id, or empty - never null. */
+    public static String sourceLabel(Ctl c) {
+        if (c == null) return "";
+        if (notEmpty(c.pkgLabel)) return c.pkgLabel;
+        return notEmpty(c.pkg) ? c.pkg : "";
     }
 
     public static String album(Ctl c) { return c != null && notEmpty(c.album) ? c.album : ""; }
