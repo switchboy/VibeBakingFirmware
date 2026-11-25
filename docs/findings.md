@@ -6132,3 +6132,14 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `gocsdkrf210` is `oneshot` in `hct.rc` until an ABI shim exists (the full symbol gap is being mapped).
 
   Super `a39cddfd27c7…`.
+* **GOC Bluetooth daemon symbol gap (measured against the unit's Android 14 32-bit libraries, versioned names
+  normalised):** `libGbtsTask.so` misses only `__cxa_type_match`. `gocsdkrf210` misses 4:
+  `AudioRecord::getMinFrameCount(unsigned*, unsigned, audio_format_t, unsigned)` (Android 14: last parameter
+  `audio_channel_mask_t`, same ABI, so a pure forwarder suffices); the Android 10 `AudioRecord` and `AudioTrack` constructors with a
+  `String16` op-package and a C function-pointer callback (Android 14: `AttributionSourceState` + `wp<IAudioRecordCallback>` /
+  `wp<IAudioTrackCallback>`); and `MediaPlayer::MediaPlayer()` (Android 14: `MediaPlayer(AttributionSourceState,
+  audio_session_t)`). The binary allocates these objects with Android 10's `sizeof`, so the plan is a preloaded 32-bit shim
+  that defines those constructors and every method of the three classes the binary calls, with each object a proxy to a
+  real Android 14 object and the old callbacks wrapped. Build with the tree's clang against the AOSP headers on the build
+  host. Testing needs a paired phone.
+
