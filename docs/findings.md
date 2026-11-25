@@ -6165,3 +6165,8 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `oneshot` from attempt 35 removed).
 
   Super `e79502c2792a…`.
+* **Attempt 36 - HCT Bluetooth stack up.** `gocsdkrf210` `running` under init (via `LD_PRELOAD` shim),
+  `/dev/goc_serial -> /dev/pts/0`; HCT `BlueToothService` (in system_server) initialises over it: `INIT bt NAME ...
+  name: CAR-KIT`, `pin code: 0000`, `RF210 BT read: OK`; the daemon answers commands (`CMD:CV0` ... `send_ind: [OK]`).
+  No crashes. Owner test of pairing/calls/A2DP pending.
+
