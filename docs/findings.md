@@ -6298,3 +6298,4 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
 
   Super attempt 40 `0d0dee96a1cc…`.
   Super attempt 41 `2a7bdc092fea…`.
+  Shim build `libhugnss.so` sha `82ff40a1b5f3…`.

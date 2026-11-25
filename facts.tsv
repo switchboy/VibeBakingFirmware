@@ -583,3 +583,6 @@ A14-SUPER-ATT38-PARTIAL	sha	294ad14285eb686b048d767a147a3f305656588199d5d5656241
 A14-SUPER-ATT39	sha	0e5dc1c8be73e149646be87a1118cadb3f4dd25ad4cb13f903df89716349c54b	bytes	2026-11-25	docs/findings.md	Super `0e5dc1c8be73	docs/findings.md	attempt 39: HCT4Radio privileged
 A14-SUPER-ATT40	sha	0d0dee96a1ccd411b8e2bfef62da4a68a377b42c099e831fe2f1240ee87b8183	bytes	2026-11-25	docs/findings.md	Super attempt 40 `0d0dee96a1cc	docs/findings.md	attempt 40 - cvbs lib + 10 HCT apps privileged
 A14-SUPER-ATT41	sha	2a7bdc092fea1ce3af33a26e805b59dc43d8a3bd27c5a6b4857d80faa2480e78	bytes	2026-11-25	docs/findings.md	Super attempt 41 `2a7bdc092fea	docs/findings.md	attempt 41 - gnss accuracy shim
+HUGNSS-SO	sha	82ff40a1b5f33b930b3d8be24f496f67268112d81af41a31bcb7766c48d25121	bytes	2026-11-25	docs/findings.md	libhugnss.so` sha `82ff40a1b5f3	docs/findings.md	gnss accuracy shim build
+LIBCVBS-JNI-A10	sha	2531b0d2c9200023cd9b1b310fd2706b2f58b113371f67a1a1f114379cd73e11	bytes	2026-11-25	docs/findings.md	2531b0d2c920	docs/findings.md	stock A10 libcvbs_jni.so (arm64, 37136 B)
+GPS-DEFAULT-SO	sha	18b7411368846a802407fa38d033b292d6ddf7c5d170c07285a2d19041e44d84	bytes	2026-11-25	docs/findings.md	18b7411368846a80	docs/findings.md	stock vendor gps.default.so (MTC GPS Module)
