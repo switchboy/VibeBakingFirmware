@@ -6184,4 +6184,7 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   mixer output active with 1 track, `writeErrors=0 underruns=0`; AVRCP playback-position and play-status updates from the
   phone. With pairing, HFP calls, PBAP contacts and A2DP working, the HCT Bluetooth stack is functional on Android 14
   (audibility through speakers to be confirmed in the car).
+* **Owner note:** Bluetooth audio passthrough (A2DP to the head unit) "never ever worked" on the stock Android 10 ROM. On
+  Android 14 the stream reaches Android's mixer through the shim's AudioTrack proxy without errors; whether it is audible
+  depends on the MCU's audio routing to the amplifier and must be confirmed with speakers connected.
 
