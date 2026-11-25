@@ -6173,4 +6173,6 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   daemon stores it in its pair list and receives HFP indicator updates (`handleCievInd ... signal=…`). Contacts did not
   sync automatically; the next check is the phone's "contacts and call history" permission for the car and a manual
   phonebook download in the HCT Bluetooth app (PBAP).
+* **Bluetooth phonebook (PBAP) works (owner test):** after allowing contacts access on the phone, the contact sync from the
+  HCT Bluetooth app completed. Calls (HFP audio through the shim's AudioRecord/AudioTrack) and A2DP music still to test.
 
