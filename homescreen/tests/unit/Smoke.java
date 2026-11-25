@@ -61,11 +61,11 @@ public class Smoke {
         if (!cond) System.out.println("     why: " + why);
     }
 
-    /** Stub fetcher: API urls (contain "radar_by_zoom") answer apiBody; tile urls match tileBase. */
+    /** Stub fetcher: index URL (contains "weather-maps.json") answers apiBody; tile urls match tileBase. */
     static class Stub implements RadarFetcher {
         static final int OK = 0, TILES_FAIL_ALL = 1, TILES_FAIL_HALF = 2, API_FAIL = 3;
         String apiBody;
-        String tileBase = "https://t/{z}/{x}/{y}.png";
+        String tileBase = "https://t/";
         int mode = OK;
         int tileAttempts = 0;
 
@@ -74,7 +74,7 @@ public class Smoke {
         Stub mode(int m) { mode = m; return this; }
 
         @Override public byte[] fetch(String url) throws Exception {
-            if (url.contains("radar_by_zoom")) {
+            if (url.contains("weather-maps.json")) {
                 if (mode == API_FAIL || apiBody == null) throw new IOException("HTTP 404 api");
                 return apiBody.getBytes(StandardCharsets.UTF_8);
             }
@@ -89,23 +89,23 @@ public class Smoke {
         }
     }
 
-    /** API body from a stub, tiles over real HTTP (HttpRadarFetcher against a local server). */
+    /** Index body from a stub, tiles over real HTTP (HttpRadarFetcher against a local server). */
     static class Composite implements RadarFetcher {
         final String apiBody; final RadarFetcher tiles;
         Composite(String apiBody, RadarFetcher tiles) { this.apiBody = apiBody; this.tiles = tiles; }
         @Override public byte[] fetch(String url) throws Exception {
-            if (url.contains("radar_by_zoom")) return apiBody.getBytes(StandardCharsets.UTF_8);
+            if (url.contains("weather-maps.json")) return apiBody.getBytes(StandardCharsets.UTF_8);
             return tiles.fetch(url);
         }
     }
 
-    static String apiJson(String tileBase, String date, int minZ, int maxZ) {
-        return "{\"info\":{\"attribution\":\"RainViewer\"},\"types\":{\"rain\":{\"radar\":[{\"date\":\""
-            + date + "\",\"layer\":\"rain\",\"tiles\":[{\"url\":\"" + tileBase
-            + "{z}/{x}/{y}.png\",\"minZoom\":" + minZ + ",\"maxZoom\":" + maxZ + "}]}]}}}";
+    /** weather-maps.json answer with one radar.past frame (the real API shape, verified live). */
+    static String apiJson(String host, String path, long time) {
+        return "{\"version\":\"2.0\",\"host\":\"" + host + "\",\"radar\":{\"past\":[{\"time\":"
+            + time + ",\"path\":\"" + path + "\"}],\"nowcast\":[]}}";
     }
 
-    static final String GOOD_API = apiJson("https://t/", "2026-11-25T12:30:00Z", 5, 9);
+    static final String GOOD_API = apiJson("https://t", "/v2/radar/test", 1764073800L);
 
     public static void main(String[] args) throws Exception {
         radarOffline();
@@ -166,11 +166,11 @@ public class Smoke {
     static void radarOffline() {
         scenario("SG01", "radar: no internet (DNS/UnknownHost) -> placeholder, never a crash");
         Stub s = new Stub().mode(Stub.API_FAIL);
-        check("SG01", RadarPlan.build(s, 52.09, 5.29, 7) == null);
-        check("SG01b", RadarPlan.build(new Stub().api(
-            "{\"types\":{\"rain\":{\"radar\":[{\"date\":\"d\",\"tiles\":[{\"url\":\"https://t/{z}/{x}/{y}.png\"}]}]}}}")
-            .mode(Stub.TILES_FAIL_ALL).tiles("https://t/"), 52.09, 5.29, 7) != null);
-        check("SG01c", RadarPlan.build(null, 52.09, 5.29, 7) == null); // no fetcher at all
+        check("SG01", RadarPlan.build(s, 52.10, 5.18, 7, false) == null);
+        check("SG01b", RadarPlan.build(new Stub().api(apiJson("https://t", "/v2/radar/a", 1764073800L))
+            .mode(Stub.TILES_FAIL_ALL).tiles("https://t/"), 52.10, 5.18, 7, false) != null,
+            "index ok but every tile down: plan exists, draws nothing (placeholder)");
+        check("SG01c", RadarPlan.build(null, 52.10, 5.18, 7, false) == null); // no fetcher at all
     }
 
     static void radarHttp404() throws Exception {
@@ -187,60 +187,62 @@ public class Smoke {
 
     static void radarHtml() {
         scenario("SG03", "radar: API returns an HTML rate-limit page -> placeholder");
-        check("SG03", RadarPlan.build(new Stub().api("<html>429 Too Many Requests</html>"), 52.09, 5.29, 7) == null);
+        check("SG03", RadarPlan.build(new Stub().api("<html>429 Too Many Requests</html>"), 52.10, 5.18, 7, false) == null);
     }
 
     static void radarTruncated() {
         scenario("SG04", "radar: truncated JSON body (proxy cut the connection) -> placeholder");
-        check("SG04", RadarPlan.build(new Stub().api("{\"types\":{\"rain\":{\"radar\":["), 52.09, 5.29, 7) == null);
-        check("SG04b", RadarPlan.build(new Stub().api(""), 52.09, 5.29, 7) == null);
+        check("SG04", RadarPlan.build(new Stub().api("{\"types\":{\"rain\":{\"radar\":["), 52.10, 5.18, 7, false) == null);
+        check("SG04b", RadarPlan.build(new Stub().api(""), 52.10, 5.18, 7, false) == null);
     }
 
     static void radarRealHttp() throws Exception {
         scenario("SG05", "radar: tiles fetched over real HTTP -> grid built, attribution kept");
         HttpServer srv = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        String base = "http://127.0.0.1:" + srv.getAddress().getPort() + "/tiles/";
-        srv.createContext("/tiles/", ex -> {
+        String host = "http://127.0.0.1:" + srv.getAddress().getPort();
+        srv.createContext("/v2/", ex -> {
             byte[] b = "fake-png".getBytes(StandardCharsets.UTF_8);
             ex.sendResponseHeaders(200, b.length); ex.getResponseBody().write(b); ex.close();
         });
         srv.start();
-        RadarPlan.Plan p = RadarPlan.build(new Composite(apiJson(base, "2026-11-25T12:30:00Z", 5, 9),
-            new HttpRadarFetcher()), 52.09, 5.29, 7);
-        check("SG05", p != null && p.hasTiles() && p.attribution.equals("RainViewer"));
+        RadarPlan.Plan p = RadarPlan.build(new Composite(apiJson(host, "/v2/radar/test", 1764073800L),
+            new HttpRadarFetcher()), 52.10, 5.18, 7, false);
+        check("SG05", p != null && p.hasTiles() && p.attribution.equals(RadarTiles.ATTRIBUTION));
         check("SG05b", p != null && p.tiles.size() == RadarTiles.tilesAcross(p.zoom));
         srv.stop(0);
     }
 
     static void radarNoTiles() {
-        scenario("SG06", "radar: frames without tiles[] -> placeholder");
-        check("SG06", RadarPlan.build(new Stub().api("{\"info\":{},\"types\":{\"rain\":{\"radar\":[{\"date\":\"d\"}]}}}"),
-            52.09, 5.29, 7) == null);
+        scenario("SG06", "radar: past frames without path -> placeholder");
+        check("SG06", RadarPlan.build(new Stub().api("{\"radar\":{\"past\":[{\"time\":1764073800}]}}"),
+            52.10, 5.18, 7, false) == null);
     }
 
     static void radarEmptyTypes() {
-        scenario("SG07", "radar: API with empty types / empty tiles[] -> placeholder");
-        check("SG07", RadarPlan.build(new Stub().api("{\"info\":{},\"types\":{}}"), 52.09, 5.29, 7) == null);
-        check("SG07b", RadarPlan.build(new Stub().api("{\"types\":{\"rain\":{\"radar\":[{\"date\":\"d\",\"tiles\":[]}]}}}}"),
-            52.09, 5.29, 7) == null);
+        scenario("SG07", "radar: index with empty radar.past / pathless frames -> placeholder");
+        check("SG07", RadarPlan.build(new Stub().api("{\"version\":\"2.0\",\"radar\":{\"past\":[]}}"), 52.10, 5.18, 7, false) == null);
+        check("SG07b", RadarPlan.build(new Stub().api("{\"radar\":{\"past\":[{\"time\":1,\"path\":\"\"}]}}"),
+            52.10, 5.18, 7, false) == null);
     }
 
     static void radarTemplateNoPlaceholders() {
-        scenario("SG08", "radar: tile URL without {z}/{x}/{y} -> still one URL, grid draws");
-        RadarPlan.Plan p = RadarPlan.build(new Stub().api("{\"types\":{\"rain\":{\"radar\":[{\"date\":\"d\","
-            + "\"tiles\":[{\"url\":\"https://t/static.png\",\"minZoom\":5,\"maxZoom\":9}]}]}}}"), 52.09, 5.29, 7);
-        check("SG08", p != null && p.hasTiles());
+        scenario("SG08", "radar: index without host -> tilecache fallback; tiles down -> placeholder, zoom clamped");
+        RadarPlan.Plan p = RadarPlan.build(new Stub().api("{\"version\":\"2.0\","
+            + "\"radar\":{\"past\":[{\"time\":1764073800,\"path\":\"/v2/radar/x\"}]}}")
+            .mode(Stub.TILES_FAIL_ALL).tiles("https://t/"), 52.10, 5.18, 7, false);
+        check("SG08", p != null && !p.hasTiles()); // index parsed, every tile down -> placeholder
+        check("SG08b", p != null && p.zoom == RadarTiles.MAX_ZOOM); // z never above 7
     }
 
     static void radarAllTilesFail() {
         scenario("SG09", "radar: API ok but every tile fails -> placeholder, no half-blank card");
-        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API).mode(Stub.TILES_FAIL_ALL), 52.09, 5.29, 7);
+        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API).mode(Stub.TILES_FAIL_ALL), 52.10, 5.18, 7, false);
         check("SG09", p != null && !p.hasTiles());
     }
 
     static void radarHalfTilesFail() {
         scenario("SG10", "radar: every other tile fails -> partial grid still draws");
-        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API).mode(Stub.TILES_FAIL_HALF), 52.09, 5.29, 7);
+        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API).mode(Stub.TILES_FAIL_HALF), 52.10, 5.18, 7, false);
         check("SG10", p != null && p.hasTiles() && p.tiles.size() == RadarTiles.tilesAcross(7) / 2);
     }
 
@@ -249,9 +251,9 @@ public class Smoke {
         byte[] big = new byte[RadarPlan.MAX_BODY_BYTES + 16];
         Arrays.fill(big, (byte) 'x');
         RadarFetcher f = url -> big;
-        check("SG11", RadarPlan.build(f, 52.09, 5.29, 7) == null);
-        RadarFetcher tilesBig = url -> url.contains("radar_by_zoom") ? GOOD_API.getBytes(StandardCharsets.UTF_8) : big;
-        RadarPlan.Plan p = RadarPlan.build(tilesBig, 52.09, 5.29, 7);
+        check("SG11", RadarPlan.build(f, 52.10, 5.18, 7, false) == null);
+        RadarFetcher tilesBig = url -> url.contains("weather-maps.json") ? GOOD_API.getBytes(StandardCharsets.UTF_8) : big;
+        RadarPlan.Plan p = RadarPlan.build(tilesBig, 52.10, 5.18, 7, false);
         check("SG11b", p != null && !p.hasTiles()); // oversized tiles skipped -> placeholder
     }
 
@@ -259,14 +261,14 @@ public class Smoke {
         scenario("SG12", "radar: corrupted prefs coords (NaN / absurd) -> owner defaults, grid builds");
         double[] c = RadarPlan.sanitizeCoords(Double.NaN, Double.NaN);
         check("SG12", c[0] == SettingsKeys.DEFAULT_LAT && c[1] == SettingsKeys.DEFAULT_LON);
-        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API), Double.NaN, 1e9, 7);
+        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API), Double.NaN, 1e9, 7, false);
         check("SG12b", p != null && p.hasTiles());
     }
 
     static void radarExtremeZoom() {
-        scenario("SG13", "radar: zoom 0 / zoom 30 -> clamped to 3..12, bounded tile count");
-        check("SG13", RadarPlan.sanitizeZoom(0) == 3 && RadarPlan.sanitizeZoom(30) == 12);
-        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API), 52.09, 5.29, 30);
+        scenario("SG13", "radar: zoom 0 / zoom 30 -> clamped to 3..7 (RainViewer max), bounded tile count");
+        check("SG13", RadarPlan.sanitizeZoom(0) == 3 && RadarPlan.sanitizeZoom(30) == RadarTiles.MAX_ZOOM);
+        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API), 52.10, 5.18, 30, false);
         check("SG13b", p != null && p.zoom <= RadarPlan.ZOOM_MAX && p.tiles.size() <= RadarTiles.tilesAcross(p.zoom));
     }
 
@@ -275,7 +277,7 @@ public class Smoke {
         int[] c = RadarTiles.clampTile(3, -5, 3);
         check("SG14", c != null && c[0] >= 0 && c[0] < 8);
         check("SG14b", RadarTiles.clampTile(3, 0, -1) == null && RadarTiles.clampTile(3, 0, 8) == null);
-        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API), 0.0, 179.9, 5);
+        RadarPlan.Plan p = RadarPlan.build(new Stub().api(GOOD_API), 0.0, 179.9, 5, false);
         check("SG14c", p != null && p.hasTiles());
     }
 

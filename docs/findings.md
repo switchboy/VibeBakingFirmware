@@ -6312,4 +6312,24 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   fixed; the home screen then draws (map card, media card, battery, favourites row). The map card's TaskView embedding cannot
   work from an app: `TaskViewHost` is SystemUI's WM Shell, not framework (`ClassNotFoundException`). Open items listed in
   `homescreen/BUILD-ERRORS-A14.md`. Trebuchet stays installed as a fallback.
+* **VibeLauncher round 3 (owner feedback) on the unit.** Owner reported: media card too tall, top row clipping the
+  settings wheel, a slowdown then a crash, no way into the app drawer, empty rain radar, and asked for the full live map.
+  - Crash = ANR, not a leak (launcher PSS 6.5 MB): `AppDrawerActivity.enumerate()` asked PackageManager about each of
+    ~300 packages (launch intent + label) on the UI thread on every resume. Now one `queryIntentActivities(LAUNCHER)` on a
+    background executor with an icon cache: drawer displayed in 135 ms.
+  - Radar: the local model had invented the API (`rainviewer.com/api/latest/radar_by_zoom/...` = HTTP 301). Real API
+    verified live: index `api.rainviewer.com/public/weather-maps.json`, tiles `{host}{path}/256/z/x/y/2/1_1.png`, real
+    tiles only up to z=7 (z>=8 returns one constant placeholder). No base map existed; CARTO basemaps now answer
+    "API KEY REQUIRED", so OpenStreetMap tiles are used (tinted at night). The plan centred the position for a full-screen
+    frame; the card now shifts that centre to its own. The app never read a position: now last-known/GPS updates, kept
+    in memory only, default De Bilt (52.10, 5.18).
+  - Live map: AOSP 14 CarLauncher hosts its map in car SystemUI (`RemoteCarTaskView`), because a TaskView needs the task
+    organizer and transition player that SystemUI already owns; the local model's `TaskViewHost` and
+    `ActivityOptions.setEmbeddedTaskId/setTaskViewHost` do not exist. Implemented instead: a private trusted virtual
+    display (`OWN_CONTENT_ONLY|TRUSTED|SUPPORTS_TOUCH|OWN_FOCUS|DESTROY_CONTENT_ON_REMOVAL`) rendering into a SurfaceView in
+    the card; Maps launched with `setLaunchDisplayId`; touches re-targeted with `MotionEvent.setDisplayId` and
+    `InputManager.injectInputEvent` (platform signature: ADD_TRUSTED_DISPLAY, INJECT_EVENTS). Result: Google Maps runs live
+    in the card (display 2, 570x376), taps inside the card work (tab switch verified). No soong build needed.
+  - Layout: media card 2/3 height, volt meter bottom right above the favourites row, clock/date painted at start.
+  Hand build (javac/d8/aapt2) clean; tests: ALL TESTS PASSED. Still installed via `adb install`, not yet in the image.
 

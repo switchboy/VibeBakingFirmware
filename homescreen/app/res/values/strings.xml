@@ -12,6 +12,7 @@
     <string name="drawer_title">Apps</string>
     <string name="drawer_close">✕</string>
     <string name="drawer_empty">No launchable apps installed</string>
+    <string name="drawer_loading">Loading apps…</string>
     <string name="drawer_count">%1$d apps · %2$d pages</string>
     <string name="drawer_count_valet">%1$d allowed apps (valet mode) · %2$d pages</string>
     <string name="fav_slot_desc">Favourite app</string>
@@ -23,4 +24,5 @@
     <string name="pin_not_active">Valet mode is not active</string>
     <string name="pin_unset">No PIN set yet — set one in settings first</string>
     <string name="valet_no_exit">valet mode: no exit configured — set a PIN below, or connect a trusted phone; entry is refused until then</string>
+    <string name="map_open_full">%1$s cannot run inside the card - tap to open it full screen</string>
 </resources>

@@ -39,8 +39,8 @@ public final class SettingsKeys {
     public static final boolean DEFAULT_VALET_AUTO = true;
     public static final boolean DEFAULT_VALET_ENABLED = false;   // inert until configured (S27a)
     public static final String DEFAULT_MAP_TARGET = "auto";
-    public static final double DEFAULT_LAT = 52.09;   // Nuenen, NL — replaced by GPS fixes
-    public static final double DEFAULT_LON = 5.29;
+    public static final double DEFAULT_LAT = 52.10;   // De Bilt, NL — owner default position
+    public static final double DEFAULT_LON = 5.18;    // (live GPS fixes are read in memory by LauncherActivity, never persisted)
     public static final int DEFAULT_BT_DIAL_TAB = 0;  // BT MainActivity tab index (verified on unit, A13)
 
     public static final String MCU_BACKVIEW_VOL_CMD = "ctl_backview_vol";

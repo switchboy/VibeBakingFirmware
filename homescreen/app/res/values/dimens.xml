@@ -4,7 +4,7 @@
     <dimen name="date_size">18sp</dimen>
     <dimen name="battery_size">18sp</dimen>
     <dimen name="badge_size">16sp</dimen>
-    <dimen name="art_size">96dp</dimen>
+    <dimen name="art_size">64dp</dimen>
     <dimen name="drawer_icon">72dp</dimen>
     <dimen name="drawer_cell_height">120dp</dimen>
     <dimen name="fav_bar_height">60dp</dimen>
@@ -12,4 +12,6 @@
     <dimen name="fav_glyph_size">22sp</dimen>
     <dimen name="card_margin">8dp</dimen>
     <dimen name="card_padding">12dp</dimen>
+    <!-- Battery chip sits above the favourites bar: bar height + its top and bottom margins. -->
+    <dimen name="battery_above_fav_bar">76dp</dimen>
 </resources>

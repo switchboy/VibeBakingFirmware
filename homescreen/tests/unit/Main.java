@@ -16,6 +16,8 @@ import org.vibebaking.launcher.logic.MediaCardPolicy;
 import org.vibebaking.launcher.logic.PhonePolicy;
 import org.vibebaking.launcher.logic.PhonePresence;
 import org.vibebaking.launcher.logic.PhonePresenceProbe;
+import org.vibebaking.launcher.logic.RadarPlan;
+import org.vibebaking.launcher.logic.RadarPosition;
 import org.vibebaking.launcher.logic.RadarTiles;
 import org.vibebaking.launcher.logic.SettingsKeys;
 import org.vibebaking.launcher.logic.ThemePolicy;
@@ -77,6 +79,7 @@ public class Main {
         t19PhonePolicy();
         t20CombinedPhoneProbe();
         t21FavoriteRow();
+        t22RadarPosition();
         System.out.println(checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
             System.out.println("FAILED: " + String.join(", ", failures));
@@ -84,36 +87,49 @@ public class Main {
         }
     }
 
-    // U01/U03: RainViewer API parse, latest frame, zoom clamp, tile math, grid origin.
+    // U01/U03: RainViewer v2 index parse, latest past frame, zoom clamp, tile math, grid origin.
     static void t01Radar(Path dir) throws Exception {
-        String json = Files.readString(dir.resolve("tests/fixtures/radar_en.json"));
+        String json = Files.readString(dir.resolve("tests/fixtures/weather_maps.json"));
         RadarTiles.RadarSpec spec = RadarTiles.parseApi(json);
-        check("U01.attribution", spec.attribution.equals("RainViewer.com (Rain, Snow) Radar \u00A9"));
-        check("U01.frames2", spec.frames.size() == 2); // rain only; snow/satellite not needed when rain exists
+        check("U01.host", spec.host.equals("https://tilecache.rainviewer.com"));
+        check("U01.frames3", spec.frames.size() == 3); // radar.past only; satellite + nowcast ignored
         RadarTiles.Frame latest = RadarTiles.pickLatest(spec);
-        check("U01.latest", latest.date.startsWith("2026-11-25T12:30"));
-        String snowJson = "{\"info\":{\"attribution\":\"x\"},\"types\":{\"snow\":{\"radar\":[{\"date\":\"2026-11-25T09:00:00Z\",\"layer\":\"snow\",\"tiles\":[{\"url\":\"https://rainviewer.com/radar/snow/{z}/{x}/{y}.png\",\"minZoom\":4,\"maxZoom\":8}]}]}}}";
-        RadarTiles.RadarSpec snowSpec = RadarTiles.parseApi(snowJson);
-        check("U01.snowFallback", snowSpec.frames.size() == 1
-            && RadarTiles.pickLatest(snowSpec).layer.equals("snow"));
-        check("U01.zoom7", RadarTiles.zoomFor(latest, 7) == 7);
-        check("U01.clampLow", RadarTiles.zoomFor(latest, 3) == 5);
-        check("U01.clampHigh", RadarTiles.zoomFor(latest, 12) == 9);
-        check("U01.url", RadarTiles.apiUrl(52.09, 5.29, 7)
-            .equals("https://rainviewer.com/api/latest/radar_by_zoom/7/52.09/5.29/en.json"));
-        check("U01.tileX", RadarTiles.tileX(5.29, 7) == 65);
-        check("U01.tileY", RadarTiles.tileY(52.09, 7) == 42);
-        String url = RadarTiles.tileUrl(latest.urlTemplate, 7, 65, 42);
-        check("U01.tileUrl", url.contains("/radar/rain/7/65/42.png"));
-        int[] o = RadarTiles.gridOriginPx(52.09, 5.29, 7);
-        check("U01.originX", Math.abs(o[0] - 16353) <= 2);
+        check("U01.latest", latest != null && latest.path.equals("/v2/radar/1d6614366d83") && latest.timeSec == 1764073800L,
+            "frames are listed oldest first: the newest time must win, not the list order");
+        check("U01.oldestFirstStillLatest", spec.frames.get(0).timeSec < latest.timeSec);
+        String nowcastOnly = "{\"version\":\"2.0\",\"host\":\"https://tilecache.rainviewer.com\","
+            + "\"radar\":{\"past\":[],\"nowcast\":[{\"time\":99,\"path\":\"/v2/radar/nc\"}]}}";
+        RadarTiles.RadarSpec nc = RadarTiles.parseApi(nowcastOnly);
+        check("U01.nowcastIgnored", nc.frames.isEmpty() && RadarTiles.pickLatest(nc) == null,
+            "RainViewer's nowcast is empty in practice: never rely on it");
+        check("U01.radarUrl", RadarTiles.radarTileUrl(spec.host, latest.path, 7, 65, 42)
+            .equals("https://tilecache.rainviewer.com/v2/radar/1d6614366d83/256/7/65/42/2/1_1.png"));
+        check("U01.baseDay", RadarTiles.baseTileUrl(false, 7, 65, 42)
+            .equals("https://tile.openstreetmap.org/7/65/42.png"));
+        check("U01.baseNight", RadarTiles.baseTileUrl(true, 7, 65, 42)
+            .equals("https://tile.openstreetmap.org/7/65/42.png"));
+        check("U01.zoomClamp", RadarTiles.clampZoom(8) == 7 && RadarTiles.clampZoom(7) == 7 && RadarTiles.clampZoom(3) == 3,
+            "z=8+ is one constant placeholder image: never request more than 7");
+        check("U01.zoomClampPlan", RadarPlan.sanitizeZoom(12) == 7 && RadarPlan.sanitizeZoom(0) == 3);
+        check("U01.attribution", RadarTiles.ATTRIBUTION.equals("\u00A9 OpenStreetMap contributors \u00B7 Radar: RainViewer"));
+        check("U01.noHostUsesTilecache", RadarTiles.parseApi("{\"radar\":{\"past\":[{\"time\":1,\"path\":\"/v2/radar/x\"}]}}")
+            .host.equals(RadarTiles.TILECACHE));
+        check("U01.noPathSkipped", RadarTiles.pickLatest(RadarTiles.parseApi("{\"radar\":{\"past\":[{\"time\":5}]}}")) == null,
+            "a past entry without path cannot be drawn");
+        check("U01.junkBody", throws_(s -> RadarTiles.parseApi(s), "<html>301 Moved Permanently</html>"),
+            "the dead rainviewer.com endpoint answers HTML: garbage must throw, RadarPlan turns it into offline");
+        check("U01.tileX", RadarTiles.tileX(5.18, 7) == 65);
+        check("U01.tileY", RadarTiles.tileY(52.10, 7) == 42);
+        int[] o = RadarTiles.gridOriginPx(52.10, 5.18, 7);
+        check("U01.originX", Math.abs(o[0] - 16343) <= 2);
         check("U01.originY", Math.abs(o[1] - 10508) <= 2);
         check("U01.grid12", RadarTiles.tilesAcross(7) == 12);
         int[] c = RadarTiles.clampTile(7, 65, 42);
         check("U01.clampTile", Arrays.equals(c, new int[]{65, 42}));
         check("U01.wrapTile", Arrays.equals(RadarTiles.clampTile(7, -3, 42), new int[]{125, 42}));
         check("U01.skipTileY", RadarTiles.clampTile(7, 65, -1) == null);
-        check("U01.pickLayer", RadarTiles.pickLayer(spec, 7) != null);
+        check("U01.frameLabel", RadarTiles.frameLabel(1764073800L).startsWith("2025-11-25T12:30"),
+            "frame timestamps are unix seconds -> ISO UTC label");
     }
 
     // U02: JSON parser basics + error paths.
@@ -386,7 +402,8 @@ public class Main {
         check("U17.autoOn", SettingsKeys.DEFAULT_VALET_AUTO == true);
         check("U17.enabledOff", SettingsKeys.DEFAULT_VALET_ENABLED == false);
         check("U17.mapAuto", SettingsKeys.DEFAULT_MAP_TARGET.equals("auto"));
-        check("U17.coords", SettingsKeys.DEFAULT_LAT == 52.09 && SettingsKeys.DEFAULT_LON == 5.29);
+        check("U17.coords", SettingsKeys.DEFAULT_LAT == 52.10 && SettingsKeys.DEFAULT_LON == 5.18,
+            "owner default position: De Bilt, NL (live GPS fixes are read in memory, never stored)");
     }
 
     // U18: app drawer arrangement (spec S39/S39a/S39b/S2b).
@@ -427,6 +444,17 @@ public class Main {
         check("U18.rows", AppDrawerPolicy.rowCount(12) == 3 && AppDrawerPolicy.rowCount(13) == 4);
         check("U18.empty", AppDrawerPolicy.visible(List.of(), false, Set.of(), Set.of()).isEmpty());
         check("U18.nullSafe", AppDrawerPolicy.visible(null, true, null, null).isEmpty());
+        // queryIntentActivities(LAUNCHER) can return several launch activities per package:
+        // the drawer de-duplicates to one cell per package (Round 3 enumeration fix).
+        List<AppDrawerPolicy.Entry> dup = AppDrawerPolicy.dedupe(Arrays.asList(
+            new AppDrawerPolicy.Entry("com.waze", "Waze", true),
+            new AppDrawerPolicy.Entry("com.waze", "Waze Route", true),
+            new AppDrawerPolicy.Entry("com.spotify.music", "Spotify", true),
+            null,
+            new AppDrawerPolicy.Entry(null, "No package", true)));
+        check("U18.dedupe", dup.size() == 2 && dup.get(0).pkg.equals("com.waze") && dup.get(0).label.equals("Waze")
+            && dup.get(1).pkg.equals("com.spotify.music"), "first occurrence wins: junk entries dropped");
+        check("U18.dedupeNull", AppDrawerPolicy.dedupe(null).isEmpty());
     }
 
     // U19: trusted-phone verdicts (spec S25/S26/S26a), both sources.
@@ -595,6 +623,29 @@ public class Main {
             && !FavoritePolicy.isPhoneSlot("com.waze"));
         check("U21.sortedNullSafe", FavoritePolicy.sorted(null).isEmpty()
             && FavoritePolicy.sorted(Arrays.asList("b", "", "a")).equals(Arrays.asList("a", "b")));
+    }
+
+    // U23: home/radar position choice (Round 3): newest of several fixes wins, default when none,
+    // the radar recentres only when the position moved more than 5 km.
+    static void t22RadarPosition() {
+        RadarPosition.Fix older = new RadarPosition.Fix(52.10, 5.18, 1_000L);   // De Bilt known fix
+        RadarPosition.Fix newer = new RadarPosition.Fix(52.35, 4.86, 2_000L);   // fresher GPS fix
+        RadarPosition.Fix junk = new RadarPosition.Fix(Double.NaN, 5.18, 9_000L); // absurd, newest
+        double[] def = new double[] { SettingsKeys.DEFAULT_LAT, SettingsKeys.DEFAULT_LON };
+        check("U23.newestWins", RadarPosition.choose(Arrays.asList(older, newer), def)[0] == 52.35
+            && RadarPosition.choose(Arrays.asList(older, newer), def)[1] == 4.86);
+        check("U23.newestOrderIndependent", RadarPosition.choose(Arrays.asList(newer, older), def)[0] == 52.35);
+        check("U23.junkIgnored", RadarPosition.choose(Arrays.asList(newer, junk), def)[0] == 52.35
+            && RadarPosition.choose(Arrays.asList(junk), def)[0] == def[0] && RadarPosition.choose(Arrays.asList(junk), def)[1] == def[1],
+            "a NaN GPS fix must never override a good one nor the default");
+        check("U23.noneDefault", Arrays.equals(RadarPosition.choose(null, def), def)
+            && Arrays.equals(RadarPosition.choose(List.of(), def), def));
+        check("U23.farMove", RadarPosition.movedFar(52.10, 5.18, 52.35, 4.86, RadarPosition.RECENTRE_METERS),
+            "De Bilt -> Amsterdam is ~30 km: recentre");
+        check("U23.nearStay", !RadarPosition.movedFar(52.10, 5.18, 52.14, 5.20, RadarPosition.RECENTRE_METERS),
+            "~4.6 km of drift is inside the 5 km band: do not recentre");
+        check("U23.unknownRecentres", RadarPosition.movedFar(Double.NaN, Double.NaN, 52.10, 5.18, RadarPosition.RECENTRE_METERS),
+            "no previous position (NaN) must take the first fix");
     }
 
     static List<String> labels(List<AppDrawerPolicy.Entry> e) {

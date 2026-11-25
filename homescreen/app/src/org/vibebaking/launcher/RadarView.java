@@ -16,16 +16,26 @@ import org.vibebaking.launcher.logic.RadarPlan;
 import org.vibebaking.launcher.logic.RadarTiles;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-/** Stylised rain radar (spec S15-S17, S18'): RainViewer tiles over our own basemap. */
+/**
+ * Rain radar (spec S15-S17, S18'): OpenStreetMap base tiles under the transparent RainViewer overlay.
+ * Round 3: the overlay alone has no geographic reference (owner: radar shows nothing useful), so
+ * the basemap is drawn first, light by day / dark by night (the existing night decision), and
+ * decoded base tiles are cached in memory — they never change. HTTP + bitmap decoding stay off
+ * the UI thread; every failure degrades to the "offline" placeholder, never a crash.
+ */
 public class RadarView extends View {
 
-    public static final long REFRESH_MS = 10 * 60_000L; // RainViewer refreshes ~ every 5-10 min
+    public static final long REFRESH_MS = 5 * 60_000L; // index at most every 5 min (RainViewer frames update ~ every 10 min)
 
     private final RadarFetcher fetcher;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private static final android.graphics.LightingColorFilter NIGHT_BASE =
+            new android.graphics.LightingColorFilter(0xFF3A4250, 0x00000000);
     private double lat, lon;
     private int zoom = RadarTiles.DEFAULT_ZOOM;
     private boolean night;
@@ -33,7 +43,8 @@ public class RadarView extends View {
     private String attribution = "";
     private String frameDate = "";
     private int[] origin = null;      // px offset of the tile grid top-left
-    private final List<BitmapPos> tiles = new ArrayList<>();
+    private final List<BitmapPos> baseTiles = new ArrayList<>(); // basemap (decoded from the cache)
+    private final List<BitmapPos> tiles = new ArrayList<>();     // radar overlay (fresh every load)
     private boolean loading;
     private boolean stopped;
 
@@ -41,6 +52,9 @@ public class RadarView extends View {
         final Bitmap b; final int px, py;
         BitmapPos(Bitmap b, int px, int py) { this.b = b; this.px = px; this.py = py; }
     }
+
+    /** Decoded basemap tiles never change (same z/x/y + theme): cache across loads and themes. */
+    private static final Map<String, Bitmap> BASE_CACHE = new HashMap<>();
 
     public interface AttributionSink { void setAttribution(String text, String frameDate); }
     private AttributionSink sink;
@@ -54,36 +68,50 @@ public class RadarView extends View {
 
     public void setLatLon(double lat, double lon) { this.lat = lat; this.lon = lon; }
 
+    /** Night switch: repaint immediately, and refetch the dark basemap when the theme changed (S16). */
     public void setNight(boolean night) {
-        this.night = night;
-        invalidate(); // spec S16: dark basemap + muted rain at night
+        if (this.night != night) { this.night = night; load(); }
+        invalidate();
     }
 
     public void setSink(AttributionSink s) { this.sink = s; }
 
     /**
-     * Fetch API + tiles off the main thread. All failure decisions are in RadarPlan (pure), so
-     * offline / bad JSON / empty frames / partial tiles degrade to the placeholder (spec S18').
+     * Fetch the frame index + both tile grids off the main thread and decode there too. All
+     * failure decisions are in RadarPlan (pure), so offline / bad JSON / empty frames / partial
+     * tiles degrade to the placeholder (spec S18').
      */
     public void load() {
         if (loading || stopped) return;
         loading = true;
         scheduleRefresh();
+        final boolean wantNight = night;
         new Thread(() -> {
-            RadarPlan.Plan plan = RadarPlan.build(fetcher, lat, lon, zoom);
+            RadarPlan.Plan plan = RadarPlan.build(fetcher, lat, lon, zoom, wantNight);
             String att = "";
             String date = "";
             int[] o = null;
-            List<BitmapPos> fresh = new ArrayList<>();
+            List<BitmapPos> freshBase = new ArrayList<>();
+            List<BitmapPos> freshRadar = new ArrayList<>();
             if (plan != null) {
                 att = plan.attribution;
                 date = plan.frameDate;
                 o = plan.origin;
                 zoom = plan.zoom;
+                for (RadarPlan.Tile t : plan.baseTiles) {
+                    Bitmap b;
+                    synchronized (BASE_CACHE) { b = BASE_CACHE.get(t.url); }
+                    if (b == null) {
+                        try { b = BitmapFactory.decodeByteArray(t.png, 0, t.png.length); }
+                        catch (Throwable decodeFail) { b = null; } // corrupt basemap tile: skip
+                        if (b != null) synchronized (BASE_CACHE) { BASE_CACHE.put(t.url, b); }
+                    }
+                    if (b != null) freshBase.add(new BitmapPos(b, t.px, t.py));
+                }
                 for (RadarPlan.Tile t : plan.tiles) {
                     try {
                         Bitmap b = BitmapFactory.decodeByteArray(t.png, 0, t.png.length);
-                        if (b != null) fresh.add(new BitmapPos(b, t.px, t.py)); // undecodable body: skip
+                        if (b != null) freshRadar.add(new BitmapPos(b, t.px, t.py)); // undecodable body: skip
                     } catch (Throwable decodeFail) { /* corrupt tile: skip, keep the rest */ }
                 }
             }
@@ -91,8 +119,10 @@ public class RadarView extends View {
             attribution = att;
             frameDate = date;
             origin = o;
+            baseTiles.clear();
             tiles.clear();
-            tiles.addAll(fresh);
+            baseTiles.addAll(freshBase);
+            tiles.addAll(freshRadar);
             loading = false;
             main.post(() -> {
                 invalidate();
@@ -123,7 +153,7 @@ public class RadarView extends View {
     protected void onDraw(Canvas canvas) {
         int[] palette = RadarTiles.palette(night);
         paint.setAlpha(255);
-        paint.setColor(palette[0]);
+        paint.setColor(palette[0]); // fallback background: visible while base tiles are missing
         canvas.drawRect(new Rect(0, 0, getWidth(), getHeight()), paint);
         if (origin == null || tiles.isEmpty()) {
             paint.setColor(night ? 0xFF8A93A3 : 0xFF5A6470); // dim placeholder text, never white
@@ -132,7 +162,16 @@ public class RadarView extends View {
                             24f, getHeight() / 2f, paint);
             return;
         }
+        // The plan puts the position at the centre of a VIEW_W x VIEW_H (full screen) frame; the card is smaller, so
+        // shift that centre to the card's centre (first on-device run showed the frame's top-left corner instead).
+        canvas.save();
+        canvas.translate(getWidth() / 2f - RadarTiles.VIEW_W / 2f, getHeight() / 2f - RadarTiles.VIEW_H / 2f);
+        // basemap first; OSM has no dark style, so at night the tiles are multiplied down to a dim blue-grey
+        paint.setColorFilter(night ? NIGHT_BASE : null);
+        for (BitmapPos t : baseTiles) canvas.drawBitmap(t.b, t.px, t.py, paint);
+        paint.setColorFilter(null);
         paint.setAlpha(palette[1]); // day saturated, night muted (spec S16)
         for (BitmapPos t : tiles) canvas.drawBitmap(t.b, t.px, t.py, paint);
+        canvas.restore();
     }
 }

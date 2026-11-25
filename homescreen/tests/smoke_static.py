@@ -51,16 +51,16 @@ strings = read("app/res/values/strings.xml")
 night = read("app/res/values-night/colors.xml")
 man = read("app/AndroidManifest.xml")
 
-# SA01 - no navigation app installed: placeholder decided BEFORE any TaskView touch.
+# SA01 - no navigation app installed: placeholder decided BEFORE any virtual-display attempt.
 init = mapc[mapc.find("public void init"):mapc.find("boolean isNavigation")]
-ok("SA01", "showPlaceholder" in init and init.find("showPlaceholder") < init.find("embed("),
-   "placeholder must be shown before embed() is attempted")
+ok("SA01", "showPlaceholder" in init and init.find("showPlaceholder") < init.find("attachSurface("),
+   "placeholder must be shown before the live display is attempted")
 
-# SA02 - WM Shell TaskView classes missing/renamed: caught, placeholder, no crash.
+# SA02 - virtual display / trusted-display drift on this ROM: caught, placeholder, no crash.
 catch_i = init.find("catch (Throwable t)")
-ok("SA02", "Class.forName(\"com.android.wm.shell" in mapc and catch_i != -1
+ok("SA02", "createVirtualDisplay" in mapc and catch_i != -1
    and init.find("showPlaceholder", catch_i) != -1,
-   "TaskView drift must degrade to placeholder")
+   "display setup drift must degrade to placeholder")
 
 # SA03 - placeholder tap when the app still isn't installed: guarded.
 ok("SA03", re.search(r"if \(t != null\) \{", mapc), "placeholder click guarded against a missing app")
@@ -268,7 +268,7 @@ ok("SA38c", "setPackagesSuspended(arr, on, appExtras, launcherExtras" in code(va
 ok("SA38d", "Double.doubleToRawLongBits" in code(store) and "Double.longBitsToDouble" in code(store)
    and "p.getDouble(" not in code(store) and "putDouble(key, v)" not in code(store),
    "SharedPreferences has no double API: lat/lon round-trip as raw bits in a long")
-ok("SA38e", "opts.toBundle()" in code(mpc),
+ok("SA38e", "o.toBundle()" in code(mpc) and "setLaunchDisplayId" in code(mpc),
    "embedded start needs ActivityOptions.toBundle() (startActivity(Intent, Bundle))")
 ok("SA38f", "boolean valet = valet." not in code(act) and "boolean valetOn = valet.isActive()" in code(act)
    and "visible(store.favSlots(), valetOn," in code(act),

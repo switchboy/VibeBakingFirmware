@@ -1,9 +1,13 @@
 package org.vibebaking.launcher;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
@@ -15,9 +19,12 @@ import org.vibebaking.launcher.logic.CarEventParser;
 import org.vibebaking.launcher.logic.ClockFormat;
 import org.vibebaking.launcher.logic.DayNight;
 import org.vibebaking.launcher.logic.FavoritePolicy;
+import org.vibebaking.launcher.logic.RadarPosition;
+import org.vibebaking.launcher.logic.SettingsKeys;
 import org.vibebaking.launcher.logic.ThemePolicy;
 import org.vibebaking.launcher.logic.ValetPolicy;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -47,6 +54,9 @@ public class LauncherActivity extends Activity {
     private int batteryRaw = 0;            // 0 = no event yet -> chip hidden (spec S19)
     private long lastThemeSwitch = 0L;
     private String lastMapTarget;          // applied map card target (spec S7)
+    private LocationManager locationManager;
+    private RadarPosition.Fix liveFix;     // newest GPS listener fix — memory only, never stored (privacy)
+    private double lastPosLat = Double.NaN, lastPosLon = Double.NaN; // radar centre currently on screen
 
     @Override
     protected void onCreate(android.os.Bundle saved) {
@@ -58,6 +68,12 @@ public class LauncherActivity extends Activity {
         battery = findViewById(R.id.battery);
         badge = findViewById(R.id.valet_badge);
         settingsButton = findViewById(R.id.btn_settings);
+        // The owner saw no clock on the first run: the tick fired a minute after start, so paint
+        // the clock/date right away; the minute tick keeps them updated from then on (spec S5).
+        long startedAt = System.currentTimeMillis();
+        int startedTz = TimeZone.getDefault().getOffset(startedAt) / 3600_000;
+        clock.setText(ClockFormat.time(startedAt, startedTz));
+        date.setText(ClockFormat.date(startedAt, startedTz));
         findViewById(R.id.btn_settings).setOnClickListener(v ->
             startActivity(new Intent(this, CarSettingsActivity.class)));
         findViewById(R.id.btn_apps).setOnClickListener(v ->
@@ -213,6 +229,58 @@ public class LauncherActivity extends Activity {
         media.refresh();
         if (radar != null) radar.restart(); // one refresh timer per visible activity (S18')
         refreshFavorites(); // installs/uninstalls and valet state may have changed (S40)
+        // Owner position (Round 3): the app read no position at all before. Newest known GPS fix,
+        // else the De Bilt default; live fixes keep coming via the listener while resumed. The
+        // position is memory-only — never written to SharedPreferences, never logged (privacy).
+        if (locationManager == null) {
+            try { locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE); }
+            catch (Throwable t) { locationManager = null; } // service absent: stay on the default position
+        }
+        updateHomePosition();
+        try {
+            if (locationManager != null) {
+                locationManager.requestLocationUpdates("gps", 60_000L, 1000f, locationListener, Looper.getMainLooper());
+            }
+        } catch (SecurityException | IllegalArgumentException t) {
+            // ACCESS_FINE_LOCATION revoked (A14) or no gps provider: known fixes + default still work
+        }
+    }
+
+    /** GPS updates arrive on the main looper (listener registered with it). */
+    private final LocationListener locationListener = new LocationListener() {
+        @Override public void onLocationChanged(Location fix) {
+            if (fix == null) return;
+            liveFix = new RadarPosition.Fix(fix.getLatitude(), fix.getLongitude(), fix.getTime());
+            updateHomePosition();
+        }
+    };
+
+    /**
+     * Choose the home/radar position: newest of gps > network > fused known fixes plus the newest
+     * live listener fix, else SettingsKeys.DEFAULT_LAT/LON (De Bilt). Recentre the radar when the
+     * chosen position moved more than 5 km from the one currently drawn (spec S15/S30).
+     */
+    private void updateHomePosition() {
+        List<RadarPosition.Fix> fixes = new ArrayList<>();
+        if (liveFix != null) fixes.add(liveFix);
+        if (locationManager != null) {
+            for (String provider : new String[] { "gps", "network", "fused" }) {
+                try {
+                    Location fix = locationManager.getLastKnownLocation(provider);
+                    if (fix != null) fixes.add(new RadarPosition.Fix(fix.getLatitude(), fix.getLongitude(), fix.getTime()));
+                } catch (SecurityException t) {
+                    // provider permission revoked on A14: this source contributes nothing
+                }
+            }
+        }
+        double[] pos = RadarPosition.choose(fixes, new double[] { SettingsKeys.DEFAULT_LAT, SettingsKeys.DEFAULT_LON });
+        if (radar == null) return;
+        boolean fresh = Double.isNaN(lastPosLat) || Double.isNaN(lastPosLon)
+            || RadarPosition.movedFar(lastPosLat, lastPosLon, pos[0], pos[1], RadarPosition.RECENTRE_METERS);
+        radar.setLatLon(pos[0], pos[1]);
+        if (fresh) radar.restart(); // tile grid must be centred on the new position
+        lastPosLat = pos[0];
+        lastPosLon = pos[1];
     }
 
     /**
@@ -288,6 +356,11 @@ public class LauncherActivity extends Activity {
         // The trusted-phone exit watch (S26) is NOT stopped here: while valet is active the owner
         // may be sitting in the app drawer or settings, and the phone must still end valet.
         if (radar != null) radar.stop();
+        try {
+            if (locationManager != null) locationManager.removeUpdates(locationListener);
+        } catch (SecurityException | IllegalArgumentException t) {
+            // provider gone or permission revoked while paused: nothing to unregister
+        }
     }
 
     @Override

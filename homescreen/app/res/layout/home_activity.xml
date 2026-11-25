@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Home layout for the 1024x600 landscape panel (spec S3/S5). -->
+<!-- Home layout for the 1024x600 landscape panel (spec S3/S5).
+     Round 3 (owner feedback): the media card is ~2/3 of its previous height (art 96->64dp,
+     transport buttons beside the text instead of under it, labels single-line), so the radar
+     card below it fits fully; the volt meter moved out of the top-right row to the bottom-right
+     corner above the favourites bar, and the clock/date block shares the row with layout_weight
+     so btn_apps and btn_settings are never pushed off-screen. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/home_root"
     android:layout_width="match_parent"
@@ -41,30 +46,41 @@
             android:layout_weight="0.42"
             android:orientation="vertical">
 
+            <!-- Top-right row: clock + date take the remaining width (ellipsized), the ▦ and ⚙
+                 glyphs stay wrap_content at the end so they are always visible at 1024x600. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:padding="@dimen/card_padding">
-                <TextView android:id="@+id/clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:textColor="@color/clock" android:textSize="@dimen/clock_size" />
-                <TextView android:id="@+id/clock_date" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp" android:textColor="@color/text_sub" android:textSize="@dimen/date_size" />
-                <TextView android:id="@+id/battery" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp" android:textColor="@color/battery_ok" android:textSize="@dimen/battery_size"
-                    android:visibility="gone" />
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <TextView android:id="@+id/clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textColor="@color/clock" android:textSize="@dimen/clock_size" />
+                    <TextView android:id="@+id/clock_date" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp" android:textColor="@color/text_sub" android:textSize="@dimen/date_size"
+                        android:maxLines="1" android:ellipsize="end" />
+                </LinearLayout>
                 <TextView android:id="@+id/valet_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginStart="16dp" android:text="@string/valet_badge_text"
                     android:textColor="@color/battery_low" android:textSize="@dimen/badge_size" android:visibility="gone" />
                 <TextView android:id="@+id/btn_apps" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:gravity="end" android:text="@string/apps_glyph"
+                    android:layout_marginStart="16dp" android:text="@string/apps_glyph"
                     android:textColor="@color/text" android:textSize="28sp" android:clickable="true" />
                 <TextView android:id="@+id/btn_settings" android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginStart="16dp" android:text="@string/settings_glyph"
                     android:textColor="@color/text" android:textSize="28sp" android:clickable="true" />
             </LinearLayout>
 
+            <!-- Media card: height now ~2/3 of before (~138dp -> ~88dp). Album art 64dp drives
+                 the row height; transport buttons sit beside the text, and every label is one
+                 ellipsized line (the long no-access message used to wrap and blow the card up,
+                 clipping the radar card below). -->
             <LinearLayout
                 android:id="@+id/media_card"
                 android:layout_width="match_parent"
@@ -76,25 +92,27 @@
                 <ImageView android:id="@+id/media_art" android:layout_width="@dimen/art_size" android:layout_height="@dimen/art_size"
                     android:scaleType="centerCrop" android:src="@drawable/ic_music_placeholder" android:contentDescription="@string/media_idle" />
                 <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                    android:layout_marginStart="12dp" android:orientation="vertical">
+                    android:layout_marginStart="12dp" android:gravity="center_vertical" android:orientation="vertical">
                     <TextView android:id="@+id/media_title" android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:textColor="@color/text" android:textSize="22sp" />
+                        android:textColor="@color/text" android:textSize="18sp" android:maxLines="1" android:ellipsize="end" />
                     <TextView android:id="@+id/media_artist" android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:textColor="@color/text_sub" android:textSize="16sp" />
+                        android:textColor="@color/text_sub" android:textSize="13sp" android:maxLines="1" android:ellipsize="end" />
                     <TextView android:id="@+id/media_source" android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:textColor="@color/text_sub" android:textSize="14sp" />
-                    <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp" android:orientation="horizontal">
-                        <ImageButton android:id="@+id/media_prev" android:layout_width="44dp" android:layout_height="44dp"
-                            android:src="@drawable/ic_skip_prev" android:background="@android:color/transparent" android:contentDescription="@string/media_idle" />
-                        <ImageButton android:id="@+id/media_play_pause" android:layout_width="44dp" android:layout_height="44dp"
-                            android:src="@drawable/ic_pause" android:background="@android:color/transparent" android:contentDescription="@string/media_idle" />
-                        <ImageButton android:id="@+id/media_next" android:layout_width="44dp" android:layout_height="44dp"
-                            android:src="@drawable/ic_skip_next" android:background="@android:color/transparent" android:contentDescription="@string/media_idle" />
-                    </LinearLayout>
+                        android:textColor="@color/text_sub" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" />
+                </LinearLayout>
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp" android:gravity="center_vertical" android:orientation="horizontal">
+                    <ImageButton android:id="@+id/media_prev" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_skip_prev" android:background="@android:color/transparent" android:contentDescription="@string/media_idle" />
+                    <ImageButton android:id="@+id/media_play_pause" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_pause" android:background="@android:color/transparent" android:contentDescription="@string/media_idle" />
+                    <ImageButton android:id="@+id/media_next" android:layout_width="44dp" android:layout_height="44dp"
+                        android:src="@drawable/ic_skip_next" android:background="@android:color/transparent" android:contentDescription="@string/media_idle" />
                 </LinearLayout>
             </LinearLayout>
 
+            <!-- Radar card: keeps whatever is left of the column (weight), so its attribution
+                 text no longer overflows the bottom of the screen. -->
             <FrameLayout
                 android:id="@+id/radar_card"
                 android:layout_width="match_parent"
@@ -116,4 +134,13 @@
     <include layout="@layout/favorites_bar" />
 
     </LinearLayout>
+
+    <!-- Volt meter (spec S19), Round 3: moved out of the top-right row (it pushed ▦/⚙ off-screen)
+         to the bottom-right corner of the content area, directly above the favourites bar
+         (bar height + margins = battery_above_fav_bar). Same id, same updateBattery() logic. -->
+    <TextView android:id="@+id/battery" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end" android:layout_marginEnd="@dimen/card_margin"
+        android:layout_marginBottom="@dimen/battery_above_fav_bar"
+        android:textColor="@color/battery_ok" android:textSize="@dimen/battery_size"
+        android:visibility="gone" />
 </FrameLayout>

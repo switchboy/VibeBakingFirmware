@@ -2,6 +2,7 @@ package org.vibebaking.launcher.logic;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -28,6 +29,22 @@ public final class AppDrawerPolicy {
         public Entry(String pkg, String label, boolean launchable) {
             this.pkg = pkg; this.label = label; this.launchable = launchable;
         }
+    }
+
+    /**
+     * One entry per package: queryIntentActivities(ACTION_MAIN+CATEGORY_LAUNCHER) can return
+     * several launcher activities for the same app; the drawer shows one cell per package
+     * (first occurrence wins, so the enumeration order decides which label is kept).
+     */
+    public static List<Entry> dedupe(List<Entry> all) {
+        List<Entry> out = new ArrayList<>();
+        if (all == null) return out;
+        Set<String> seen = new HashSet<>();
+        for (Entry e : all) {
+            if (e == null || e.pkg == null) continue;
+            if (seen.add(e.pkg)) out.add(e);
+        }
+        return out;
     }
 
     /**
