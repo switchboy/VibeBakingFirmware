@@ -9,6 +9,7 @@ android_app {
     srcs: ["src/**/*.java"],
     manifest: "AndroidManifest.xml",
     certificate: "platform",
+    platform_apis: true, // sdk_version empty = build against platform APIs; soong requires this flag explicitly
     privileged: true,
     dex_preopt: { enabled: false }, // boot-time dexopt on this unit; same choice as the HCT apps
     // VERIFY on the build host before enabling:
