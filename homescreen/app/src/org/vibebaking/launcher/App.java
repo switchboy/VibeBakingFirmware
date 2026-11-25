@@ -2,6 +2,9 @@ package org.vibebaking.launcher;
 
 import android.app.Application;
 
+import org.vibebaking.launcher.logic.CombinedPhoneProbe;
+import org.vibebaking.launcher.logic.PhonePresenceProbe;
+
 /** Shared singletons for the launcher activities; dynamic accent via Material You if present. */
 public class App extends Application {
 
@@ -11,6 +14,7 @@ public class App extends Application {
     ThemeApplier theme;
     CarClient car;
     ValetController valet;
+    CombinedPhoneProbe btProbe;
 
     @Override
     public void onCreate() {
@@ -19,7 +23,18 @@ public class App extends Application {
         store = new SettingsStore(this);
         theme = new ThemeApplier(this);
         car = new CarClient();
-        valet = new ValetController(this, store, new ValetController.NoBtStackProbe());
+        // Trusted phone: HCT/GOC Bluetooth stack first (the real BT here), Android's own stack as
+        // the second source. Both sources are fault-tolerant: a missing service, a denied
+        // permission or a dead profile proxy yields UNKNOWN, never an exception (S25/S26/S36).
+        // Construction itself is guarded too: a broken BT service must not crash the app at start.
+        PhonePresenceProbe hct;
+        PhonePresenceProbe droid;
+        try { hct = new HctBluetoothProbe(this); }
+        catch (Throwable t) { hct = new CombinedPhoneProbe.Inert(); }
+        try { droid = new BluetoothPhoneProbe(this); }
+        catch (Throwable t) { droid = new CombinedPhoneProbe.Inert(); }
+        btProbe = new CombinedPhoneProbe(hct, droid);
+        valet = new ValetController(this, store, btProbe);
         applyDynamicColors();
     }
 
@@ -28,6 +43,7 @@ public class App extends Application {
     public static ThemeApplier theme() { return instance.theme; }
     public static CarClient car() { return instance.car; }
     public static ValetController valet() { return instance.valet; }
+    public static CombinedPhoneProbe bt() { return instance.btProbe; }
 
     /**
      * Spec S34: accent from Material You when the material library is in the build. Reflection

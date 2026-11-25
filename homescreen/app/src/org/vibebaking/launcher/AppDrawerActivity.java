@@ -6,13 +6,13 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import org.vibebaking.launcher.logic.AppDrawerPolicy;
+import org.vibebaking.launcher.logic.FavoritePolicy;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -52,9 +52,11 @@ public class AppDrawerActivity extends Activity {
             enumerate(), valet, App.valet().allowedExtras(), homeApps());
 
         grid.removeAllViews();
+        // Page math comes from the pure policy: 12 icons per screen (4x3), anything more scrolls.
+        int pages = AppDrawerPolicy.pageCount(visible.size());
         status.setText(valet
-            ? getString(R.string.drawer_count_valet, visible.size())
-            : getString(R.string.drawer_count, visible.size()));
+            ? getString(R.string.drawer_count_valet, visible.size(), pages)
+            : getString(R.string.drawer_count, visible.size(), pages));
         if (visible.isEmpty()) {
             TextView empty = new TextView(this);
             empty.setText(getString(R.string.drawer_empty));
@@ -64,6 +66,7 @@ public class AppDrawerActivity extends Activity {
             return;
         }
         int cellHeight = getResources().getDimensionPixelSize(R.dimen.drawer_cell_height);
+        List<String> pinnedPkgs = App.store().favSlots(); // bottom row contents (spec S40c)
         for (AppDrawerPolicy.Entry e : visible) {
             LinearLayout cell = new LinearLayout(this);
             cell.setOrientation(LinearLayout.VERTICAL);
@@ -78,7 +81,8 @@ public class AppDrawerActivity extends Activity {
                 getResources().getDimensionPixelSize(R.dimen.drawer_icon),
                 getResources().getDimensionPixelSize(R.dimen.drawer_icon)));
             TextView label = new TextView(this);
-            label.setText(e.label);
+            boolean pinned = pinnedPkgs.contains(e.pkg);
+            label.setText(pinned ? getString(R.string.fav_pinned_prefix) + e.label : e.label);
             label.setTextSize(14f);
             label.setTextColor(getResources().getColor(R.color.text));
             label.setMaxLines(2);
@@ -86,12 +90,29 @@ public class AppDrawerActivity extends Activity {
             cell.addView(label);
             cell.setClickable(true);
             cell.setOnClickListener(v -> launch(e.pkg));
+            // Long-press pins to the bottom row (spec S40c). Disabled in valet: the home row must
+            // not be edited while the suspension is in force.
+            if (!valet) {
+                cell.setLongClickable(true);
+                cell.setOnLongClickListener(v -> { pinToFavoriteRow(e.pkg); return true; });
+            }
             GridLayout.LayoutParams p = new GridLayout.LayoutParams();
             p.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
             p.rowSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
             p.width = 0;
             p.height = cellHeight;
             grid.addView(cell, p);
+        }
+    }
+
+    /** Long-press handler: assign to the first free slot; a full row replaces the primary slot. */
+    void pinToFavoriteRow(String pkg) {
+        try {
+            App.store().setFavSlots(FavoritePolicy.assign(App.store().favSlots(), pkg));
+            android.widget.Toast.makeText(this, R.string.fav_pinned, android.widget.Toast.LENGTH_SHORT).show();
+            build(); // re-render the star markers
+        } catch (Throwable t) {
+            android.util.Log.w("AppDrawerActivity", "pin failed for " + pkg, t);
         }
     }
 
@@ -136,7 +157,4 @@ public class AppDrawerActivity extends Activity {
             android.util.Log.w("AppDrawerActivity", "launch failed for " + pkg, t);
         }
     }
-
-    @SuppressWarnings("unused")
-    private static boolean pageFits(int n) { return n <= AppDrawerPolicy.PAGE_SIZE; }
 }

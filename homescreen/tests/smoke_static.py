@@ -24,6 +24,12 @@ def ok(sa, cond, why=""):
     print(("PASS " if cond else "FAIL ") + sa + (" — " + why if not cond and why else ""))
 
 
+def all4(src):
+    """The four slot/icon/label/glyph ids of the favourites bar."""
+    return all(f'@+id/fav_slot{i}' in src and f'@+id/fav_icon{i}' in src
+               and f'@+id/fav_glyph{i}' in src and f'@+id/fav_label{i}' in src for i in range(4))
+
+
 mapc = read("app/src/org/vibebaking/launcher/MapCardController.java")
 radar = read("app/src/org/vibebaking/launcher/RadarView.java")
 media = read("app/src/org/vibebaking/launcher/MediaCardController.java")
@@ -160,6 +166,77 @@ ok("SA23", "sym_def_app_icon" in drw and "getApplicationIcon" in drw
 ok("SA24", "R.id.btn_apps" in act and "drawer_close" in read("app/res/layout/drawer_activity.xml")
    and "ValetPolicy.allowedSet" in read("app/src/org/vibebaking/launcher/logic/AppDrawerPolicy.java"),
    "valet drawer cannot escape the allowed set; close control exists")
+
+# SA25 - trusted phone: HCT BT broadcasts + Settings.System pair list, both guarded.
+hct = read("app/src/org/vibebaking/launcher/HctBluetoothProbe.java")
+ok("SA25", '"net.easyconn.bt.connected"' in hct and '"net.easyconn.bt.notconnected"' in hct
+   and '"net.easyconn.bt.opened"' in hct and '"com.microntek.bt.report"' in hct
+   and '"MTC.BT.deviceList"' in hct and '"MTC.BT.matchList"' in hct,
+   "probe hooks the HCT/GOC signals, not only Android's stack")
+ok("SA25b", "catch (Throwable junkBroadcast)" in hct and "catch (Throwable t)" in hct[hct.find("String storedDeviceList"):],
+   "a junk broadcast or an unreadable settings value must not crash the launcher")
+ok("SA25c", hct.find("Context.RECEIVER_EXPORTED") < hct.find("catch (Throwable t2)")
+   and "registered = false" in hct, "a receiver that cannot be registered degrades to UNKNOWN")
+
+# SA26 - Android's own stack as the second source: denied permission / dead proxy -> UNKNOWN only.
+btandroid = read("app/src/org/vibebaking/launcher/BluetoothPhoneProbe.java")
+ok("SA26", "catch (Throwable t)" in btandroid and "PhonePolicy.decideAndroid(false, 0, 0, true)" in btandroid
+   and "getProfileProxy" in btandroid and "closeProfileProxy" in btandroid,
+   "Android stack failures must yield UNKNOWN, not an exception")
+
+# SA27 - BOTH sources consulted, and one being unavailable must never crash the app (spec S25b).
+comb = read("app/src/org/vibebaking/launcher/logic/CombinedPhoneProbe.java")
+ok("SA27", "catch (Throwable t) { return PhonePresence.UNKNOWN; }" in comb
+   and "catch (Throwable t) { return false; }" in comb and "catch (Throwable ignore)" in comb,
+   "a throwing source contributes UNKNOWN only; configured/release are guarded too")
+ok("SA27b", "new HctBluetoothProbe(this)" in app and "new BluetoothPhoneProbe(this)" in app
+   and app.find("try { hct = new HctBluetoothProbe(this); }") < app.find("btProbe = new CombinedPhoneProbe(hct, droid)")
+   and "CombinedPhoneProbe.Inert" in app,
+   "probe construction is guarded in App.onCreate: a dead BT service cannot crash the app at start")
+ok("SA27c", "PhonePolicy.combine" in comb and "if (hct != null && hct != PhonePresence.UNKNOWN) return hct;"
+   in read("app/src/org/vibebaking/launcher/logic/PhonePolicy.java"),
+   "HCT verdict wins when informative; Android is the fallback")
+
+# SA28 - valet uses the crash-safe verdict everywhere, and the exit hook polls it.
+ok("SA28", "probeSafe()" in valet and valet.count("probe.probe()") == 1
+   and "PhonePresence p = probeSafe()" in valet
+   and valet.find("PhonePresence p = probe.probe();") > valet.find("PhonePresence probeSafe()")
+   and "configuredSafe()" in valet and "PhonePolicy.exitPathAvailable" in valet
+   and "startPhoneWatch()" in valet and "stopPhoneWatch()" in valet,
+   "the only raw probe call is inside probeSafe(); timers and the exit watch use the guarded verdict")
+ok("SA28b", "App.valet().probeSafe()" in settings and "App.valet().configuredSafe()" in settings
+   and "phoneStatus()" in settings, "settings phone status reads the guarded verdict")
+
+# SA29 - drawer status shows the page math (12 icons per screen), and the old valet-tiles API is gone.
+ok("SA29", "AppDrawerPolicy.pageCount(visible.size())" in drw
+   and "%1$d apps · %2$d pages" in strings and "%1$d allowed apps (valet mode) · %2$d pages" in strings,
+   "page math must be wired into the UI, not only unit-tested")
+ok("SA29b", "homeTiles" not in drw and "homeTiles" not in valet
+   and "homeTiles" not in read("app/src/org/vibebaking/launcher/logic/ValetPolicy.java"),
+   "the valet-tiles idea is dead code: the drawer is the valet app surface (S27/S39b)")
+
+# SA30 - the phone-exit watch must survive the home screen being paused (owner in drawer/settings).
+ok("SA30", "stopPhoneWatch()" not in act and "startPhoneWatch()" not in act,
+   "watch lifecycle belongs to ValetController (enter/exit), not the activity lifecycle (S26)")
+
+# SA35 - bottom favourite row exists, four aligned slots, placeholder glyph/icon fallbacks.
+favbar = read("app/res/layout/favorites_bar.xml")
+ok("SA35", 'android:id="@+id/favorites_bar"' in favbar and all4(favbar)
+   and '<include layout="@layout/favorites_bar" />' in read("app/res/layout/home_activity.xml")
+   and "fav_bar_height" in read("app/res/values/dimens.xml") and "ic_app_placeholder" in favbar,
+   "four slots in the bar, included at the bottom of the home layout")
+ok("SA36", "void launchFavorite(String pkg, int slot)" in act
+   and "catch (Throwable t)" in act[act.find("void launchFavorite"):]
+   and "FavoritePolicy.BT_TAB_EXTRA" in act and "isEmpty()) { startActivity(new Intent(this, AppDrawerActivity.class))" in act,
+   "phone slot opens the BT dialler tab; an empty slot opens the drawer; launch failures are caught")
+ok("SA36b", "store.setFavSlots(FavoritePolicy.clear(store.favSlots(), slot))" in act,
+   "a favourite that was uninstalled drops its slot instead of doing nothing")
+ok("SA37", "catch (Throwable t)" in act[act.find("void refreshFavorites"):act.find("void launchFavorite")]
+   and "favIcons[i].setImageResource(R.drawable.ic_app_placeholder)" in act,
+   "unreadable icon/label must fall back to the placeholder, not crash the bar")
+ok("SA37b", "if (valet.isActive() && store.valetEnabled()) return;" in act[act.find("void clearFavorite"):]
+   and "if (!valet)" in drw and "pinToFavoriteRow" in drw,
+   "pinning/un-pinning is refused while valet is active (S40c)")
 
 fails = [r for r in results if not r[1]]
 print(f"{len(results)} scenario checks, {len(fails)} failed")

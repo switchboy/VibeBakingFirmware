@@ -7,10 +7,15 @@ import org.vibebaking.launcher.logic.BatteryState;
 import org.vibebaking.launcher.logic.CarEventParser;
 import org.vibebaking.launcher.logic.ClockFormat;
 import org.vibebaking.launcher.logic.ColorTools;
+import org.vibebaking.launcher.logic.CombinedPhoneProbe;
 import org.vibebaking.launcher.logic.DayNight;
+import org.vibebaking.launcher.logic.FavoritePolicy;
 import org.vibebaking.launcher.logic.Json;
 import org.vibebaking.launcher.logic.MapTargetPolicy;
 import org.vibebaking.launcher.logic.MediaCardPolicy;
+import org.vibebaking.launcher.logic.PhonePolicy;
+import org.vibebaking.launcher.logic.PhonePresence;
+import org.vibebaking.launcher.logic.PhonePresenceProbe;
 import org.vibebaking.launcher.logic.RadarTiles;
 import org.vibebaking.launcher.logic.SettingsKeys;
 import org.vibebaking.launcher.logic.ThemePolicy;
@@ -43,6 +48,12 @@ public class Main {
         else { failures.add(id); System.out.println("FAIL " + id); }
     }
 
+    /** Failure-note variant: the extra explanation is printed only when the check fails. */
+    static void check(String id, boolean cond, String why) {
+        check(id, cond);
+        if (!cond) System.out.println("     why: " + why);
+    }
+
     public static void main(String[] args) throws Exception {
         Path dir = Path.of(args.length > 0 ? args[0] : ".");
         t01Radar(dir);
@@ -63,6 +74,9 @@ public class Main {
         t16MapTarget();
         t17OwnerDefaults();
         t18AppDrawer();
+        t19PhonePolicy();
+        t20CombinedPhoneProbe();
+        t21FavoriteRow();
         System.out.println(checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
             System.out.println("FAILED: " + String.join(", ", failures));
@@ -178,10 +192,15 @@ public class Main {
         check("U06.allowedExact", ValetPolicy.DEFAULT_ALLOWED.equals(Set.of(
             "com.google.android.apps.maps", "com.microntek.radio", "com.microntek.bluetooth",
             "com.microntek.frontview", "com.microntek.backview")));
-        List<String> tiles = ValetPolicy.homeTiles(apps, Set.of());
-        check("U06.tiles", tiles.equals(Arrays.asList(
+        Set<String> tiles = ValetPolicy.allowedSet(Set.of());
+        check("U06.tiles", tiles.equals(Set.of(
             "com.google.android.apps.maps", "com.microntek.backview", "com.microntek.bluetooth",
-            "com.microntek.frontview", "org.vibebaking.launcher")));
+            "com.microntek.frontview", "com.microntek.radio", "org.vibebaking.launcher")),
+            "valet app surface = allowed set; the drawer renders exactly this (S27/S39b)");
+        check("U06.allowedExtras", ValetPolicy.allowedSet(Set.of("com.foo.game")).contains("com.foo.game"));
+        check("U06.noTilesApi", java.util.Arrays.stream(ValetPolicy.class.getMethods())
+            .noneMatch(m -> m.getName().equals("homeTiles")),
+            "the old valet-tiles idea is gone: the drawer is the app surface (S27/S39b)");
         check("U06.settingsSuspended", ValetPolicy.computeSuspend(apps, Set.of()).contains("com.android.settings"));
     }
 
@@ -364,7 +383,7 @@ public class Main {
         check("U17.reversePct", SettingsKeys.DEFAULT_REVERSE_VOLUME_PERCENT == 30);
         check("U17.mcuOff", SettingsKeys.DEFAULT_REVERSE_MCU == false);
         check("U17.timeout", SettingsKeys.DEFAULT_VALET_TIMEOUT_S == 60);
-        check("U17.autoOff", SettingsKeys.DEFAULT_VALET_AUTO == false);
+        check("U17.autoOn", SettingsKeys.DEFAULT_VALET_AUTO == true);
         check("U17.enabledOff", SettingsKeys.DEFAULT_VALET_ENABLED == false);
         check("U17.mapAuto", SettingsKeys.DEFAULT_MAP_TARGET.equals("auto"));
         check("U17.coords", SettingsKeys.DEFAULT_LAT == 52.09 && SettingsKeys.DEFAULT_LON == 5.29);
@@ -408,6 +427,174 @@ public class Main {
         check("U18.rows", AppDrawerPolicy.rowCount(12) == 3 && AppDrawerPolicy.rowCount(13) == 4);
         check("U18.empty", AppDrawerPolicy.visible(List.of(), false, Set.of(), Set.of()).isEmpty());
         check("U18.nullSafe", AppDrawerPolicy.visible(null, true, null, null).isEmpty());
+    }
+
+    // U19: trusted-phone verdicts (spec S25/S26/S26a), both sources.
+    static void t19PhonePolicy() {
+        check("U19.androidDead", PhonePolicy.decideAndroid(false, 5, 1, false) == PhonePresence.UNKNOWN);
+        check("U19.androidFailed", PhonePolicy.decideAndroid(true, 5, 1, true) == PhonePresence.UNKNOWN);
+        check("U19.androidConnected", PhonePolicy.decideAndroid(true, 1, 1, false) == PhonePresence.PRESENT);
+        check("U19.androidPairedAway", PhonePolicy.decideAndroid(true, 2, 0, false) == PhonePresence.NONE);
+
+        // HCT: no broadcast seen yet -> UNKNOWN (never auto-enter, never exit).
+        check("U19.hctSilent", PhonePolicy.decideHct(false, false, false, false) == PhonePresence.UNKNOWN);
+        check("U19.hctConnected", PhonePolicy.decideHct(true, true, true, true) == PhonePresence.PRESENT);
+        check("U19.hctDisconnected", PhonePolicy.decideHct(true, false, true, true) == PhonePresence.NONE);
+        check("U19.hctOpenedNoPair", PhonePolicy.decideHct(true, false, true, false) == PhonePresence.NONE);
+        check("U19.hctPairedOnly", PhonePolicy.decideHct(true, false, false, true) == PhonePresence.NONE);
+
+        // Combination: HCT wins when informative (it is the real BT on this unit); Android is the
+        // fallback; two UNKNOWNs stay UNKNOWN.
+        check("U19.combineHctWins", PhonePolicy.combine(PhonePresence.NONE, PhonePresence.PRESENT) == PhonePresence.NONE);
+        check("U19.combineAndroidFallback", PhonePolicy.combine(PhonePresence.UNKNOWN, PhonePresence.PRESENT) == PhonePresence.PRESENT);
+        check("U19.combineBothUnknown", PhonePolicy.combine(PhonePresence.UNKNOWN, PhonePresence.UNKNOWN) == PhonePresence.UNKNOWN);
+        check("U19.combineNullSafe", PhonePolicy.combine(null, null) == PhonePresence.UNKNOWN);
+        check("U19.combineNullHct", PhonePolicy.combine(null, PhonePresence.NONE) == PhonePresence.NONE);
+
+        // Auto-entry / exit rules (S25/S26) and the exit-path guard (S26a).
+        check("U19.autoEntryOnlyNone", PhonePolicy.autoEntryWanted(PhonePresence.NONE)
+            && !PhonePolicy.autoEntryWanted(PhonePresence.PRESENT)
+            && !PhonePolicy.autoEntryWanted(PhonePresence.UNKNOWN));
+        check("U19.exitOnlyPresent", PhonePolicy.exitWanted(PhonePresence.PRESENT)
+            && !PhonePolicy.exitWanted(PhonePresence.NONE) && !PhonePolicy.exitWanted(PhonePresence.UNKNOWN));
+        check("U19.exitPathPairedAway", PhonePolicy.exitPathAvailable(PhonePresence.NONE, true));
+        check("U19.exitPathConnected", PhonePolicy.exitPathAvailable(PhonePresence.PRESENT, false));
+        check("U19.noExitPath", !PhonePolicy.exitPathAvailable(PhonePresence.UNKNOWN, false));
+        check("U19.entryNeedsExitPath", !ValetPolicy.entryAllowed(true, false, false)
+            && ValetPolicy.entryAllowed(true, true, false)
+            && ValetPolicy.entryAllowed(true, false, true));
+        check("U19.replayExitsWhenPathLost",
+            ValetPolicy.replayAction(true, true, false, false) == ValetPolicy.Replay.EXIT
+            && ValetPolicy.replayAction(true, true, false, true) == ValetPolicy.Replay.APPLY);
+        check("U19.addressHeuristic", PhonePolicy.parseDeviceList("AA:BB:CC:DD:EE:FF") == 1
+            && PhonePolicy.parseDeviceList("iPhone 15") == 0);
+        // HCT pair list as stored by saveList() -> Settings.System (newline-separated entries).
+        check("U19.listOneAddress", PhonePolicy.parseDeviceList("AA:BB:CC:DD:EE:FF") == 1);
+        check("U19.listTwoAddresses", PhonePolicy.parseDeviceList("aa:bb:cc:dd:ee:ff\n112233445566") == 2);
+        check("U19.listNameWithAddress", PhonePolicy.parseDeviceList("Daan's Phone,AA:BB:CC:DD:EE:FF") == 1);
+        check("U19.listNamesOnly", PhonePolicy.parseDeviceList("iPhone 15\nSamsung Galaxy") == 0);
+        check("U19.listShortJunk", PhonePolicy.parseDeviceList("aa:bb:cc\ndeadbeefnothex") == 0);
+        check("U19.listEmptyNull", PhonePolicy.parseDeviceList(null) == 0 && PhonePolicy.parseDeviceList("") == 0);
+        // Paired list without any broadcast yet is still informative (phone paired but away).
+        check("U19.pairedListWithoutBroadcast", PhonePolicy.decideHct(true, false, false, true) == PhonePresence.NONE
+            && PhonePolicy.exitPathAvailable(PhonePolicy.decideHct(true, false, false, true), true));
+    }
+
+    // U20: BOTH phone sources are consulted, and one being unavailable must not break the other
+    // or crash (spec S25/S26/S36).
+    static void t20CombinedPhoneProbe() {
+        CombinedPhoneProbe both = new CombinedPhoneProbe(
+            new StubPhone(PhonePresence.NONE, true), new StubPhone(PhonePresence.PRESENT, true));
+        check("U20.hctWins", both.probe() == PhonePresence.NONE);
+        check("U20.pairedListSeen", both.trustedPhoneConfigured());
+
+        CombinedPhoneProbe hctDead = new CombinedPhoneProbe(new ThrowingPhone(), new StubPhone(PhonePresence.PRESENT, true));
+        check("U20.hctDeadAndroidAnswers", hctDead.probe() == PhonePresence.PRESENT);
+        check("U20.hctDeadExitStillWorks", PhonePolicy.exitWanted(hctDead.probe()));
+        check("U20.pairedListFromAndroid", hctDead.trustedPhoneConfigured());
+
+        CombinedPhoneProbe androidDead = new CombinedPhoneProbe(new StubPhone(PhonePresence.NONE, true), new ThrowingPhone());
+        check("U20.androidDeadHctAnswers", androidDead.probe() == PhonePresence.NONE);
+        check("U20.androidDeadAutoEntryStillArmed", PhonePolicy.autoEntryWanted(androidDead.probe()));
+
+        CombinedPhoneProbe bothDead = new CombinedPhoneProbe(new ThrowingPhone(), new ThrowingPhone());
+        check("U20.bothDeadUnknown", bothDead.probe() == PhonePresence.UNKNOWN);
+        check("U20.bothDeadNoPairKnowledge", !bothDead.trustedPhoneConfigured());
+        check("U20.bothDeadInert", !PhonePolicy.autoEntryWanted(bothDead.probe())
+            && !PhonePolicy.exitWanted(bothDead.probe()));
+        check("U20.bothDeadNoExitPath", !PhonePolicy.exitPathAvailable(bothDead.probe(), bothDead.trustedPhoneConfigured()));
+        check("U20.nullSourcesSafe", new CombinedPhoneProbe(null, null).probe() == PhonePresence.UNKNOWN);
+        check("U20.nullConfiguredSafe", !new CombinedPhoneProbe(null, null).trustedPhoneConfigured());
+        check("U20.nullProbeValueSafe", new CombinedPhoneProbe(new StubPhone(null, false), null).probe() == PhonePresence.UNKNOWN);
+        // Teardown must never throw either, even when a source blows up.
+        bothDead.release();
+        new CombinedPhoneProbe(new ThrowingReleasePhone(), null).release();
+        check("U20.releaseSafe", true);
+    }
+
+    static class StubPhone implements PhonePresenceProbe {
+        private final PhonePresence v; private final boolean paired;
+        StubPhone(PhonePresence v, boolean paired) { this.v = v; this.paired = paired; }
+        @Override public PhonePresence probe() { return v; }
+        @Override public boolean trustedPhoneConfigured() { return paired; }
+    }
+
+    static class ThrowingPhone implements PhonePresenceProbe {
+        @Override public PhonePresence probe() { throw new IllegalStateException("BT service gone"); }
+        @Override public boolean trustedPhoneConfigured() { throw new SecurityException("no BT permission"); }
+    }
+
+    static class ThrowingReleasePhone implements PhonePresenceProbe {
+        @Override public PhonePresence probe() { return PhonePresence.UNKNOWN; }
+        @Override public void release() { throw new IllegalStateException("proxy already closed"); }
+    }
+
+    // U21: bottom favourite row (spec S40/S40a/S40b/S40c).
+    static void t21FavoriteRow() {
+        check("U21.slots", FavoritePolicy.MAX_SLOTS == 4);
+        check("U21.defaultPhoneSlot", FavoritePolicy.defaults().equals(Arrays.asList(
+            "com.microntek.bluetooth", "", "", "")), "slot 0 ships preinstalled with the HCT dialler");
+        check("U21.nullDefaults", FavoritePolicy.slots(null).equals(FavoritePolicy.defaults()));
+        check("U21.blankDefaults", FavoritePolicy.slots("").equals(FavoritePolicy.defaults()));
+        check("U21.junkPresentHonoured", FavoritePolicy.slots("   ,, , ").equals(Arrays.asList("", "", "", "")),
+            "a present-but-empty pref means the owner cleared every slot: stay empty, do not re-add the phone app");
+        check("U21.parsed", FavoritePolicy.slots("com.waze,,,com.microntek.radio")
+            .equals(Arrays.asList("com.waze", "", "", "com.microntek.radio")),
+            "CSV fields are literal slot positions: field 3 lands in slot 3, extra fields are ignored");
+        check("U21.dedupeFirst", FavoritePolicy.slots("com.waze,com.waze,com.spotify.music")
+            .equals(Arrays.asList("com.waze", "", "com.spotify.music", "")), "duplicate collapses its later slot");
+        check("U21.capped", FavoritePolicy.slots("a,b,c,d,e").equals(Arrays.asList("a", "b", "c", "d")));
+        check("U21.csvRoundTrip", FavoritePolicy.csv(Arrays.asList("a", "", "", "b")).equals("a,,,b")
+            && FavoritePolicy.slots("a,,,b").equals(Arrays.asList("a", "", "", "b")));
+
+        List<String> def = FavoritePolicy.defaults();
+        check("U21.assignFirstEmpty", FavoritePolicy.assign(def, "com.waze")
+            .equals(Arrays.asList("com.microntek.bluetooth", "com.waze", "", "")));
+        check("U21.assignFullReplacesPrimary", FavoritePolicy.assign(
+            Arrays.asList("a", "b", "c", "d"), "com.waze").equals(Arrays.asList("com.waze", "b", "c", "d")));
+        check("U21.assignDedupe", FavoritePolicy.assign(def, "com.microntek.bluetooth").equals(def)
+            && FavoritePolicy.assign(Arrays.asList("com.waze", "", "", ""), "com.waze")
+                .equals(Arrays.asList("com.waze", "", "", "")),
+            "pinning an app that is already pinned keeps it where it is (no double pin, no shift)");
+        check("U21.assignBlankNoop", FavoritePolicy.assign(def, "").equals(def)
+            && FavoritePolicy.assign(def, null).equals(def));
+        check("U21.clearSlot", FavoritePolicy.clear(def, 0).equals(Arrays.asList("", "", "", "")));
+        check("U21.clearOutOfRange", FavoritePolicy.clear(def, 9).equals(def)
+            && FavoritePolicy.clear(def, -1).equals(def));
+
+        // Visibility: a removed app collapses to an empty slot (row stays aligned, S40).
+        List<String> row = Arrays.asList("com.microntek.bluetooth", "com.waze", "", "");
+        Set<String> gone = Set.of("com.microntek.bluetooth"); // only the phone app is launchable
+        List<String> v = FavoritePolicy.visible(row, false, null, gone);
+        check("U21.goneCollapsed", v.equals(Arrays.asList("com.microntek.bluetooth", "", "", ""))
+            && v.size() == FavoritePolicy.MAX_SLOTS, "uninstalled favourite must not shift the row");
+        // Valet (S40b): the phone app is allowed (owner list); Waze without extras is hidden.
+        List<String> vv = FavoritePolicy.visible(row, true, ValetPolicy.allowedSet(Set.of()), gone);
+        check("U21.valetPhoneKept", vv.equals(Arrays.asList("com.microntek.bluetooth", "", "", "")));
+        List<String> vvWaze = FavoritePolicy.visible(row, true,
+            ValetPolicy.allowedSet(ValetPolicy.withMapTarget(Set.of(), MapTargetPolicy.WAZE)),
+            Set.of("com.microntek.bluetooth", "com.waze"));
+        check("U21.valetNavKept", vvWaze.equals(Arrays.asList("com.microntek.bluetooth", "com.waze", "", "")),
+            "the map card's nav app stays allowed, so its pinned slot stays visible");
+        List<String> nullSafe = FavoritePolicy.visible(null, true, null, null);
+        check("U21.visibleNullSafe", nullSafe.size() == FavoritePolicy.MAX_SLOTS
+            && nullSafe.get(0).equals(FavoritePolicy.PHONE_PACKAGE));
+
+        // Glyphs + BT dialer tab (S40a).
+        check("U21.glyphPhone", FavoritePolicy.glyph(FavoritePolicy.PHONE_PACKAGE).equals("☎"));
+        check("U21.glyphEmpty", FavoritePolicy.glyph("").equals("＋") && FavoritePolicy.glyph(null).equals("＋"));
+        check("U21.glyphRadio", FavoritePolicy.glyph("com.microntek.radio").equals("♫"));
+        check("U21.glyphCamera", FavoritePolicy.glyph("com.microntek.backview").equals("◉")
+            && FavoritePolicy.glyph("com.microntek.frontview").equals("◉"));
+        check("U21.glyphNav", FavoritePolicy.glyph(MapTargetPolicy.MAPS).equals("✥")
+            && FavoritePolicy.glyph(MapTargetPolicy.WAZE).equals("✥"));
+        check("U21.glyphOther", FavoritePolicy.glyph("com.spotify.music").equals("▣"));
+        check("U21.tabExtra", FavoritePolicy.BT_TAB_EXTRA.equals("curTab") && FavoritePolicy.dialTab(0) == 0);
+        check("U21.tabClamp", FavoritePolicy.dialTab(-5) == 0 && FavoritePolicy.dialTab(7) == FavoritePolicy.BT_TAB_MAX);
+        check("U21.isPhoneSlot", FavoritePolicy.isPhoneSlot(FavoritePolicy.PHONE_PACKAGE)
+            && !FavoritePolicy.isPhoneSlot("com.waze"));
+        check("U21.sortedNullSafe", FavoritePolicy.sorted(null).isEmpty()
+            && FavoritePolicy.sorted(Arrays.asList("b", "", "a")).equals(Arrays.asList("a", "b")));
     }
 
     static List<String> labels(List<AppDrawerPolicy.Entry> e) {

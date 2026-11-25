@@ -12,8 +12,12 @@
     <string name="drawer_title">Apps</string>
     <string name="drawer_close">✕</string>
     <string name="drawer_empty">No launchable apps installed</string>
-    <string name="drawer_count">%1$d apps</string>
-    <string name="drawer_count_valet">%1$d allowed apps (valet mode)</string>
+    <string name="drawer_count">%1$d apps · %2$d pages</string>
+    <string name="drawer_count_valet">%1$d allowed apps (valet mode) · %2$d pages</string>
+    <string name="fav_slot_desc">Favourite app</string>
+    <string name="fav_pinned_prefix">★ </string>
+    <string name="fav_pinned">Pinned to the home row</string>
+    <string name="fav_cleared">Slot cleared</string>
     <string name="pin_locked">Wrong PIN too often — retry in %1$d s</string>
     <string name="pin_wrong">Wrong PIN, %1$d attempts left</string>
     <string name="pin_not_active">Valet mode is not active</string>

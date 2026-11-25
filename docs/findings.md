@@ -6228,3 +6228,11 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   code (Bluetooth valet).
 
   Super `cc335aa575f1…`.
+* **Attempt 38 - GApps installed and `av_active` works at boot.** Packages `com.google.android.gms`, `com.google.android.gsf`,
+  `com.android.vending`, `com.google.android.tts`; overlays `com.mtg.gmsoverlay`, `gmssettingsoverlay`,
+  `gmssettingsprovideroverlay` active; Play services running. MCU at boot: `--mtc @ dsp on`, `--mtc @ av vol (0) (33)` then
+  `(0) (10)` (attempt 37's `av_active=1`). HCT Bluetooth daemon running. First-boot effects only: one
+  `system_server_pre_watchdog` (main thread blocked 15 s, no restart), one ANR of `com.google.android.gms.persistent` while
+  opening its dex (`DexFile.openDexFileNative`), one Launcher3 crash on `USER_UNLOCKED` ("Existing input consumer found with
+  name: recents_animation_input_consumer").
+

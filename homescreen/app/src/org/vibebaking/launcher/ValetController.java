@@ -8,6 +8,10 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.text.TextUtils;
 
+import org.vibebaking.launcher.logic.PhonePolicy;
+import org.vibebaking.launcher.logic.PhonePresence;
+import org.vibebaking.launcher.logic.PhonePresenceProbe;
+import org.vibebaking.launcher.logic.SettingsKeys;
 import org.vibebaking.launcher.logic.ValetPolicy;
 
 import java.lang.reflect.Method;
@@ -22,12 +26,15 @@ import java.util.Set;
  */
 public class ValetController {
 
-    /** Trusted-phone presence (spec S25/S26). The HCT BT stack (gocsdkrf210) is dead on attempt 35. */
-    public enum PhonePresence { UNKNOWN, NONE, PRESENT }
-    public interface PhonePresenceProbe { PhonePresence probe(); }
+    /** Trusted-phone sources (spec S25/S26) - logic interface; HCT and Android stacks implement it. */
+
+    /** Fallback probe for builds without a working BT stack: never auto-enters, never exits. */
     public static class NoBtStackProbe implements PhonePresenceProbe {
         public PhonePresence probe() { return PhonePresence.UNKNOWN; }
     }
+
+    /** How often the exit hook checks for a connected trusted phone while valet is active. */
+    public static final long WATCH_MS = 10_000L;
 
     private final Context ctx;
     private final SettingsStore store;
@@ -49,28 +56,76 @@ public class ValetController {
 
     public boolean isActive() { return active; }
 
-    /** Trusted-phone presence for the settings warning (spec S26a). */
-    public boolean trustedPhonePresent() { return probe.probe() == PhonePresence.PRESENT; }
+    /** Trusted-phone presence for the settings warning (spec S26a); a broken probe -> UNKNOWN-safe. */
+    public boolean trustedPhonePresent() { return probeSafe() == PhonePresence.PRESENT; }
+
+    /**
+     * Exit path for valet (spec S26a): a trusted phone connected now, or paired so that connecting
+     * it later ends valet. Either BT source being dead contributes nothing - never an exception.
+     */
+    public boolean phoneExitPath() { return PhonePolicy.exitPathAvailable(probeSafe(), configuredSafe()); }
+
+    /** Paired phone known from either source; a dead service/permission yields false. */
+    boolean configuredSafe() {
+        try {
+            return probe != null && probe.trustedPhoneConfigured();
+        } catch (Throwable t) {
+            android.util.Log.w("ValetController", "pair-list probe failed", t);
+            return false;
+        }
+    }
+
+    /** Probe failures must never crash the auto-entry timer or the exit watch (spec S36/S37). */
+    PhonePresence probeSafe() {
+        try {
+            PhonePresence p = probe.probe();
+            return p == null ? PhonePresence.UNKNOWN : p;
+        } catch (Throwable t) {
+            android.util.Log.w("ValetController", "phone probe failed", t);
+            return PhonePresence.UNKNOWN;
+        }
+    }
 
     public void scheduleAutoEnter() {
         if (!store.valetEnabled() || !store.valetAuto()) return; // master off or auto off: inert (S27a)
         main.postDelayed(() -> {
-            // Auto-entry only with an exit path: with no phone present the PIN is the only way
-            // back out (S26a), so a missing PIN must block auto-entry.
+            // Auto-entry only with a trustworthy "no phone in the car" signal (S25) and an exit
+            // path: with no phone present the PIN is the only way back out (S26a).
+            PhonePresence p = probeSafe();
             boolean pinSet = !store.valetPinHash().isEmpty();
-            if (!active && probe.probe() == PhonePresence.NONE
-                    && ValetPolicy.entryAllowed(true, pinSet, false)) {
+            if (!active && PhonePolicy.autoEntryWanted(p)
+                    && ValetPolicy.entryAllowed(true, pinSet, PhonePolicy.exitPathAvailable(p, configuredSafe()))) {
                 enter();
             }
-        }, store.valetTimeoutS() * 1000L);
+        }, SettingsKeys.clampTimeoutS(store.valetTimeoutS()) * 1000L);
     }
+
+    /** Exit hook (spec S26): while valet is active, a connected trusted phone ends it. */
+    private final Runnable watch = new Runnable() {
+        @Override public void run() {
+            if (!active) return;
+            if (PhonePolicy.exitWanted(probeSafe())) {
+                exit();
+                android.util.Log.i("ValetController", "valet exited: trusted phone connected (S26)");
+                return;
+            }
+            main.postDelayed(this, WATCH_MS);
+        }
+    };
+
+    public void startPhoneWatch() {
+        main.removeCallbacks(watch);
+        main.postDelayed(watch, WATCH_MS);
+    }
+
+    public void stopPhoneWatch() { main.removeCallbacks(watch); }
 
     public void enter() {
         if (active) return;
         if (!store.valetEnabled()) return;                    // master switch off: valet inert (S27a)
         boolean pinSet = !store.valetPinHash().isEmpty();
-        boolean trusted = probe.probe() == PhonePresence.PRESENT;
-        if (!ValetPolicy.entryAllowed(true, pinSet, trusted)) {
+        boolean exitPath = phoneExitPath();
+        if (!ValetPolicy.entryAllowed(true, pinSet, exitPath)) {
             android.util.Log.i("ValetController", "valet entry refused: no exit configured (S26a)");
             return;
         }
@@ -84,10 +139,12 @@ public class ValetController {
         catch (Throwable t) { /* no policy access: notifications still blocked by suspension */ }
         statusBarDisable(true);
         active = true;
+        startPhoneWatch(); // exit when a trusted phone connects (spec S26)
     }
 
     public void exit() {
         if (!active) return;
+        stopPhoneWatch();
         List<String> list = split(store.getString("valet_suspend", ""));
         suspend(list, false);
         restoreInterruptionFilter();
@@ -100,14 +157,15 @@ public class ValetController {
     /**
      * After a crash/restart: replay the persisted valet state. ValetPolicy.replayAction decides:
      * APPLY re-suspends, EXIT unsuspends - the EXIT case covers the master switch being turned off
-     * AND the exit path disappearing (PIN wiped while active, BT dead), which must never re-trap
-     * the owner (spec S22/S26a/S27a).
+     * AND the exit path disappearing (PIN wiped while active, no phone signal), which must never
+     * re-trap the owner (spec S22/S26a/S27a). At restart the BT probe may not have seen a broadcast
+     * yet, so the safe reading is "no exit path" -> EXIT: unsuspending is recoverable, trapping is not.
      */
     public void replayPending() {
         if (active) return;
         boolean persisted = store.getBool("valet_active", false);
         ValetPolicy.Replay action = ValetPolicy.replayAction(persisted, store.valetEnabled(),
-            !store.valetPinHash().isEmpty(), trustedPhonePresent());
+            !store.valetPinHash().isEmpty(), phoneExitPath());
         if (action == ValetPolicy.Replay.NONE) return;
         List<String> list = split(store.getString("valet_suspend", ""));
         if (action == ValetPolicy.Replay.EXIT) {
@@ -124,6 +182,7 @@ public class ValetController {
         try { nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE); }
         catch (Throwable t) { }
         active = true;
+        startPhoneWatch();
     }
 
     private void restoreInterruptionFilter() {
@@ -135,11 +194,6 @@ public class ValetController {
 
     List<String> suspendList() {
         return ValetPolicy.computeSuspend(installedApps(), allowedExtras());
-    }
-
-    /** Home tiles while in valet (spec S27). */
-    public List<String> homeTiles() {
-        return ValetPolicy.homeTiles(installedApps(), allowedExtras());
     }
 
     /** Extras for the drawer/suspend list: owner extras + the nav app the map card targets. */

@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />    <!-- enumerate apps for valet -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />        <!-- backlight dim (S28) -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" /> <!-- DND total silence (S23) -->
+    <!-- Trusted-phone probe over Android's Bluetooth stack: paired devices + A2DP/HFP proxies (S25/S26). -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:name=".App"

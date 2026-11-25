@@ -9,9 +9,14 @@ import org.vibebaking.launcher.logic.BatteryState;
 import org.vibebaking.launcher.logic.CarEventParser;
 import org.vibebaking.launcher.logic.ClockFormat;
 import org.vibebaking.launcher.logic.ColorTools;
+import org.vibebaking.launcher.logic.CombinedPhoneProbe;
 import org.vibebaking.launcher.logic.DayNight;
+import org.vibebaking.launcher.logic.FavoritePolicy;
 import org.vibebaking.launcher.logic.MapTargetPolicy;
 import org.vibebaking.launcher.logic.MediaCardPolicy;
+import org.vibebaking.launcher.logic.PhonePolicy;
+import org.vibebaking.launcher.logic.PhonePresence;
+import org.vibebaking.launcher.logic.PhonePresenceProbe;
 import org.vibebaking.launcher.logic.RadarFetcher;
 import org.vibebaking.launcher.logic.RadarPlan;
 import org.vibebaking.launcher.logic.RadarTiles;
@@ -48,6 +53,12 @@ public class Smoke {
         checks++;
         if (cond) System.out.println("PASS " + sg);
         else { failures.add(sg); System.out.println("FAIL " + sg + " — " + titles.getOrDefault(sg, "?")); }
+    }
+
+    /** Failure-note variant: the extra explanation is printed only when the check fails. */
+    static void check(String sg, boolean cond, String why) {
+        check(sg, cond);
+        if (!cond) System.out.println("     why: " + why);
     }
 
     /** Stub fetcher: API urls (contain "radar_by_zoom") answer apiBody; tile urls match tileBase. */
@@ -141,6 +152,8 @@ public class Smoke {
         carEventStringValue();
         themeUnknownMode();
         appDrawer();
+        phoneSources();
+        favorites();
 
         System.out.println(titles.size() + " scenarios, " + checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
@@ -535,5 +548,127 @@ public class Smoke {
         scenario("SG47", "drawer grid math: 4x3 = 12 icons, overflow pages/scroll without explosion");
         check("SG47", AppDrawerPolicy.PAGE_SIZE == 12 && AppDrawerPolicy.pageCount(37) == 4
             && AppDrawerPolicy.rowCount(37) == 10);
+    }
+
+    static void phoneSources() {
+        scenario("SG48", "BT stack silent at boot (no broadcast yet): verdict UNKNOWN, valet stays inert");
+        CombinedPhoneProbe silent = new CombinedPhoneProbe(new SilentHct(), new DeadAndroid());
+        check("SG48", silent.probe() == PhonePresence.UNKNOWN);
+        check("SG48b", !PhonePolicy.autoEntryWanted(silent.probe()) && !PhonePolicy.exitWanted(silent.probe()));
+        check("SG48c", !PhonePolicy.exitPathAvailable(silent.probe(), silent.trustedPhoneConfigured())
+            && !ValetPolicy.entryAllowed(true, false, PhonePolicy.exitPathAvailable(silent.probe(), silent.trustedPhoneConfigured())),
+            "no PIN + no phone signal -> entry refused, owner is never trapped (S26a)");
+
+        scenario("SG49", "Android stack dead (BT off on this unit) while HCT works: no crash, HCT answers");
+        CombinedPhoneProbe androidDead = new CombinedPhoneProbe(new ConnectedHct(), new DeadAndroid());
+        check("SG49", androidDead.probe() == PhonePresence.PRESENT && PhonePolicy.exitWanted(androidDead.probe()));
+        check("SG49b", androidDead.trustedPhoneConfigured());
+
+        scenario("SG50", "HCT service missing / receiver denied: Android stack verdict still used");
+        CombinedPhoneProbe hctDead = new CombinedPhoneProbe(new ThrowingHct(), new PairedAwayAndroid());
+        check("SG50", hctDead.probe() == PhonePresence.NONE);
+        check("SG50b", hctDead.trustedPhoneConfigured() && PhonePolicy.autoEntryWanted(hctDead.probe()));
+        check("SG50c", ValetPolicy.entryAllowed(true, false, PhonePolicy.exitPathAvailable(
+            hctDead.probe(), hctDead.trustedPhoneConfigured())), "paired-but-away phone is an exit path (S26)");
+
+        scenario("SG51", "both BT sources blow up mid-run: UNKNOWN, no exception, valet inert + replay exits");
+        CombinedPhoneProbe bothDead = new CombinedPhoneProbe(new ThrowingHct(), new ThrowingAndroid());
+        check("SG51", bothDead.probe() == PhonePresence.UNKNOWN);
+        check("SG51b", ValetPolicy.replayAction(true, true, false, false) == ValetPolicy.Replay.EXIT,
+            "crash replay must unsuspend, not re-trap (S22/S26a)");
+        bothDead.release();
+        check("SG51c", true);
+
+        scenario("SG52", "junk phone-name entries in the HCT pair list must not count as addresses");
+        check("SG52", PhonePolicy.parseDeviceList("iPhone 15\nSamsung Galaxy") == 0,
+            "device names in MTC.BT.deviceList must not read as addresses");
+        check("SG52b", PhonePolicy.parseDeviceList("aa:bb:cc:dd:ee:ff\nAA:BB:CC:DD:EE:FF") == 2,
+            "colon-separated and bare addresses both count");
+        check("SG52c", PhonePolicy.parseDeviceList("aa:bb:cc\ndeadbeefnothex\n\n") == 0,
+            "short or non-hex junk must not count");
+        check("SG52d", PhonePolicy.parseDeviceList(null) == 0 && PhonePolicy.parseDeviceList("   ") == 0,
+            "missing/garbage settings value must not crash or count");
+        scenario("SG53", "HCT pair list present but no connection broadcast yet: paired-but-away, exit path exists");
+        PhonePresence p = PhonePolicy.decideHct(true, false, false, PhonePolicy.parseDeviceList("AA:BB:CC:DD:EE:FF") > 0);
+        check("SG53", p == PhonePresence.NONE && PhonePolicy.autoEntryWanted(p));
+        check("SG53b", PhonePolicy.exitPathAvailable(p, true) && ValetPolicy.entryAllowed(true, false, PhonePolicy.exitPathAvailable(p, true)),
+            "paired phone is an exit path even while away (S26a/S26 hook)");
+    }
+
+    /** Degradation scenarios for the bottom favourite row (spec S40/S40a/S40b/S40c). */
+    static void favorites() {
+        scenario("SG54", "favourite row: garbage/empty pref handled without blank icons or duplicates");
+        check("SG54", FavoritePolicy.slots(null).equals(FavoritePolicy.defaults())
+            && FavoritePolicy.slots("").equals(FavoritePolicy.defaults()),
+            "a missing pref means the factory row: phone slot filled, three empty");
+        check("SG54a", FavoritePolicy.slots(",,, ,,,,").equals(java.util.List.of("", "", "", "")),
+            "a present pref is honoured even when cleared: the owner un-pinned everything");
+        check("SG54b", FavoritePolicy.slots(",,,com.waze,,,com.waze").equals(java.util.List.of("", "", "", "com.waze")),
+            "CSV fields are literal slot positions (field 3 -> slot 3); fields past slot 3 are ignored");
+        check("SG54c", FavoritePolicy.csv(FavoritePolicy.slots("a,,,b")).equals("a,,,b")
+            && FavoritePolicy.slots(FavoritePolicy.csv(FavoritePolicy.slots("a,,,b")))
+                .equals(java.util.List.of("a", "", "", "b")), "store round-trip must be stable");
+
+        scenario("SG55", "favourite app uninstalled since pinning: slot collapses to empty, row stays aligned");
+        java.util.List<String> row = java.util.List.of("com.microntek.bluetooth", "com.waze", "", "");
+        java.util.List<String> v = FavoritePolicy.visible(row, false, null, java.util.Set.of("com.microntek.bluetooth"));
+        check("SG55", v.size() == 4 && v.equals(java.util.List.of("com.microntek.bluetooth", "", "", "")),
+            "a dead favourite must not shift the other slots");
+        check("SG55b", FavoritePolicy.glyph(v.get(1)).equals("＋"), "empty slot is the tap-to-drawer affordance");
+
+        scenario("SG56", "row full: pinning replaces the primary slot, duplicates never double-pin");
+        check("SG56", FavoritePolicy.assign(java.util.List.of("a", "b", "c", "d"), "com.waze")
+            .equals(java.util.List.of("com.waze", "b", "c", "d")));
+        check("SG56b", FavoritePolicy.assign(java.util.List.of("com.waze", "", "", ""), "com.waze")
+            .equals(java.util.List.of("com.waze", "", "", "")),
+            "a duplicate pin keeps its slot instead of moving to the next free one");
+
+        scenario("SG57", "valet mode: only allowed favourites stay visible; the phone slot always does");
+        java.util.List<String> vv = FavoritePolicy.visible(row, true,
+            ValetPolicy.allowedSet(java.util.Set.of()), java.util.Set.of("com.microntek.bluetooth", "com.waze"));
+        check("SG57", vv.equals(java.util.List.of("com.microntek.bluetooth", "", "", "")),
+            "Waze is not in the owner's allowed list -> hidden while valet is active");
+        java.util.List<String> vvNav = FavoritePolicy.visible(row, true,
+            ValetPolicy.allowedSet(ValetPolicy.withMapTarget(java.util.Set.of(), MapTargetPolicy.WAZE)),
+            java.util.Set.of("com.microntek.bluetooth", "com.waze"));
+        check("SG57b", vvNav.equals(java.util.List.of("com.microntek.bluetooth", "com.waze", "", "")),
+            "the map card's nav app stays allowed, so its pinned slot survives valet");
+        java.util.List<String> nullRow = FavoritePolicy.visible(null, true, null, null);
+        check("SG57c", nullRow.size() == 4 && nullRow.get(0).equals(FavoritePolicy.PHONE_PACKAGE));
+
+        scenario("SG58", "BT dialer tab index: garbage clamped, never passed through to the BT app");
+        check("SG58", FavoritePolicy.dialTab(-100) == 0 && FavoritePolicy.dialTab(99) == FavoritePolicy.BT_TAB_MAX
+            && FavoritePolicy.dialTab(1) == 1 && FavoritePolicy.BT_TAB_EXTRA.equals("curTab"));
+        scenario("SG59", "clearing slots: out-of-range index leaves the row untouched");
+        check("SG59", FavoritePolicy.clear(FavoritePolicy.defaults(), 99).equals(FavoritePolicy.defaults())
+            && FavoritePolicy.clear(FavoritePolicy.defaults(), -1).equals(FavoritePolicy.defaults()));
+        check("SG59b", FavoritePolicy.clear(null, 0).size() == 4 && FavoritePolicy.clear(null, 0).get(0).equals(""),
+            "a null row normalises to the factory row first, then slot 0 empties: never a crash");
+    }
+
+    /** HCT broadcast source before any BT broadcast has been seen (boot / service down). */
+    static class SilentHct implements PhonePresenceProbe {
+        @Override public PhonePresence probe() { return PhonePolicy.decideHct(false, false, false, false); }
+    }
+    static class ConnectedHct implements PhonePresenceProbe {
+        @Override public PhonePresence probe() { return PhonePolicy.decideHct(true, true, true, true); }
+        @Override public boolean trustedPhoneConfigured() { return true; }
+    }
+    static class ThrowingHct implements PhonePresenceProbe {
+        @Override public PhonePresence probe() { throw new IllegalStateException("android.microntek.mtcser gone"); }
+        @Override public boolean trustedPhoneConfigured() { throw new IllegalStateException("no receiver"); }
+        @Override public void release() { throw new IllegalStateException("already unregistered"); }
+    }
+    static class DeadAndroid implements PhonePresenceProbe {
+        @Override public PhonePresence probe() { return PhonePolicy.decideAndroid(false, 0, 0, true); }
+        @Override public boolean trustedPhoneConfigured() { return false; }
+    }
+    static class PairedAwayAndroid implements PhonePresenceProbe {
+        @Override public PhonePresence probe() { return PhonePolicy.decideAndroid(true, 1, 0, false); }
+        @Override public boolean trustedPhoneConfigured() { return true; }
+    }
+    static class ThrowingAndroid implements PhonePresenceProbe {
+        @Override public PhonePresence probe() { throw new SecurityException("BLUETOOTH_CONNECT denied"); }
+        @Override public void release() { throw new IllegalStateException("proxy closed twice"); }
     }
 }

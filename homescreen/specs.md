@@ -106,15 +106,34 @@ Firmware facts this rests on (all verified in the repo, read-only):
 - **S24** No shade / quick settings / recents escape: `StatusBarManager.disable(mask)` on entry,
   `disable(DISABLE_NONE)` on exit (mask constants verified against tree at build time). [C]
 - **S25** Enter: manual toggle in launcher settings; automatic when a trusted-phone probe reports
-  "no trusted phone" within timeout (default 60 s) after boot. While the HCT Bluetooth stack is
-  dead (attempt 35 state), the probe returns "unknown" and auto-entry stays off. [U]
-- **S26** Exit: trusted-phone-connected hook (BT stack, phase 2), or valet PIN. PIN stored as
-  SHA-256 hash; wrong PIN: max 5 attempts, then 30 s lockout. Correct PIN while locked resets
-  nothing; lockout expires on time. [U]
+  "no trusted phone" within timeout (default 60 s) after boot. The Bluetooth stack is **live** on
+  this unit (attempts 36/37: pairing, HFP calls, PBAP contacts, A2DP music all work), so auto-entry
+  is armed by default (`DEFAULT_VALET_AUTO = true`) — the master switch `valet_enabled` (S27a) still
+  gates everything. An "unknown" verdict never auto-enters. [U]
+- **S25a** Trusted-phone source: **both** stacks are consulted. Primary = the HCT/GOC stack
+  (`android.microntek.mtcser.BlueToothService` + the GOC daemon), via its broadcasts
+  `net.easyconn.bt.connected` / `net.easyconn.bt.notconnected` / `net.easyconn.bt.opened` and the
+  BT report `com.microntek.bt.report` (pair list carrying device addresses). Secondary = Android's
+  own Bluetooth stack (adapter state, bonded devices, A2DP/HFP profile proxies). The HCT verdict
+  wins when it is informative; Android's is the fallback; two "unknown"s stay unknown. [U, C]
+- **S25b** Fault tolerance of the phone probes (spec S36/S37): **one service being unavailable must
+  not crash the app**. Each source is constructed and queried defensively — a missing mtcser app, a
+  receiver that cannot be registered, a denied `BLUETOOTH_CONNECT`, a dead profile proxy or junk
+  broadcast extras contribute "unknown" from that source only. The other source still answers; if
+  both are unknown, valet stays inert (never auto-enters, never exits, entry refused per S26a).
+  Teardown (`release()`) is guarded too. [U, C]
+- **S26** Exit: trusted-phone-connected hook — while valet is active the launcher re-checks the
+  combined verdict every 10 s (`ValetController.WATCH_MS`) and exits when a trusted phone connects;
+  the watch is owned by the **valet state**, not by the home activity's lifecycle, so it keeps
+  running while the owner is inside the app drawer or settings (it stops only on exit / master off).
+  Or the valet PIN. PIN stored as SHA-256 hash; wrong PIN: max 5 attempts, then 30 s lockout.
+  Correct PIN while locked resets nothing; lockout expires on time. [U, C, A]
 - **S26a** Not-configured guard (bootstrap trap fix, owner note Nov 25): entry is refused when
-  **no exit path exists** — no PIN set AND no trusted phone connected. Without an exit path the
-  unit would lock the owner out (BT stack dead, no PIN ⇒ no way back). Settings shows a warning
-  "valet mode: no exit configured" until a PIN or trusted phone exists. Exit itself always works. [U]
+  **no exit path exists** — no PIN set AND no trusted phone *reachable*. Reachable means connected
+  now, **or** paired so that connecting it later ends valet (the S26 hook). Without an exit path the
+  unit would lock the owner out (no PIN, no phone signal ⇒ no way back). Settings shows a warning
+  "valet mode: no exit configured", plus a live phone-status line, until a PIN or phone exists.
+  Exit itself always works. Crash replay after a lost exit path unsuspends instead of re-trapping. [U]
 - **S27a** Master switch `valet_enabled` (default **off**): when off, no auto-entry, no manual
   entry, no suspension, no DND/shade disabling — valet code is inert. Turning it off while valet
   is active exits immediately. [U, C]
@@ -167,21 +186,42 @@ Firmware facts this rests on (all verified in the repo, read-only):
   tie-breaker. [U]
 - **S39b** In valet mode the drawer lists **only the allowed set** (spec S21/S27) — it is never an
   escape around the suspension. The gear (`⚙`) is hidden while valet is active; the badge opens the
-  PIN pad. Replacing the old "valet tiles" idea: the drawer *is* the valet app surface. [U, C, A]
+  PIN pad. Replacing the old "valet tiles" idea: the drawer *is* the valet app surface, so the dead
+  `homeTiles()` API was removed (allowed-set filtering lives in `AppDrawerPolicy`). [U, C, A]
 - **S39c** Launch failures (app uninstalled mid-list, suspended package, activity-not-exported)
   are caught: the drawer logs and stays usable. [C]
+- **S39d** The header status shows the count and page count from the pure grid math (`N apps · M
+  pages`, 12 icons per page), so the page math is visible in the UI rather than only unit-tested. [C]
+
+## S40 — bottom favourite row (owner, 2026-11-25)
+- **S40** Four one-tap slots pinned to the bottom of the home screen (`res/layout/favorites_bar.xml`,
+  included under the card row). Contents live in `logic/FavoritePolicy`; the store form is exactly
+  four comma-separated fields read **positionally**, so clearing slot 2 never shifts slot 3. A
+  favourite whose app was uninstalled collapses to an empty slot (aligned row, tap opens the drawer),
+  and an unreadable icon/label falls back to the placeholder glyph. [U, C, A]
+- **S40a** Slot 0 ships **preinstalled** with the HCT Bluetooth app `com.microntek.bluetooth`
+  (glyph `☎`), which is the hands-free dialler: MainActivity holds the tabs, so the launcher passes
+  the app's own tab extra `curTab` (index from the owner setting, garbage clamped 0..2). Verified on
+  the unit which index is the dialler tab. [U, C, A]
+- **S40b** Valet: slots outside the allowed set (spec S21 + the map card's nav app) are hidden while
+  valet is active, so the row can never be an escape around the suspension; the Bluetooth slot always
+  survives (it is in the owner's allowed list). [U, C]
+- **S40c** Owner edits: long-press an app in the drawer → pins it to the first free slot (a full row
+  replaces slot 0; a duplicate pin keeps its slot and shows `★`); long-press a home slot → empties it.
+  Both are refused while valet is active, so the row cannot be edited under suspension. [C, A]
 
 ## Verification map
 | Spec | U | C | A |
 |---|---|---|---|
 | S0,S1,S2,S2b | – | C01–C04 | A01 (default home) |
 | S3–S5 | – | C05 | A02 (layout visible) |
-| S39/S39a/b/c | U18 | C26,C27 | A11 (drawer live + valet filter) |
+| S39/S39a/b/c/d | U18 | C26,C27,C31 | A11 (drawer live + valet filter) |
+| S40/S40a/b/c | U21 | C38,C39 | A13 (phone slot opens the BT dialler tab) |
 | S6–S8 | U07 | C06,C07 | A03 (map task embedded) |
 | S10–S14 | U02 | C08,C09 | A04 (media card live) |
 | S15–S18' | U01,U03 | C10 | A05 (radar tiles) |
 | S18–S20 | U04,U05 | – | A06 (battery chip live) |
-| S21–S27a | U06,U08,U14 | C11,C12,C17 | A07 (valet suspend + DND live) |
+| S21–S27a | U06,U08,U14,U19,U20 | C11,C12,C17,C29,C30 | A07 (valet suspend + DND live), A12 (BT entry/exit live) |
 | S28–S31 | U09,U10,U11 | C13 | A08 (events live) |
 | S32–S35 | U12 | C14,C15 | A09 (night switch) |
 | S36–S38 | U13 | C16 | A10 (degrade live) |

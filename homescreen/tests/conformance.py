@@ -26,6 +26,20 @@ def exists(rel):
     p = os.path.realpath(os.path.join(ROOT, rel))
     return p.startswith(ROOT) and os.path.exists(p)
 
+def all4(src):
+    """The four slot/icon/label/glyph ids of the favourites bar."""
+    return all(f'@+id/fav_slot{i}' in src and f'@+id/fav_icon{i}' in src
+               and f'@+id/fav_glyph{i}' in src and f'@+id/fav_label{i}' in src for i in range(4))
+
+def inside_guarded_probe(src):
+    """True when every raw `probe.probe()` call sits inside the guarded `probeSafe()` body."""
+    start = src.find("PhonePresence probeSafe()")
+    if start < 0:
+        return False
+    end = src.find("\n    }", start)
+    span = src[start:end] if end > start else src[start:]
+    return src.count("probe.probe()") == span.count("probe.probe()")
+
 # ---- S0/S1/S2 ----
 man = read("app/AndroidManifest.xml")
 bp = read("app/Android.bp")
@@ -181,6 +195,45 @@ ok("C27", "ValetPolicy.allowedSet" in dp and "homeApps.contains(e.pkg)" in dp
 ok("C28", "withMapTarget" in read("app/src/org/vibebaking/launcher/logic/ValetPolicy.java")
    and "valet.setNavTarget(map.navTarget())" in la and "refreshSuspension" in vc,
    "valet allowed set follows the map card nav target")
+
+# ---- S25/S25a/S25b trusted phone over BOTH Bluetooth sources ----
+# Action strings verified against apps/bt/smali/android/microntek/mtcser/BTDefine.smali (parent tree).
+hct = read("app/src/org/vibebaking/launcher/HctBluetoothProbe.java")
+comb = read("app/src/org/vibebaking/launcher/logic/CombinedPhoneProbe.java")
+pp = read("app/src/org/vibebaking/launcher/logic/PhonePolicy.java")
+ok("C29", '"net.easyconn.bt.connected"' in hct and '"net.easyconn.bt.notconnected"' in hct
+   and '"net.easyconn.bt.opened"' in hct and '"com.microntek.bt.report"' in hct
+   and '"MTC.BT.deviceList"' in hct and '"MTC.BT.matchList"' in hct
+   and "Settings.System.getString" in hct and "static int parseDeviceList" in pp,
+   "trusted-phone probe hooks the HCT/GOC BT broadcasts and the service's Settings.System pair list")
+ok("C29b", "new HctBluetoothProbe(this)" in app and "new BluetoothPhoneProbe(this)" in app
+   and "new CombinedPhoneProbe(hct, droid)" in app and "BLUETOOTH_CONNECT" in man,
+   "both BT sources are wired in App.onCreate and the manifest asks for BT access")
+ok("C30", "probeSafe()" in vc and inside_guarded_probe(vc) and "configuredSafe()" in vc
+   and "exitPathAvailable" in vc and "startPhoneWatch()" in vc and "WATCH_MS" in vc
+   and "PhonePolicy.exitWanted" in vc and "catch (Throwable" in comb
+   and "phoneExitPath()" in vc and "App.valet().phoneExitPath()" in cs
+   and "startPhoneWatch()" in vc and "stopPhoneWatch()" not in la,
+   "valet entry/exit/replay use the fault-tolerant combined verdict; phone status shown in settings; "
+   "the exit watch is owned by valet state, not the activity lifecycle")
+ok("C31", "AppDrawerPolicy.pageCount" in drw and "%2$d pages" in read("app/res/values/strings.xml")
+   and "homeTiles" not in vc and "homeTiles" not in read("app/src/org/vibebaking/launcher/logic/ValetPolicy.java")
+   and "the drawer *is* the valet app surface" in read("specs.md"),
+   "drawer page math wired into the UI; the dead valet-tiles API is gone (S27/S39b)")
+
+# ---- S40 bottom favourite row ----
+fp = read("app/src/org/vibebaking/launcher/logic/FavoritePolicy.java")
+la_lay = read("app/res/layout/home_activity.xml")
+fav_lay = read("app/res/layout/favorites_bar.xml")
+ok("C38", 'android:id="@+id/favorites_bar"' in fav_lay and all4(fav_lay)
+   and '<include layout="@layout/favorites_bar" />' in la_lay
+   and '"com.microntek.bluetooth"' in fp and '"curTab"' in fp
+   and "KEY_BT_DIAL_TAB" in read("app/src/org/vibebaking/launcher/logic/SettingsKeys.java")
+   and "FavoritePolicy.BT_TAB_EXTRA" in la,
+   "bottom row wired into the home layout; phone slot = com.microntek.bluetooth with its tab extra")
+ok("C39", "allowed.contains(pkg)" in fp and "favSlots" in drw and "fav_pinned_prefix" in read("app/res/values/strings.xml")
+   and "favSummary()" in cs,
+   "valet hides slots outside the allowed set; pinned apps marked in the drawer; settings shows the row")
 
 # ---- docs ----
 ok("C22", exists("specs.md") and exists("plan.md") and exists("README.md") and exists("HANDOFF.md"))

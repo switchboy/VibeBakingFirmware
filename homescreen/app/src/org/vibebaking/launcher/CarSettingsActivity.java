@@ -8,9 +8,10 @@ import android.widget.TextView;
 import android.widget.Button;
 
 import org.vibebaking.launcher.logic.DayNight;
+import org.vibebaking.launcher.logic.FavoritePolicy;
+import org.vibebaking.launcher.logic.PhonePresence;
 import org.vibebaking.launcher.logic.SettingsKeys;
 import org.vibebaking.launcher.logic.ThemePolicy;
-import org.vibebaking.launcher.logic.ValetPin;
 
 import java.util.TimeZone;
 
@@ -46,10 +47,15 @@ public class CarSettingsActivity extends Activity {
             SettingsKeys.KEY_REVERSE_MCU, new boolean[]{false, true}, store.reverseMcu());
         addCycle(page, "Map card app",
             SettingsKeys.KEY_MAP_TARGET, new String[]{"auto", "maps", "waze"}, store.mapTarget());
-        addCycle(page, "Valet auto-entry when no trusted phone (needs HCT BT stack)",
+        addCycle(page, "Bluetooth app tab for the phone slot (curTab)",
+            SettingsKeys.KEY_BT_DIAL_TAB, new int[]{0, 1, 2}, store.btDialTab());
+        addInfo(page, "Bottom favourite row: " + favSummary()
+            + " — long-press an app in the drawer to pin it, long-press a slot to clear it");
+        addCycle(page, "Valet auto-entry when no trusted phone connects (BT)",
             SettingsKeys.KEY_VALET_AUTO, new boolean[]{false, true}, store.valetAuto());
-        addInfo(page, "Valet timeout (s): " + store.valetTimeoutS());
-        addInfo(page, "Allowed valet apps: Maps, radio, Bluetooth, front/rear camera (+extras)");
+        addInfo(page, "Valet timeout (s): " + store.valetTimeoutS()
+            + " — phone status now: " + phoneStatus());
+        addInfo(page, "Allowed valet apps: Maps, radio, Bluetooth, front/rear camera (+extras, +the map card's nav app)");
 
         // Master switch (S27a) + manual toggle (S25) + bootstrap warning (S26a).
         Row masterRow = new Row("Valet mode enabled (master)", page);
@@ -97,9 +103,30 @@ public class CarSettingsActivity extends Activity {
     /** S26a warning: enabled but no exit path -> say it loudly. */
     void updateWarn() {
         boolean warn = org.vibebaking.launcher.logic.ValetPolicy.warnNoExit(
-            store.valetEnabled(), !store.valetPinHash().isEmpty(), App.valet().trustedPhonePresent());
+            store.valetEnabled(), !store.valetPinHash().isEmpty(), App.valet().phoneExitPath());
         valetWarn.setText(warn ? getString(R.string.valet_no_exit) : "");
         valetWarn.setVisibility(warn ? android.view.View.VISIBLE : android.view.View.GONE);
+    }
+
+    /** The bottom row as the owner sees it: glyph + package per slot, "+" for empty (spec S40). */
+    String favSummary() {
+        StringBuilder sb = new StringBuilder();
+        for (String pkg : store.favSlots()) {
+            sb.append(sb.length() == 0 ? "" : ", ");
+            sb.append(FavoritePolicy.glyph(pkg)).append(" ").append(pkg.isEmpty() ? "empty" : pkg);
+        }
+        return sb.toString();
+    }
+
+    /** Human-readable trusted-phone verdict (spec S25/S26); the probes never throw. */
+    String phoneStatus() {
+        PhonePresence p = App.valet().probeSafe();
+        boolean paired = App.valet().configuredSafe();
+        switch (p) {
+            case PRESENT: return "trusted phone connected";
+            case NONE: return paired ? "phone paired but away" : "no phone paired";
+            default: return paired ? "phone paired; BT state unknown" : "unknown (BT off or unavailable)";
+        }
     }
 
     void addInfo(LinearLayout parent, String text) {
@@ -179,9 +206,4 @@ public class CarSettingsActivity extends Activity {
         }
     }
 
-    /** PIN pad lives in ValetPinActivity; keep the hash check here for settings mode. */
-    @SuppressWarnings("unused")
-    private static boolean pinOk(String pin, String hash) {
-        return ValetPin.hashPin(pin).equals(hash);
-    }
 }

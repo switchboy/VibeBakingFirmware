@@ -12,13 +12,17 @@ Everything here is self-contained; nothing outside this directory was modified.
   `MediaCardPolicy`, `MapTargetPolicy`, `AppDrawerPolicy` (drawer filter + alphabetical order +
   4x3 grid math), `ValetPolicy`, `ValetPin`, `ThemePolicy`, `DayNight`,
   `VolumePolicy`, `BacklightPolicy`, `BatteryState`, `CarEventParser`, `ClockFormat`,
-  `SettingsKeys` (owner defaults), `Json`, `ColorTools`, `ArtPalette`, `RadarFetcher`.
+  `SettingsKeys` (owner defaults), `Json`, `ColorTools`, `ArtPalette`, `RadarFetcher`,
+  `PhonePresence`/`PhonePolicy`/`PhonePresenceProbe`/`CombinedPhoneProbe` (trusted-phone verdicts,
+  both BT sources, fault tolerance), `FavoritePolicy` (bottom row slots, glyphs, BT dialer tab).
   This compiles and runs on any JDK — that is how the logic is tested here.
 - `app/src/org/vibebaking/launcher/` — thin Android classes: `LauncherActivity`, `App`,
   `AppDrawerActivity`, `CarSettingsActivity`, `ValetPinActivity`, `CarClient` (reflective
   `android.microntek.CarManager`),
   `SettingsStore`, `ThemeApplier`, `AudioAttenuator`, `MapCardController` (WM Shell TaskView),
-  `MediaListenerService`, `MediaCardController`, `RadarView`, `HttpRadarFetcher`.
+  `MediaListenerService`, `MediaCardController`, `RadarView`, `HttpRadarFetcher`,
+  `HctBluetoothProbe` (HCT/GOC BT broadcasts + Settings.System pair list),
+  `BluetoothPhoneProbe` (Android's own stack, second source).
 - `app/res/` — day + night (`values-night`) palettes/themes, layouts, icons.
 - `app/Android.bp` + `app/privapp-permissions-vibelauncher.xml` — Soong module, platform cert,
   privileged, permission whitelist.
@@ -42,22 +46,38 @@ Everything here is self-contained; nothing outside this directory was modified.
 - Home screen: left = navigation card (Maps or Waze embedded; placeholder if neither installed),
   right = clock/date + battery chip + media card + radar card; `▦` opens the app drawer, `⚙` opens
   car settings.
+- **Bottom favourite row (S40)**: four one-tap slots along the bottom. Slot 0 ships preinstalled with
+  the HCT Bluetooth app (`☎`) and opens it on its dialler tab (the app's own `curTab` extra, index
+  cycleable in car settings until the unit confirms which index is the dialler). Empty slots show `+`
+  and open the drawer. Long-press a drawer app to pin it (marked `★`; a full row replaces slot 0),
+  long-press a home slot to clear it. Pinning/un-pinning is refused while valet is active, and slots
+  outside the allowed set are hidden during valet (the `☎` slot always stays — Bluetooth is allowed).
 - **App drawer (S39)**: alphabetical, 4-column grid (owner's 4x3 on 1024x600), scrollable when there
   are more apps. Only packages with a launch intent; HOME-resolving packages (this launcher,
   Launcher3 if still present) and protected framework/HCT services are hidden. Entry = `▦`,
-  exit = `✕` or the HOME key. In valet mode it lists **only the allowed apps** (plus the nav app the
-  map card targets), so it can't escape the suspension; the gear is hidden while valet is active.
+  exit = `✕` or the HOME key. The header shows `N apps · M pages` (12 icons per page). In valet mode
+  it lists **only the allowed apps** (plus the nav app the map card targets), so it can't escape the
+  suspension; the gear is hidden while valet is active — the drawer *is* the valet app surface.
 - Car settings cycles every owner preference (backlight, lights→theme, dark mode, reverse volume,
   MCU delegation, map target, valet master/auto/toggle, valet timeout, PIN).
 - Valet mode: master switch (`valet_enabled`, default **off**) must be on **and** an exit path must
-  exist (PIN set, or trusted phone connected). Entry is refused with a visible warning otherwise,
-  so the owner can never be locked out of the unit (S26a). Exit = PIN pad (tap VALET badge).
+  exist (PIN set, or a trusted phone connected **or paired**). Entry is refused with a visible
+  warning otherwise, so the owner can never be locked out of the unit (S26a). Exit = PIN pad (tap the
+  VALET badge), or the paired phone connecting while valet is active (checked every 10 s, S26).
+- **Trusted phone (S25/S25a)**: both Bluetooth sources are consulted — the HCT/GOC stack first
+  (connection broadcasts `net.easyconn.bt.connected|notconnected|opened`, report
+  `com.microntek.bt.report`, and the pair list the service stores in `Settings.System` under
+  `MTC.BT.deviceList`/`MTC.BT.matchList`), Android's own stack second. The HCT verdict wins when it
+  is informative. Car settings shows the live verdict ("trusted phone connected" / "phone paired but
+  away" / "unknown"). Auto-entry is armed by default; the master switch keeps it inert until the
+  owner enables valet. **One BT service being unavailable never crashes the app** (S25b): that source
+  reports "unknown" and the other still answers; if both are unknown, valet stays inert.
 - Media card needs notification-listener access; the card shows a "grant access" prompt until then.
 - Radar: RainViewer tiles over our own basemap, refresh ~10 min, offline → placeholder text.
 
 ## Testing layers
-- `bash tests/run.sh` — unit (153 checks) + degradation smoke (47 scenarios / 108 checks) +
-  static smoke (30 scenario checks) + conformance (43 spec C-ids). All pass on this workstation.
+- `bash tests/run.sh` — unit (228 checks) + degradation smoke (59 scenarios / 139 checks) +
+  static smoke (47 scenario checks) + conformance (50 spec C-ids). All pass on this workstation.
 - `VBF_CONFIRM=1 bash tests/device_acceptance.sh` — only with owner approval; read-only adb dumps
   plus two reversible writes (`pm set-home-activity`, `setprop sys.hct.debug`). Results belong in
   `docs/findings.md` in the parent repo.

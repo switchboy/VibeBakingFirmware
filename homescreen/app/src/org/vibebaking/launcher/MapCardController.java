@@ -2,7 +2,6 @@ package org.vibebaking.launcher;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;

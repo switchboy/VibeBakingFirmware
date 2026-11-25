@@ -2,18 +2,25 @@ package org.vibebaking.launcher;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import org.vibebaking.launcher.logic.BatteryState;
 import org.vibebaking.launcher.logic.CarEventParser;
 import org.vibebaking.launcher.logic.ClockFormat;
 import org.vibebaking.launcher.logic.DayNight;
+import org.vibebaking.launcher.logic.FavoritePolicy;
 import org.vibebaking.launcher.logic.ThemePolicy;
+import org.vibebaking.launcher.logic.ValetPolicy;
 
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.TimeZone;
 
 /** The home screen (spec S1-S5, S18-S20, S27, S32, S38). */
@@ -30,6 +37,10 @@ public class LauncherActivity extends Activity {
     private RadarView radar;
     private TextView clock, date, battery, badge, settingsButton;
     private View root;
+    private View[] favSlots;
+    private ImageView[] favIcons;
+    private TextView[] favGlyphs, favLabels;
+    private List<String> favShown = FavoritePolicy.defaults(); // what the bar renders right now
 
     private boolean headlightOn;
     private Double brightnessBeforeLights; // captured once per lights-on spell (spec S28)
@@ -53,6 +64,23 @@ public class LauncherActivity extends Activity {
             startActivity(new Intent(this, AppDrawerActivity.class)));
         badge.setOnClickListener(v -> startActivity(new Intent(this, ValetPinActivity.class)));
 
+        // Bottom favourite row (spec S40): slot 0 ships preinstalled with the HCT dialler.
+        favSlots = new View[] { findViewById(R.id.fav_slot0), findViewById(R.id.fav_slot1),
+            findViewById(R.id.fav_slot2), findViewById(R.id.fav_slot3) };
+        favIcons = new ImageView[] { findViewById(R.id.fav_icon0), findViewById(R.id.fav_icon1),
+            findViewById(R.id.fav_icon2), findViewById(R.id.fav_icon3) };
+        favGlyphs = new TextView[] { findViewById(R.id.fav_glyph0), findViewById(R.id.fav_glyph1),
+            findViewById(R.id.fav_glyph2), findViewById(R.id.fav_glyph3) };
+        favLabels = new TextView[] { findViewById(R.id.fav_label0), findViewById(R.id.fav_label1),
+            findViewById(R.id.fav_label2), findViewById(R.id.fav_label3) };
+        for (int i = 0; i < FavoritePolicy.MAX_SLOTS; i++) {
+            final int idx = i;
+            favSlots[idx].setOnClickListener(v -> launchFavorite(favShown.get(idx), idx));
+            // Long-press empties a slot (owner un-pins); disabled in valet so the row stays fixed.
+            favSlots[idx].setOnLongClickListener(v -> { clearFavorite(idx); return true; });
+        }
+        refreshFavorites();
+
         store = App.store();
         theme = App.theme();
         car = App.car();
@@ -60,7 +88,7 @@ public class LauncherActivity extends Activity {
         audio = new AudioAttenuator(this, car, store);
 
         valet.replayPending();        // crash-safe re-apply (spec S22)
-        valet.scheduleAutoEnter();    // spec S25 (probe returns UNKNOWN while BT is dead)
+        valet.scheduleAutoEnter();    // spec S25 - HCT BT probe decides; UNKNOWN never auto-enters
 
         // Car signals (spec S28-S31, S19): initial state + event stream.
         headlightOn = car.booleanState("headlight");
@@ -183,12 +211,81 @@ public class LauncherActivity extends Activity {
         }
         media.refresh();
         if (radar != null) radar.restart(); // one refresh timer per visible activity (S18')
+        refreshFavorites(); // installs/uninstalls and valet state may have changed (S40)
+    }
+
+    /**
+     * Rebuild the favourite row (spec S40/S40b). Every PackageManager call is guarded: a package
+     * that vanished since the pref was written, or an app without an icon, degrades to the glyph.
+     */
+    void refreshFavorites() {
+        boolean valet = valet.isActive() && store.valetEnabled();
+        Set<String> allowed = valet ? ValetPolicy.allowedSet(valet.allowedExtras()) : null;
+        PackageManager pm = getPackageManager();
+        Set<String> launchable = new HashSet<>();
+        for (String pkg : store.favSlots()) {
+            if (pkg.isEmpty()) continue;
+            try { if (pm.getLaunchIntentForPackage(pkg) != null) launchable.add(pkg); }
+            catch (Throwable t) { /* package gone or PM error: treat as not launchable */ }
+        }
+        favShown = FavoritePolicy.visible(store.favSlots(), valet, allowed, launchable);
+        for (int i = 0; i < FavoritePolicy.MAX_SLOTS; i++) {
+            String pkg = favShown.get(i);
+            if (pkg.isEmpty()) {
+                favIcons[i].setVisibility(View.GONE);
+                favLabels[i].setVisibility(View.GONE);
+                favGlyphs[i].setVisibility(View.VISIBLE);
+                favGlyphs[i].setText(FavoritePolicy.glyph("")); // "+" -> tap opens the drawer
+                continue;
+            }
+            favGlyphs[i].setVisibility(View.GONE);
+            favLabels[i].setVisibility(View.VISIBLE);
+            favIcons[i].setVisibility(View.VISIBLE);
+            try {
+                favIcons[i].setImageDrawable(pm.getApplicationIcon(pm.getApplicationInfo(pkg, 0)));
+                favLabels[i].setText(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString());
+            } catch (Throwable t) {
+                // Icon/label unreadable (app gone since enumerate): fall back to the glyph.
+                favIcons[i].setImageResource(R.drawable.ic_app_placeholder);
+                favLabels[i].setText(pkg);
+            }
+        }
+    }
+
+    /** Tap a slot: launch it; the phone slot opens the BT app on its dialler tab (spec S40a). */
+    void launchFavorite(String pkg, int slot) {
+        if (pkg.isEmpty()) { startActivity(new Intent(this, AppDrawerActivity.class)); return; }
+        try {
+            Intent i = getPackageManager().getLaunchIntentForPackage(pkg);
+            if (i == null) { // uninstalled since pinning: drop the slot instead of doing nothing
+                store.setFavSlots(FavoritePolicy.clear(store.favSlots(), slot));
+                refreshFavorites();
+                return;
+            }
+            if (FavoritePolicy.isPhoneSlot(pkg)) i.putExtra(FavoritePolicy.BT_TAB_EXTRA, store.btDialTab());
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Throwable t) {
+            android.util.Log.w("LauncherActivity", "favourite launch failed for " + pkg, t);
+        }
+    }
+
+    /** Long-press a slot: empty it (owner un-pins). No-op in valet - the row must stay fixed. */
+    void clearFavorite(int slot) {
+        if (valet.isActive() && store.valetEnabled()) return;
+        store.setFavSlots(FavoritePolicy.clear(store.favSlots(), slot));
+        refreshFavorites();
+        try {
+            android.widget.Toast.makeText(this, R.string.fav_cleared, android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Throwable t) { /* toast is cosmetic: never fail the un-pin because of it */ }
     }
 
     @Override
     public void onPause() {
         super.onPause();
         // The home screen stays as-is; valet state is owned by ValetController + persisted prefs.
+        // The trusted-phone exit watch (S26) is NOT stopped here: while valet is active the owner
+        // may be sitting in the app drawer or settings, and the phone must still end valet.
         if (radar != null) radar.stop();
     }
 

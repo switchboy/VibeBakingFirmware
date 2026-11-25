@@ -12,5 +12,8 @@
         <permission name="android.permission.WRITE_SETTINGS" />
         <permission name="android.permission.ACCESS_NOTIFICATION_POLICY" />
         <permission name="android.permission.QUERY_ALL_PACKAGES" />
+        <!-- Trusted-phone probe (S25a): BLUETOOTH_CONNECT is a runtime permission; with
+             sharedUserId="android.uid.system" the system uid already holds it, so no prompt is
+             needed. Reading Settings.System ("MTC.BT.deviceList") needs no permission at all. -->
     </privapp-permissions>
 </permissions>

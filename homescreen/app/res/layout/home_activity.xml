@@ -9,6 +9,12 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:orientation="horizontal"
         android:padding="@dimen/card_margin">
 
@@ -104,5 +110,10 @@
                     android:layout_gravity="bottom" android:padding="8dp" android:textColor="@color/text_sub" android:textSize="12sp" />
             </FrameLayout>
         </LinearLayout>
+    </LinearLayout>
+
+    <!-- Bottom favourite row (spec S40): 4 one-tap slots, phone slot preinstalled. -->
+    <include layout="@layout/favorites_bar" />
+
     </LinearLayout>
 </FrameLayout>

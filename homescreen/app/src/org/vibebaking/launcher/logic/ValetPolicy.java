@@ -44,17 +44,19 @@ public final class ValetPolicy {
     private ValetPolicy() {}
 
     /**
-     * Bootstrap guard (spec S26a): entry is refused unless the master switch is on AND an exit
-     * path exists (PIN set, or a trusted phone connected). Without an exit path - BT stack dead
-     * and no PIN - valet mode would lock the owner out of the unit permanently; never suspend.
+     * `phoneExitPath` = trusted phone connected now, OR paired so that connecting it later exits
+     * valet (spec S25/S26). With the HCT BT stack live, a paired phone is a real exit path even
+     * while the phone is away; with no phone signal at all (BT off, service gone) only a PIN counts,
+     * and valet entry is refused - without an exit path it would lock the owner out permanently
+     * (bootstrap guard, spec S26a).
      */
-    public static boolean entryAllowed(boolean enabled, boolean pinSet, boolean trustedPhonePresent) {
-        return enabled && (pinSet || trustedPhonePresent);
+    public static boolean entryAllowed(boolean enabled, boolean pinSet, boolean phoneExitPath) {
+        return enabled && (pinSet || phoneExitPath);
     }
 
     /** Whether the settings screen must warn "valet mode: no exit configured". */
-    public static boolean warnNoExit(boolean enabled, boolean pinSet, boolean trustedPhonePresent) {
-        return enabled && !entryAllowed(enabled, pinSet, trustedPhonePresent);
+    public static boolean warnNoExit(boolean enabled, boolean pinSet, boolean phoneExitPath) {
+        return enabled && !entryAllowed(enabled, pinSet, phoneExitPath);
     }
 
     /** What to do with persisted valet state after a launcher restart (spec S22/S26a/S27a). */
@@ -62,14 +64,15 @@ public final class ValetPolicy {
 
     /**
      * Crash-replay decision. APPLY re-suspends; EXIT unsuspends everything. The exit-path check is
-     * here on purpose: if a PIN was cleared (prefs wiped) while valet was active and the BT stack is
-     * dead, re-applying would lock the owner out of the unit permanently (S26a) -> EXIT instead.
+     * here on purpose: if a PIN was cleared (prefs wiped) while valet was active and no phone signal
+     * exists (BT off, mtcser service gone, phone unpaired), re-applying would lock the owner out of
+     * the unit permanently (S26a) -> EXIT instead.
      */
     public static Replay replayAction(boolean persistedActive, boolean enabled,
-                                      boolean pinSet, boolean trustedPhonePresent) {
+                                      boolean pinSet, boolean phoneExitPath) {
         if (!persistedActive) return Replay.NONE;
         if (!enabled) return Replay.EXIT;                     // master switch turned off (S27a)
-        if (!entryAllowed(true, pinSet, trustedPhonePresent)) return Replay.EXIT; // exit path lost
+        if (!entryAllowed(true, pinSet, phoneExitPath)) return Replay.EXIT; // exit path lost
         return Replay.APPLY;
     }
 
@@ -120,15 +123,6 @@ public final class ValetPolicy {
         boolean settingsInstalled = false;
         for (App a : installed) if (a.pkg.equals(SETTINGS_PACKAGE)) settingsInstalled = true;
         if (settingsInstalled) out.add(SETTINGS_PACKAGE);
-        Collections.sort(out);
-        return out;
-    }
-
-    /** Tiles shown on the valet home screen: installed allowed apps, allowed order stable. */
-    public static List<String> homeTiles(List<App> installed, Set<String> extras) {
-        Set<String> allowed = allowedSet(extras);
-        List<String> out = new ArrayList<>();
-        for (App a : installed) if (allowed.contains(a.pkg) && !a.system) out.add(a.pkg);
         Collections.sort(out);
         return out;
     }

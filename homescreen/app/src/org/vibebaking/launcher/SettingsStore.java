@@ -45,4 +45,18 @@ public class SettingsStore {
     public java.util.Set<String> valetExtras() {
         return org.vibebaking.launcher.logic.ValetPolicy.parseExtrasCsv(getString("valet_extras", ""));
     }
+
+    /** Bottom favourite row (spec S40): 4 slots; slot 0 ships preinstalled with the BT dialler. */
+    public java.util.List<String> favSlots() {
+        return org.vibebaking.launcher.logic.FavoritePolicy.slots(getString(SettingsKeys.KEY_FAV_SLOTS, ""));
+    }
+    public void setFavSlots(java.util.List<String> slots) {
+        put(SettingsKeys.KEY_FAV_SLOTS, org.vibebaking.launcher.logic.FavoritePolicy.csv(slots));
+    }
+    /** Which tab of the BT app MainActivity to open (spec S40a); garbage clamped. */
+    public int btDialTab() {
+        return org.vibebaking.launcher.logic.FavoritePolicy.dialTab(
+            getInt(SettingsKeys.KEY_BT_DIAL_TAB, SettingsKeys.DEFAULT_BT_DIAL_TAB));
+    }
+    public void setBtDialTab(int tab) { put(SettingsKeys.KEY_BT_DIAL_TAB, tab); }
 }

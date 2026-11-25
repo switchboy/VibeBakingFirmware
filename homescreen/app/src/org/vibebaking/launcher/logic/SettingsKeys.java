@@ -16,6 +16,8 @@ public final class SettingsKeys {
     public static final String KEY_REVERSE_VOLUME_PERCENT = "reverse_volume_pct";
     public static final String KEY_REVERSE_MCU = "reverse_volume_mcu";        // let MCU attenuate via ctl_backview_vol
     public static final String KEY_VALET_TIMEOUT_S = "valet_timeout_s";
+    public static final String KEY_FAV_SLOTS = "fav_slots";      // bottom favourite row, 4 slots (S40)
+    public static final String KEY_BT_DIAL_TAB = "bt_dial_tab";  // BT MainActivity tab index (S40a)
     public static final String KEY_VALET_AUTO = "valet_auto";                 // needs the HCT BT stack
     public static final String KEY_VALET_ENABLED = "valet_enabled";           // master switch (S27a)
     public static final String KEY_MAP_TARGET = "map_target";                 // auto | maps | waze
@@ -31,11 +33,15 @@ public final class SettingsKeys {
     public static final int DEFAULT_REVERSE_VOLUME_PERCENT = 30;
     public static final boolean DEFAULT_REVERSE_MCU = false;
     public static final int DEFAULT_VALET_TIMEOUT_S = 60;
-    public static final boolean DEFAULT_VALET_AUTO = false;
+    // Auto-entry is the owner's spec intent (homescreen.md: enter automatically when no trusted
+    // phone connects within the timeout). The master switch (valet_enabled) stays off by default,
+    // so nothing happens until the owner configures an exit path (S26a/S27a).
+    public static final boolean DEFAULT_VALET_AUTO = true;
     public static final boolean DEFAULT_VALET_ENABLED = false;   // inert until configured (S27a)
     public static final String DEFAULT_MAP_TARGET = "auto";
     public static final double DEFAULT_LAT = 52.09;   // Nuenen, NL — replaced by GPS fixes
     public static final double DEFAULT_LON = 5.29;
+    public static final int DEFAULT_BT_DIAL_TAB = 0;  // BT MainActivity tab index (verified on unit, A13)
 
     public static final String MCU_BACKVIEW_VOL_CMD = "ctl_backview_vol";
 
