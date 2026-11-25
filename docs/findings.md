@@ -6202,3 +6202,13 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   bitmask) can replace the constant later.
 
   Super `1946056739b2…`.
+* **Stale artifacts removed (owner request, 2026-11-25).** Build host: `aospbuild/tmp` (2.4 GB), `hu-kernel-4.19` (1.4 GB,
+  re-fetchable), `hu-kernel`, `hu-a11-repack`, `tmp-verify`, `tmp-fbtext`, `gpt-test`, `.gocache`, and the Nov 5-17 output images
+  in `lineage21s/out/target/product/rk3399/` (rebuilt by any `make`); SSData free 2.1 GB -> 11 GB, enough for a soong run.
+  Kept: the tree, `out/soong`, `out/host`, and the NAS repo copy (its 12 GB is `analysis/`, possibly the only healthy copy
+  of the analysis dumps). Workstation: `/tmp/opencode` held 60 partition captures from Nov 20-22; `/tmp` is **tmpfs** (lost on
+  reboot). Every capture whose sha the docs reference was kept once (11 images, incl. the stock eMMC recovery `1fdf5ea77fc6…`
+  and boot `b449aee98c01…` rollback images) in `/home/Daan/vbf-work/a14-work/rollback-captures/` (`<sha12>-<name>`,
+  `MANIFEST.sha256`, all verify); duplicates and unreferenced scratch were deleted. `/tmp/opencode/fw` (dex set for
+  `tools/dex_api_check.py`) and the build-host access wrapper stay.
+
