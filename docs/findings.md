@@ -6235,4 +6235,5 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `system_server_pre_watchdog` (main thread blocked 15 s, no restart), one ANR of `com.google.android.gms.persistent` while
   opening its dex (`DexFile.openDexFileNative`), one Launcher3 crash on `USER_UNLOCKED` ("Existing input consumer found with
   name: recents_animation_input_consumer").
+* **Google Maps works (owner test, attempt 38):** Play Store sign-in and installing Maps worked; Maps runs on the unit.
 

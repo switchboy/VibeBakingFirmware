@@ -32,7 +32,7 @@ A single Python script driving the unit over adb (USB or WiFi):
 ## Gate: feature complete on the card
 - [ ] HCT framework port: hardware keys, radio, CAN bus, HCT Bluetooth (calls, phonebook), front/rear camera
       (incl. reverse-gear trigger), AV-in/DVD video (`libcvbs_jni.so`), MFI/CarPlay bridge if wanted
-- [ ] GApps (Play services, Play Store, Maps)
+- [x] GApps (Play services, Play Store, Maps) - attempt 38
 - [ ] The home screen / launcher (`docs/homescreen.md`), incl. valet mode and the car settings
 - [ ] GPS, audio paths, sensors checked
 - [ ] Several days of daily use on the card without regressions
