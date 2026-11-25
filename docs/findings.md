@@ -6142,4 +6142,7 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   that defines those constructors and every method of the three classes the binary calls, with each object a proxy to a
   real Android 14 object and the old callbacks wrapped. Build with the tree's clang against the AOSP headers on the build
   host. Testing needs a paired phone.
+* **Attempt 35 - clean boot.** No `system_server_crash` and no app crashes; `gocsdkrf210` stays `stopped`; HCTCanBus runs
+  and holds `/dev/ttyV0` open (`/proc/tty/driver/ttyV` port 0: RTS|DTR, rx 0, so no CAN data on the bench, as
+  expected without a car bus); `/dev/ttyV2` raw and receiving; `HCTPort: carservice registered`.
 
