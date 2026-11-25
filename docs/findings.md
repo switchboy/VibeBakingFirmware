@@ -6180,4 +6180,8 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   and `AudioTrack proxy: rate=8000 fmt=0x1 mask=0x1 frames=945 cb=1 initCheck=0` (both in callback mode, so the
   `IAudioRecordCallback`/`IAudioTrackCallback` adapters are used); SCO audio started and was stopped at hang-up
   (`sco_audio_stop`, `ring_stop`). Audibility not yet verified: no speakers on the bench.
+* **Bluetooth music (A2DP + AVRCP) works (owner test):** `goc: a2dp 176128 B/s` (44.1 kHz x 16 bit x stereo), AudioFlinger
+  mixer output active with 1 track, `writeErrors=0 underruns=0`; AVRCP playback-position and play-status updates from the
+  phone. With pairing, HFP calls, PBAP contacts and A2DP working, the HCT Bluetooth stack is functional on Android 14
+  (audibility through speakers to be confirmed in the car).
 
