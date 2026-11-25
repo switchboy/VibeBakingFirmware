@@ -6065,4 +6065,20 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   sync adapters, the permission/sysconfig XMLs, overlays, `gapps.rc`), without Velvet (277 MiB), TalkBack,
   Markup, Wellbeing, GoogleRestore, AndroidAutoStub, PartnerSetup, Exchange and Google's SetupWizard (the unit is
   already set up; LineageOS Provision stays). Maps/Waze from the Play Store.
+* **MCU key path traced** (local model + live kernel kallsyms; `docs/a14-mtc-key-path.md`). `mtc_cmd_process` (called only from
+  the MCU receive thread) logs `--mtc key %04x`; `0x134` becomes `input_event(EV_KEY, KEY_BACK)` on the car
+  input device (why back works) and `0x135` code 139; every other key goes to the `car_dev->+0x38` sink, which
+  `vs_probe` registers via `mtc_dev_register` (`vs_send_func`: frames `0xFA 0x16 0x4E <len> <key>` into an mtc-vs
+  tty port, only while that port is open). A kernel test flag at `ctx+0xe0f` (set only by one `mtc_ioctl`) would
+  make it swallow the volume keys. Userspace cannot inject keys (`car_write`/`car_open` are stubs).
+* **Live, the frames go to `/dev/ttyV2`, and our port of CarService read it wrongly.** With the owner pressing,
+  `/dev/ttyV3` (the model's reading of `vss[3]`) received 0 bytes, even in raw mode; `/proc/tty/driver/ttyV`
+  showed port 2 at `tx:559699 rx:360413`. CarService opens `/dev/ttyV2` with a `FileInputStream`, which leaves the tty
+  canonical with echo on: frames were held until a newline, `0x7f`/`0x15` acted as erase/kill, and every received byte was
+  **echoed back to the MCU** (tx > rx because control characters echo as two bytes). Android 10's `SerialManager` set raw mode.
+  Live fix: `stty -F /dev/ttyV2 raw -echo ... -icanon -isig -opost min 1 time 0`; afterwards tx stayed at
+  559,831 while rx kept growing.
+* **Attempt 33 (rebuilt, not yet written):** `hu-mtc.rc` sets `/dev/ttyV2` raw at post-fs-data (before
+  system_server opens it) and again at boot completion; plus the restored HCTBlueToothManager and HCTCanBus.
 
+  Super `f07d31ab1804…`.
