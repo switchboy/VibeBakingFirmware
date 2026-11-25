@@ -34,6 +34,11 @@ GPS. Latest entries in `docs/findings.md` are the truth.
 * No UART. NAS credentials never in argv, docs or the repo. Never redistribute proprietary files.
 * Destructive actions: look at the target first; keep every change reversible and recorded (what was removed,
   its sha, how to restore).
+* **Never run `getevent` (or anything that queries every input device's name) on the unit:** an HCT input device
+  has an invalid name pointer and the kernel panics (Nov 25, findings). Avoid broad device probes on the live unit
+  without knowing the driver; read the saved kernel logs instead.
+* Launcher test installs: only through `a14-work/deploy-launcher.sh` (tests, build must succeed, APK must contain
+  `classes.dex`); never `adb install` a hand-built APK whose build log was not checked.
 
 ## How we work (the loop)
 1. **Build** the change on image copies in `/home/Daan/vbf-work/a14-work/super9/`: edit ext4 with `debugfs`
