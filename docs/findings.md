@@ -6088,4 +6088,13 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   framework-res overlay with `config_serialPorts` = `/dev/ttyV0`, `/dev/ttyV1`, `/dev/ttyV2`, built from the device tree
   on the build host (not a hand-edited `resources.arsc`). Android's `SerialPort` sets raw mode itself, so CarService
   could then return to its original `SerialManager` code, and the ttyV2 raw-mode rc becomes a safety net.
+* **Hardware keys work once `/dev/ttyV2` is raw (owner: "a volume slider appeared").** Wire format measured on
+  `/dev/ttyV2`: `fa <cmd1> <cmd2> <len u16 little-endian> <payload>`; status frames `fa 16 c0 02 00 79 00` (about
+  every 0.6 s), key frames `fa 16 4e 02 00 11 01` = key `0x0111` (vol+). CarService's `HctUtil.getFramePos` reads
+  the length little-endian (`getInt2`), which matches the wire. The local model's claim that the kernel writes it
+  big-endian (and its proposed "fix" to `getInt`) was **wrong** and would have broken parsing. Path
+  (`docs/a14-mtc-key-action.md`): `cmdProc` cmd1 `0x16`/cmd2 `0x4E` -> `dispatchCallback("KeyDown", {type:"key",
+  value:code})` -> `MicrontekServer.DoPressKeyTask`: `0x111`/`0x119` -> `MTCAdjVolume` (`setParameters("av_volume=…")`),
+  `0x102` -> mute (`av_mute`), `0x128` -> DVD app, `0x131` -> GPS app, `0x136` -> HOME via `injectInputEvent` (double
+  press: dual screen). The earlier "nothing happens" test ran right after the live raw switch.
 
