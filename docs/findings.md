@@ -6255,4 +6255,6 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   386 ms) and takes audio focus; the MCU scans the FM band in 50 kHz steps and reports signal quality per step in the kernel
   log (`--mtc @ seek 94950 ...`, `seek 95000 ...`, `seek_chk 230 0 <level> ...`), so app -> CarService -> MCU -> tuner works.
   The repeated `set stream to NULL` lines are the app's own logging. Audible reception needs an antenna and speakers.
+* **Radio locks on a real station (owner test, attempt 39), even without a proper antenna.** Signal level in the MCU's
+  seek reports climbs from single digits/~0x20 on empty channels to 0xca-0xe0 around 100.35 MHz, where the seek stopped.
 
