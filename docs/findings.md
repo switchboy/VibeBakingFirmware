@@ -6247,3 +6247,8 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `system_file`), nothing else changed.
 
   Super `0e5dc1c8be73…`.
+* **Attempt 39 boots; RadioService runs privileged.** Package path `/system/priv-app/HCT4Radio`, `RadioService` started at boot,
+  `getFistBootPreference()->firstboot = 128` and the following `putInt` now succeeds (`microntek.firstboot` reads 129 afterwards);
+  no Radio exception or crash in logcat/dropbox. Only other dropbox entry: one `com.google.android.gms` startup ANR (zip scan,
+  slow storage). Tuner behaviour (frequency display, seek, MCU acknowledgements) awaits the owner's test of the app.
+
