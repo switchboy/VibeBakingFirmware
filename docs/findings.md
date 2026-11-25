@@ -6251,4 +6251,8 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `getFistBootPreference()->firstboot = 128` and the following `putInt` now succeeds (`microntek.firstboot` reads 129 afterwards);
   no Radio exception or crash in logcat/dropbox. Only other dropbox entry: one `com.google.android.gms` startup ANR (zip scan,
   slow storage). Tuner behaviour (frequency display, seek, MCU acknowledgements) awaits the owner's test of the app.
+* **Radio works end to end on the bench (owner test, attempt 39).** `com.microntek.radio/.MainActivity` opens (displayed in
+  386 ms) and takes audio focus; the MCU scans the FM band in 50 kHz steps and reports signal quality per step in the kernel
+  log (`--mtc @ seek 94950 ...`, `seek 95000 ...`, `seek_chk 230 0 <level> ...`), so app -> CarService -> MCU -> tuner works.
+  The repeated `set stream to NULL` lines are the app's own logging. Audible reception needs an antenna and speakers.
 
