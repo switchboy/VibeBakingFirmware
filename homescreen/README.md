@@ -9,12 +9,14 @@ Everything here is self-contained; nothing outside this directory was modified.
 ## Layout
 - `app/src/org/vibebaking/launcher/logic/` — **pure Java** decision core (no Android imports):
   `RadarTiles`, `RadarPlan` (fetch + tile plan incl. offline/bad-JSON/partial degrade),
-  `MediaCardPolicy`, `MapTargetPolicy`, `ValetPolicy`, `ValetPin`, `ThemePolicy`, `DayNight`,
+  `MediaCardPolicy`, `MapTargetPolicy`, `AppDrawerPolicy` (drawer filter + alphabetical order +
+  4x3 grid math), `ValetPolicy`, `ValetPin`, `ThemePolicy`, `DayNight`,
   `VolumePolicy`, `BacklightPolicy`, `BatteryState`, `CarEventParser`, `ClockFormat`,
   `SettingsKeys` (owner defaults), `Json`, `ColorTools`, `ArtPalette`, `RadarFetcher`.
   This compiles and runs on any JDK — that is how the logic is tested here.
 - `app/src/org/vibebaking/launcher/` — thin Android classes: `LauncherActivity`, `App`,
-  `CarSettingsActivity`, `ValetPinActivity`, `CarClient` (reflective `android.microntek.CarManager`),
+  `AppDrawerActivity`, `CarSettingsActivity`, `ValetPinActivity`, `CarClient` (reflective
+  `android.microntek.CarManager`),
   `SettingsStore`, `ThemeApplier`, `AudioAttenuator`, `MapCardController` (WM Shell TaskView),
   `MediaListenerService`, `MediaCardController`, `RadarView`, `HttpRadarFetcher`.
 - `app/res/` — day + night (`values-night`) palettes/themes, layouts, icons.
@@ -54,8 +56,8 @@ Everything here is self-contained; nothing outside this directory was modified.
 - Radar: RainViewer tiles over our own basemap, refresh ~10 min, offline → placeholder text.
 
 ## Testing layers
-- `bash tests/run.sh` — unit (139 checks) + degradation smoke (43 scenarios / 102 checks) +
-  static smoke (26 scenario checks) + conformance (spec C-ids). All pass on this workstation.
+- `bash tests/run.sh` — unit (153 checks) + degradation smoke (47 scenarios / 108 checks) +
+  static smoke (30 scenario checks) + conformance (43 spec C-ids). All pass on this workstation.
 - `VBF_CONFIRM=1 bash tests/device_acceptance.sh` — only with owner approval; read-only adb dumps
   plus two reversible writes (`pm set-home-activity`, `setprop sys.hct.debug`). Results belong in
   `docs/findings.md` in the parent repo.

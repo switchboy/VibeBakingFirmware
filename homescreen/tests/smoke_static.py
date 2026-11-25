@@ -148,7 +148,7 @@ ok("SA21", "void launch(String pkg)" in drw and "catch (Throwable t)" in drw[drw
    and "i == null" in drw, "drawer tap on a vanished app must no-op")
 
 # SA22 - app drawer: package enumeration denied -> empty message, not a crash.
-ok("SA22", "catch (Throwable t)" in drw[drw.find("List<AppDrawerPolicy.Entry> enumerate")]
+ok("SA22", "catch (Throwable t)" in drw[drw.find("List<AppDrawerPolicy.Entry> enumerate"):]
    and "drawer_empty" in strings, "denied enumeration shows the empty message")
 
 # SA23 - app drawer: icon fetch failure keeps the default icon (no crash while drawing).

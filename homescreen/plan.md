@@ -18,16 +18,19 @@ Files under `homescreen/app/src/org/vibebaking/launcher/`:
   animated day/night transition on uiMode config change (S32, S38); valet badge.
 - `logic/` — pure-Java decision core, unit-tested here: `SettingsKeys` (+defaults), `ThemePolicy`,
   `DayNight` (sunrise/sunset), `VolumePolicy`, `BacklightPolicy`, `ValetPolicy`, `ValetPin`,
-  `CarEventParser`, `RadarTiles` (API JSON + tile math + palette), `MediaCardPolicy`,
-  `MapTargetPolicy`, `ClockFormat`, `BatteryState`, `ArtPalette`.
+  `CarEventParser`, `RadarTiles` (API JSON + tile math + palette), `RadarPlan` (fetch + tile plan,
+  all degrade decisions), `MediaCardPolicy`, `MapTargetPolicy`, `AppDrawerPolicy` (drawer filter +
+  alphabetical order + 4x3 grid math, S39), `ClockFormat`, `BatteryState`, `ArtPalette`.
 - `CarClient` — the *only* class touching `android.microntek.CarManager`; reflective so a missing
   jar cannot crash the app (S36); maps Bundle callbacks to `CarEventParser` results.
 - `MapCardController` — the *only* class touching WM Shell `TaskView`/`TaskViewHost` + hidden
   `ActivityOptions` embed API (S6); one class so build-host API drift is contained.
 - `MediaCardController` + `MediaListenerService` — MediaSessionManager + NotificationListenerService
   (S10–S14); presentation logic delegated to `MediaCardPolicy`/`ArtPalette`.
-- `RadarView` + `HttpRadarFetcher` — tile fetch/composition (S15–S17); fetch behind an interface so
-  `RadarTiles` is testable offline against a fixture.
+- `RadarView` + `HttpRadarFetcher` — tile fetch/composition (S15–S17); fetching behind an interface,
+  the plan/degrade logic in pure `RadarPlan` so it is testable offline against stubs.
+- `AppDrawerActivity` — app drawer (S39): `▦` glyph opens it, `✕`/HOME closes; alphabetical grid,
+  4 columns; in valet only the allowed apps; decisions delegated to `AppDrawerPolicy`.
 - `ValetController` — suspend/unsuspend + DND filter + shade disable (S22–S24); policy delegated to
   `ValetPolicy`; persisted pending-state replay on start (crash safety).
 - `CarSettingsActivity` + `ValetPinActivity` — settings rows cycling the enum values, PIN pad.
@@ -54,7 +57,8 @@ BT works: trusted-phone list per BT device address, connect/disconnect hook fed 
    `TaskView`/`TaskViewHost` API in `frameworks/base/libs/wm/shell` for A14 — adjust
    `MapCardController` accordingly. Material lib module (`com.google.android.material`) optional
    via reflection, no hard dependency.
-3. `device.mk` / `hu_apps.mk` staging: `PRODUCT_PACKAGES += VibeLauncher`; copy
+3. `device.mk` / `hu_apps.mk` staging: `PRODUCT_PACKAGES += VibeLauncher`; drop Launcher3 from `PRODUCT_PACKAGES` so this launcher is the
+   only launcher (owner, Nov 25, spec S2b); copy
    `privapp-permissions-vibelauncher.xml` to `/system/etc/permissions/` (same PRODUCT_COPY_FILES
    pattern as the HCT whitelist).
 4. Build `m VibeLauncher` first (fast module build), then full `m`; splice via
