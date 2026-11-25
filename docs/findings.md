@@ -6265,4 +6265,36 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
 * **Wrong time zone:** `persist.sys.timezone=Asia/Shanghai` (stock default, carried over in `/data`), so the clock shows CST
   (+7 h vs CET) even with `auto_time_zone=1` (no SIM/network time zone source). Fix: set the zone in Settings, or default
   `persist.sys.timezone=Europe/Amsterdam` for the release build.
+* **AV/camera apps: `libcvbs_jni.so` was simply not installed.** The rear-camera app failed with `dlopen failed: library
+  "libcvbs_jni.so" not found`. The library (stock, 37 KB, arm64, sha `2531b0d2c920…`) only uses libc, liblog, GLESv2, libc++
+  and `RefBase`; it captures from `/dev/mtc-cvbs` with V4L2 ioctls (`VIDIOC_G_FMT`/`STREAMON`/`STREAMOFF`) and draws YUV with
+  GL shaders. HCT apps load native code in a *shared* class-loader namespace (`clns-shared-*`), so platform libraries are
+  allowed. A live bind-mount test loaded it (`cvbs_jni load sucessed!`); the next crash was again the Settings.System rule
+  (`backview.settings.setSetting` -> "You cannot keep your settings in the secure settings").
+* **Sweep of all 34 HCT apps** (baksmali, `a14-work/hctport/sweep/`): 10 apps in `/system/app` call
+  `Settings$System.put*` (ampsetup 8, backview 47, bluetooth 2, carcd 2, civxusb 1, controlinfo 13, controlsettings 27,
+  frontview 1, tpms 1, tv 1); 6 apps use `libcvbs_jni` (avin, backview, dvd, dvr, frontview, tv).
+* **Attempt 40:** `libcvbs_jni.so` -> `/system/lib64` (`system_lib_file`); the 10 apps moved to `/system/priv-app` (APKs
+  byte-identical); `privapp-permissions-hct.xml` extended with their signature|privileged permissions (ampsetup
+  MOUNT_UNMOUNT_FILESYSTEMS, backview STATUS_BAR, controlinfo and controlsettings SET_TIME_ZONE, tpms
+  MOUNT_UNMOUNT_FILESYSTEMS + SERIAL_PORT). Result: rear-camera app starts, loads the library from `/system/lib64`, opens
+  `/dev/mtc-cvbs` and its capture thread (`startPreview backview`, `open`, `Thread enter`), then stops itself (no reverse
+  signal on the bench). Image test needs a camera.
+* **GPS fix crashes system_server (Android 14).** With the owner's antenna, the receiver got a fix (even indoors) and every
+  fix reported while location was requested killed system_server: `IllegalArgumentException: incomplete location` from
+  `LocationResult.validate` in `GnssLocationProvider.handleReportLocation` (2 crashes at boot of attempt 40, 1 more in a test).
+  The stock legacy module `/vendor/lib64/hw/gps.default.so` ("MTC GPS Module", based on AOSP's emulator NMEA driver, sha
+  `18b7411368846a80…`) never sets `GPS_LOCATION_HAS_ACCURACY`; Android 10 did not check, Android 14 requires accuracy.
+  Location was switched off on the unit until the fix was in.
+* **Fix: `hct/gnss-shim/libhugnss.so`** (open source, 12 KB, arm64, needs only liblog/libc/libdl; built on the build host
+  with `hct/gnss-shim/build.sh`). LD_PRELOADed into `vendor.gnss_service`, it interposes `hw_get_module("gps")` and wraps
+  open -> `get_gps_interface` -> `init`, replacing `nmea_cb` (reads HDOP from `$xxGGA` field 8 / `$xxGSA` field 16, passes the
+  sentence on) and `location_cb` (if accuracy is missing: HDOP x 5 m, at least 5 m, 50 m without HDOP; timestamp 0 ->
+  system clock). Live test (shimmed copy of the service from `/data/local/tmp`; a root shell exec of the vendor binary
+  transitions domain, sets AT_SECURE and the linker drops LD_PRELOAD; init-started services keep it): Maps got
+  `hAcc=13.8` with altitude, system_server survived, no crash.
+* **Attempt 41 prepared:** vendor `/lib64/libhugnss.so` (`vendor_file`) + `setenv LD_PRELOAD` in
+  `android.hardware.gnss@1.0-service.rc` (`vendor_configs_file`), on top of attempt 40.
 
+  Super attempt 40 `0d0dee96a1cc…`.
+  Super attempt 41 `2a7bdc092fea…`.

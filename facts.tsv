@@ -581,3 +581,5 @@ HU-MTC-PARAM2-BIN	sha	c9a8cb464d3bbe6383748ab57996cf678c8314fdc6cccf5c441afbf0d1
 A14-SUPER-ATT38	sha	cc335aa575f12a42e99a41e88f97b625bbfce07f0c1161ce54e3f3d6f1de0068	bytes	2026-11-25	docs/findings.md	Super `cc335aa575f1	docs/findings.md	attempt 38: GApps + av_active
 A14-SUPER-ATT38-PARTIAL	sha	294ad14285eb686b048d767a147a3f305656588199d5d56562415b2fb9e33a3b	bytes	2026-11-25	docs/findings.md	294ad14285eb	docs/findings.md	card after the incomplete first write pass
 A14-SUPER-ATT39	sha	0e5dc1c8be73e149646be87a1118cadb3f4dd25ad4cb13f903df89716349c54b	bytes	2026-11-25	docs/findings.md	Super `0e5dc1c8be73	docs/findings.md	attempt 39: HCT4Radio privileged
+A14-SUPER-ATT40	sha	0d0dee96a1ccd411b8e2bfef62da4a68a377b42c099e831fe2f1240ee87b8183	bytes	2026-11-25	docs/findings.md	Super attempt 40 `0d0dee96a1cc	docs/findings.md	attempt 40 - cvbs lib + 10 HCT apps privileged
+A14-SUPER-ATT41	sha	2a7bdc092fea1ce3af33a26e805b59dc43d8a3bd27c5a6b4857d80faa2480e78	bytes	2026-11-25	docs/findings.md	Super attempt 41 `2a7bdc092fea	docs/findings.md	attempt 41 - gnss accuracy shim
