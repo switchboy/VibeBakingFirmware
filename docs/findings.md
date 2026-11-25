@@ -6082,3 +6082,10 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   system_server opens it) and again at boot completion; plus the restored HCTBlueToothManager and HCTCanBus.
 
   Super `f07d31ab1804…`.
+* **CAN bus and TPMS will hit the same wall as CarService:** HCTCanBus's `CanBusServer` opens `/dev/ttyV0` at 38400
+  and `TpmsSerialManager` opens `/dev/ttyV1`, both with `SerialManager.openSerialPort()`, which Android 14's serial
+  service refuses because its port list (`config_serialPorts`) is empty. **Planned fix for all three:** a
+  framework-res overlay with `config_serialPorts` = `/dev/ttyV0`, `/dev/ttyV1`, `/dev/ttyV2`, built from the device tree
+  on the build host (not a hand-edited `resources.arsc`). Android's `SerialPort` sets raw mode itself, so CarService
+  could then return to its original `SerialManager` code, and the ttyV2 raw-mode rc becomes a safety net.
+
