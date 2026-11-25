@@ -30,6 +30,12 @@ def all4(src):
                and f'@+id/fav_glyph{i}' in src and f'@+id/fav_label{i}' in src for i in range(4))
 
 
+def code(src):
+    """Source with comments removed, so a note about a removed API never reads as a use of it."""
+    s = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
+    return re.sub(r"//.*", " ", s)
+
+
 mapc = read("app/src/org/vibebaking/launcher/MapCardController.java")
 radar = read("app/src/org/vibebaking/launcher/RadarView.java")
 media = read("app/src/org/vibebaking/launcher/MediaCardController.java")
@@ -84,7 +90,7 @@ ok("SA08", re.search(r"catch \(Throwable t\)[^\n]*\n[^\n]*showNoAccess", media),
 
 # SA09 - media: player gone between refresh and click -> act() no-ops, caught.
 act_fn = media[media.find("void act(int which)"):media.find("void cycleSource")]
-ok("SA09", "cursor < 0 || cursor >= controllers.size()" in act_fn and "pc == null" in act_fn
+ok("SA09", "cursor < 0 || cursor >= controllers.size()" in act_fn and "tc == null" in act_fn
    and "catch (Throwable t)" in act_fn, "transport click after a dead controller no-ops")
 
 # SA10 - valet: persist-before-suspend, replay decision delegated to ValetPolicy.replayAction.
@@ -237,6 +243,72 @@ ok("SA37", "catch (Throwable t)" in act[act.find("void refreshFavorites"):act.fi
 ok("SA37b", "if (valet.isActive() && store.valetEnabled()) return;" in act[act.find("void clearFavorite"):]
    and "if (!valet)" in drw and "pinToFavoriteRow" in drw,
    "pinning/un-pinning is refused while valet is active (S40c)")
+
+# SA38 - Android 14 API surfaces (the classes this tree removed or moved). A stale import is a
+# compile error on the build host, so the wrong package must not appear anywhere. Comments are
+# stripped first: a note that mentions a removed class is not a reference to it.
+store = read("app/src/org/vibebaking/launcher/SettingsStore.java")
+bpp = read("app/src/org/vibebaking/launcher/BluetoothPhoneProbe.java")
+mpc = read("app/src/org/vibebaking/launcher/MapCardController.java")
+ok("SA38", "android.media.MediaPlayerControl;" not in code(media) and "android.input.InputType" not in code(settings)
+   and "android.input.InputType" not in code(pinact) and "android.os.UiModeManager" not in code(theme)
+   and "ColorMatrix" not in code(media) and "getPlayer()" not in code(media),
+   "no A14-removed APIs referenced (MediaPlayerControl, android.input.InputType, os.UiModeManager, ColorMatrix)")
+ok("SA38b", "import android.media.session.MediaController;" in code(media)
+   and "import android.media.session.MediaSessionManager;" in code(media)
+   and "import android.media.session.PlaybackState;" in code(media)
+   and "import android.app.UiModeManager;" in code(theme)
+   and "android.text.InputType.TYPE_CLASS_NUMBER" in code(settings) and "android.text.InputType.TYPE_CLASS_NUMBER" in code(pinact),
+   "media session classes, android.app.UiModeManager and android.text.InputType are the A14 paths")
+ok("SA38c", "setPackagesSuspended(arr, on, appExtras, launcherExtras" in code(valet)
+   and "PersistableBundle" in code(valet) and "android.content.pm.SuspendDialogInfo" in code(valet)
+   and "Bundle appData" not in code(valet),
+   "suspend uses the Android 14 (pkgs, suspended, appExtras, launcherExtras, dialogInfo) overload;"
+   " SuspendDialogInfo lives in android.content.pm, not android.app")
+ok("SA38d", "Double.doubleToRawLongBits" in code(store) and "Double.longBitsToDouble" in code(store)
+   and "p.getDouble(" not in code(store) and "putDouble(key, v)" not in code(store),
+   "SharedPreferences has no double API: lat/lon round-trip as raw bits in a long")
+ok("SA38e", "opts.toBundle()" in code(mpc),
+   "embedded start needs ActivityOptions.toBundle() (startActivity(Intent, Bundle))")
+ok("SA38f", "boolean valet = valet." not in code(act) and "boolean valetOn = valet.isActive()" in code(act)
+   and "visible(store.favSlots(), valetOn," in code(act),
+   "no local shadows the valet field, and the favourite row gets the boolean, not the controller")
+ok("SA38g", "new android.content.ComponentName(ctx, MediaListenerService.class)" in code(media)
+   and "getActiveSessions(MediaListenerService.instance)" not in code(media),
+   "getActiveSessions takes a ComponentName, not the service instance")
+ok("SA38h", "STATE_PREPARING" not in code(media) and "PlaybackState.STATE_PLAYING" in code(media),
+   "A14 PlaybackState states only (there is no STATE_PREPARING)")
+ok("SA38i", "BluetoothProfile.ServiceListener" in code(bpp) and "ProxyListener" not in code(bpp),
+   "profile proxies need BluetoothProfile.ServiceListener (ProxyListener does not exist)")
+ok("SA38j", "PhonePolicy.trustedPhoneConfigured(!adapter.getBondedDevices().isEmpty())" in code(bpp)
+   and "trustedPhoneConfigured(adapter.getBondedDevices().size())" not in code(bpp),
+   "the exit-path predicate is a boolean, not a device count")
+
+# SA39 - cross-package references: an Android-side class must import the logic type it implements.
+# A missing import is invisible here (these classes never compile locally) but is a hard compile
+# error on the build host — BluetoothPhoneProbe shipped exactly that way.
+logic_names = [f[:-5] for f in os.listdir(os.path.join(ROOT, "app/src/org/vibebaking/launcher/logic"))
+               if f.endswith(".java")]
+src_dir = os.path.join(ROOT, "app/src/org/vibebaking/launcher")
+missing_imports = []
+for root, dirs, files in os.walk(src_dir):
+    if os.path.realpath(root) == os.path.realpath(os.path.join(src_dir, "logic")):
+        continue
+    for f in files:
+        if not f.endswith(".java"):
+            continue
+        s = code(open(os.path.join(root, f), encoding="utf-8").read())
+        for n in logic_names:
+            if not re.search(r"\b" + n + r"\b", s):
+                continue
+            # An import or a fully-qualified call both compile; anything else is a build-host error.
+            if f"import org.vibebaking.launcher.logic.{n};" in s:
+                continue
+            if f"org.vibebaking.launcher.logic.{n}." in s:
+                continue
+            missing_imports.append(f"{f}:{n}")
+ok("SA39", not missing_imports,
+   "every logic type used outside logic/ is imported (" + "; ".join(missing_imports[:6]) + ")")
 
 fails = [r for r in results if not r[1]]
 print(f"{len(results)} scenario checks, {len(fails)} failed")

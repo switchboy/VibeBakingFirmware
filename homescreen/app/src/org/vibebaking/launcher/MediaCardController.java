@@ -2,9 +2,12 @@ package org.vibebaking.launcher;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.media.MediaController;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffColorFilter;
 import android.media.MediaMetadata;
-import android.media.MediaSessionManager;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.ImageButton;
@@ -63,7 +66,7 @@ public class MediaCardController {
         try {
             MediaSessionManager mgr =
                 (MediaSessionManager) ctx.getSystemService(Context.MEDIA_SESSION_SERVICE);
-            list = mgr.getActiveSessions(MediaListenerService.instance);
+            list = mgr.getActiveSessions(new android.content.ComponentName(ctx, MediaListenerService.class));
         } catch (Throwable t) {
             showNoAccess();
             return;
@@ -93,7 +96,7 @@ public class MediaCardController {
         c.pkg = m.getPackageName() == null ? "" : m.getPackageName();
         try {
             c.pkgLabel = ctx.getPackageManager().getApplicationLabel(
-                ctx.getPackageManager().getApplicationInfo(c.pkg, 0));
+                ctx.getPackageManager().getApplicationInfo(c.pkg, 0)).toString();
         } catch (Throwable t) { c.pkgLabel = ""; }
         MediaMetadata md = null;
         try { md = m.getMetadata(); } catch (Throwable ignore) { }
@@ -102,15 +105,20 @@ public class MediaCardController {
             c.artist = md.getString(MediaMetadata.METADATA_KEY_ARTIST);
             c.album = md.getString(MediaMetadata.METADATA_KEY_ALBUM);
         }
+        // android.media.MediaPlayerControl is gone in Android 14: read the session's PlaybackState.
         try {
-            android.media.MediaPlayerControl pc = m.getPlayer();
-            if (pc != null) {
-                c.playing = pc.isPlaying();
-                c.canPlayPause = pc.canPause() || pc.canPlayAndPause();
-                c.canSkipNext = pc.canSkipToNext();
-                c.canSkipPrev = pc.canSkipToPrevious();
+            PlaybackState ps = m.getPlaybackState();
+            if (ps != null) {
+                int st = ps.getState();
+                // A14 PlaybackState has no STATE_PREPARING; buffering/connecting count as "about to play".
+                c.playing = st == PlaybackState.STATE_PLAYING || st == PlaybackState.STATE_BUFFERING;
+                long a = ps.getActions();
+                c.canPlayPause = (a & (PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PLAY_PAUSE
+                    | PlaybackState.ACTION_PAUSE)) != 0;
+                c.canSkipNext = (a & PlaybackState.ACTION_SKIP_TO_NEXT) != 0;
+                c.canSkipPrev = (a & PlaybackState.ACTION_SKIP_TO_PREVIOUS) != 0;
             }
-        } catch (Throwable ignore) { }
+        } catch (Throwable ignore) { /* session without a playback state: buttons stay disabled */ }
         return c;
     }
 
@@ -134,23 +142,21 @@ public class MediaCardController {
             catch (Throwable ignore) { }
         }
         if (bmp != null) {
+            art.setImageBitmap(bmp);
             if (night) {
+                // Night dim without ColorMatrix (absent from the compile classpath): a multiply tint
+                // keeps white-on-transparent artwork dim instead of glaring (spec S33/S14).
                 double dim = ArtPalette.nightArtDim();
-                android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
-                cm.setScale(dim, dim, dim, 1f);
-                android.graphics.Bitmap d = android.graphics.Bitmap.createBitmap(
-                    bmp.getWidth(), bmp.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
-                android.graphics.Canvas canvas = new android.graphics.Canvas(d);
-                android.graphics.Paint p = new android.graphics.Paint();
-                p.setColorFilter(new android.graphics.ColorMatrixColorFilter(cm));
-                canvas.drawBitmap(bmp, 0, 0, p);
-                art.setImageBitmap(d);
+                int g = (int) Math.round(Math.max(0.0, Math.min(1.0, dim)) * 255);
+                int grey = (0xFF << 24) | (g << 16) | (g << 8) | g;
+                art.setColorFilter(new PorterDuffColorFilter(grey, PorterDuff.Mode.MULTIPLY));
             } else {
-                art.setImageBitmap(bmp);
+                art.setColorFilter(null); // day: no dim (spec S35)
             }
             int tint = night ? ArtPalette.nightTint(sample(bmp)) : ArtPalette.dayTint(sample(bmp));
             card.setBackgroundColor(tint);
         } else {
+            art.setColorFilter(null);
             art.setImageResource(R.drawable.ic_music_placeholder);
         }
     }
@@ -169,11 +175,13 @@ public class MediaCardController {
         if (cursor < 0 || cursor >= controllers.size()) return;
         MediaController m = controllers.get(cursor);
         try {
-            android.media.MediaPlayerControl pc = m.getPlayer();
-            if (pc == null) return;
-            if (which == MediaCardPolicy.TR_PLAY_PAUSE) { if (pc.isPlaying()) pc.pause(); else pc.start(); }
-            else if (which == MediaCardPolicy.TR_NEXT) pc.skipToNext();
-            else if (which == MediaCardPolicy.TR_PREV) pc.skipToPrevious();
+            MediaController.TransportControls tc = m.getTransportControls();
+            if (tc == null) return;
+            if (which == MediaCardPolicy.TR_PLAY_PAUSE) {
+                // Toggle from the mirrored state (MediaPlayerControl is gone in Android 14).
+                if (mirror(m).playing) tc.pause(); else tc.play();
+            } else if (which == MediaCardPolicy.TR_NEXT) tc.skipToNext();
+            else if (which == MediaCardPolicy.TR_PREV) tc.skipToPrevious();
         } catch (Throwable t) { /* controller died mid-click: refresh() next tick */ }
     }
 

@@ -18,11 +18,17 @@ public class SettingsStore {
     public String getString(String key, String def) { return p.getString(key, def); }
     public int getInt(String key, int def) { return p.getInt(key, def); }
     public boolean getBool(String key, boolean def) { return p.getBoolean(key, def); }
-    public double getDouble(String key, double def) { return p.getDouble(key, def); }
+    /**
+     * SharedPreferences has no double API, so doubles are stored as raw bits in a long: exact for
+     * lat/lon, and garbage values round-trip unchanged (the policy side clamps them).
+     */
+    public double getDouble(String key, double def) {
+        return Double.longBitsToDouble(p.getLong(key, Double.doubleToRawLongBits(def)));
+    }
     public void put(String key, String v) { p.edit().putString(key, v).apply(); }
     public void put(String key, int v) { p.edit().putInt(key, v).apply(); }
     public void put(String key, boolean v) { p.edit().putBoolean(key, v).apply(); }
-    public void put(String key, double v) { p.edit().putDouble(key, v).apply(); }
+    public void putDouble(String key, double v) { p.edit().putLong(key, Double.doubleToRawLongBits(v)).apply(); }
 
     public String backlightMode() { return getString(SettingsKeys.KEY_BACKLIGHT_MODE, SettingsKeys.DEFAULT_BACKLIGHT_MODE); }
     public int backlightPercent() { return getInt(SettingsKeys.KEY_BACKLIGHT_PERCENT, SettingsKeys.DEFAULT_BACKLIGHT_PERCENT); }

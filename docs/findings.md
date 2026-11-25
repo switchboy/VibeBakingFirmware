@@ -6299,3 +6299,9 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   Super attempt 40 `0d0dee96a1cc…`.
   Super attempt 41 `2a7bdc092fea…`.
   Shim build `libhugnss.so` sha `82ff40a1b5f3…`.
+* **Attempt 41 boots clean.** GNSS HAL starts with `LD_PRELOAD=/vendor/lib64/libhugnss.so` (loaded, 4 mappings). Owner's
+  antenna gives a fix with accuracy filled in: `hAcc=22.9 m`, altitude present; location stayed on. Zero "secure settings"
+  errors across all logcat buffers this boot (the moved apps write their settings without throwing), and no app crash in
+  dropbox or logcat. `com.microntek.avin`, `com.microntek.dvd` and `com.microntek.bluetooth` stay running; frontview/tv/
+  backview start, open `/dev/mtc-cvbs` and exit themselves when no video signal is present (bench has no camera).
+

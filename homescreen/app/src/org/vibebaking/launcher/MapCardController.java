@@ -106,7 +106,7 @@ public class MapCardController {
         // @hide ActivityOptions methods (VERIFY on the tree):
         opts.getClass().getMethod("setEmbeddedTaskId", int.class).invoke(opts, taskId);
         opts.getClass().getMethod("setTaskViewHost", android.os.IBinder.class).invoke(opts, binder);
-        ctx.startActivity(launch, opts);
+        ctx.startActivity(launch, opts.toBundle());
     }
 
     public void release() {

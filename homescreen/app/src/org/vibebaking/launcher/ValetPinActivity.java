@@ -28,7 +28,7 @@ public class ValetPinActivity extends Activity {
         status.setPadding(24, 16, 24, 16);
         EditText pin = new EditText(this);
         pin.setHint("PIN");
-        pin.setInputType(android.input.InputType.TYPE_CLASS_NUMBER);
+        pin.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         Button unlock = new Button(this);
         unlock.setText("Unlock valet mode");
         unlock.setOnClickListener(v -> {

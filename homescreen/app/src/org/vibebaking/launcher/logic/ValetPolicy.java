@@ -101,7 +101,7 @@ public final class ValetPolicy {
      * always allowed. `null`/empty adds nothing.
      */
     public static Set<String> withMapTarget(Set<String> extras, String mapTargetPkg) {
-        Set<String> s = new HashSet<>(extras == null ? Set.of() : extras);
+        Set<String> s = new HashSet<>(extras == null ? java.util.Collections.<String>emptySet() : extras);
         if (mapTargetPkg != null && !mapTargetPkg.isEmpty()) s.add(mapTargetPkg);
         return s;
     }

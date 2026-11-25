@@ -70,7 +70,7 @@ public class RadarView extends View {
         loading = true;
         scheduleRefresh();
         new Thread(() -> {
-            RadarPlan plan = RadarPlan.build(fetcher, lat, lon, zoom);
+            RadarPlan.Plan plan = RadarPlan.build(fetcher, lat, lon, zoom);
             String att = "";
             String date = "";
             int[] o = null;

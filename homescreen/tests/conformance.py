@@ -77,8 +77,9 @@ ml = read("app/src/org/vibebaking/launcher/MediaListenerService.java")
 mp = read("app/src/org/vibebaking/launcher/logic/MediaCardPolicy.java")
 ok("C08", "getActiveSessions" in md and "NotificationListenerService" in ml
         and "BIND_NOTIFICATION_LISTENER_SERVICE" in man)
-ok("C09", "skipToNext" in md and "skipToPrevious" in md and ".pause()" in md and ".start()" in md
-        and "TR_PLAY_PAUSE" in mp and "TR_NEXT" in mp and "TR_PREV" in mp)
+ok("C09", "skipToNext()" in md and "skipToPrevious()" in md and "tc.play()" in md and "tc.pause()" in md
+        and "TR_PLAY_PAUSE" in mp and "TR_NEXT" in mp and "TR_PREV" in mp,
+        "transport actions go through MediaController.TransportControls (MediaPlayerControl is gone in A14)")
 
 # ---- S15/S16/S17 ----
 rt = read("app/src/org/vibebaking/launcher/logic/RadarTiles.java")
@@ -190,7 +191,7 @@ ok("C26", 'android:name=".AppDrawerActivity"' in man and "drawer_grid" in drwlay
    "drawer activity + 4-column grid + entry glyph wired")
 ok("C27", "ValetPolicy.allowedSet" in dp and "homeApps.contains(e.pkg)" in dp
    and "queryIntentActivities" in drw and "getLaunchIntentForPackage" in drw
-   and "allowedExtras" in drw and "settingsButton.setVisibility(valet ? View.GONE : View.VISIBLE)" in la,
+   and "allowedExtras" in drw and "settingsButton.setVisibility(valetOn ? View.GONE : View.VISIBLE)" in la,
    "drawer: launchable-only, HOME packages hidden, valet limited to allowed set, gear hidden in valet")
 ok("C28", "withMapTarget" in read("app/src/org/vibebaking/launcher/logic/ValetPolicy.java")
    and "valet.setNavTarget(map.navTarget())" in la and "refreshSuspension" in vc,
@@ -234,6 +235,15 @@ ok("C38", 'android:id="@+id/favorites_bar"' in fav_lay and all4(fav_lay)
 ok("C39", "allowed.contains(pkg)" in fp and "favSlots" in drw and "fav_pinned_prefix" in read("app/res/values/strings.xml")
    and "favSummary()" in cs,
    "valet hides slots outside the allowed set; pinned apps marked in the drawer; settings shows the row")
+
+# ---- Android 14 API surface (the tree's javac is the only real compile) ----
+ok("C40", "android.media.MediaPlayerControl;" not in read("app/src/org/vibebaking/launcher/MediaCardController.java")
+   and "android.os.UiModeManager" not in ta and "android.input.InputType" not in cs
+   and "PersistableBundle" in vc and "android.content.pm.SuspendDialogInfo" in vc
+   and "Double.doubleToRawLongBits" in read("app/src/org/vibebaking/launcher/SettingsStore.java")
+   and "android.permission.SUSPEND_APPS" in read("app/AndroidManifest.xml")
+   and "android.permission.SUSPEND_APPS" in read("app/privapp-permissions-vibelauncher.xml"),
+   "no A14-removed APIs; suspend declares the permission PackageManagerService enforces (whitelisted)")
 
 # ---- docs ----
 ok("C22", exists("specs.md") and exists("plan.md") and exists("README.md") and exists("HANDOFF.md"))

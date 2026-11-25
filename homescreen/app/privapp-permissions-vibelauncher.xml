@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Whitelist for signature|privileged permissions of the platform-signed launcher.
      Copy to /system/etc/permissions/ via PRODUCT_COPY_FILES (same pattern as
-     privapp-permissions-hct.xml). VERIFY the enforced permission for
-     PackageManager.setPackagesSuspended against the tree's PackageManagerService: if it checks
-     a different permission, add it here. -->
+     privapp-permissions-hct.xml). The suspend permission is verified against the tree:
+     PackageManagerService.enforceCallingOrSelfPermission(SUSPEND_APPS) for setPackagesSuspended
+     (Android 14, frameworks/base/services/core/.../pm/PackageManagerService.java:3263/3302). -->
 <permissions>
     <privapp-permissions package="org.vibebaking.launcher">
         <permission name="android.permission.MANAGE_ACTIVITY_TASKS" />
         <permission name="android.permission.MANAGE_APP_TOKENS" />
+        <permission name="android.permission.SUSPEND_APPS" />
         <permission name="android.permission.MANAGE_USERS" />
         <permission name="android.permission.WRITE_SETTINGS" />
         <permission name="android.permission.ACCESS_NOTIFICATION_POLICY" />

@@ -11,6 +11,9 @@
     <!-- Signature|privileged / special: whitelisted in privapp-permissions-vibelauncher.xml -->
     <uses-permission android:name="android.permission.MANAGE_ACTIVITY_TASKS" /> <!-- TaskView embed (S6) -->
     <uses-permission android:name="android.permission.MANAGE_APP_TOKENS" />     <!-- valet suspend (S22) -->
+    <!-- PackageManagerService.enforceCallingOrSelfPermission(SUSPEND_APPS) for setPackagesSuspended
+         (verified against the tree's PackageManagerService.java:3263/3302, Android 14). -->
+    <uses-permission android:name="android.permission.SUSPEND_APPS" />          <!-- valet suspend (S22) -->
     <uses-permission android:name="android.permission.MANAGE_USERS" />          <!-- suspend across users -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />    <!-- enumerate apps for valet -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />        <!-- backlight dim (S28) -->

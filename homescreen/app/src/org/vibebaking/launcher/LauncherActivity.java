@@ -199,10 +199,10 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        boolean valet = valet.isActive() && store.valetEnabled();
-        badge.setVisibility(valet ? View.VISIBLE : View.GONE);
+        boolean valetOn = valet.isActive() && store.valetEnabled();
+        badge.setVisibility(valetOn ? View.VISIBLE : View.GONE);
         // In valet mode Settings is suspended anyway: hide the gear so the screen stays clean.
-        settingsButton.setVisibility(valet ? View.GONE : View.VISIBLE);
+        settingsButton.setVisibility(valetOn ? View.GONE : View.VISIBLE);
         // Map target may have changed in settings while the home screen was in the background.
         if (map != null && !java.util.Objects.equals(lastMapTarget, store.mapTarget())) {
             map.init(store.mapTarget());
@@ -219,8 +219,8 @@ public class LauncherActivity extends Activity {
      * that vanished since the pref was written, or an app without an icon, degrades to the glyph.
      */
     void refreshFavorites() {
-        boolean valet = valet.isActive() && store.valetEnabled();
-        Set<String> allowed = valet ? ValetPolicy.allowedSet(valet.allowedExtras()) : null;
+        boolean valetOn = valet.isActive() && store.valetEnabled();
+        Set<String> allowed = valetOn ? ValetPolicy.allowedSet(valet.allowedExtras()) : null;
         PackageManager pm = getPackageManager();
         Set<String> launchable = new HashSet<>();
         for (String pkg : store.favSlots()) {
@@ -228,7 +228,7 @@ public class LauncherActivity extends Activity {
             try { if (pm.getLaunchIntentForPackage(pkg) != null) launchable.add(pkg); }
             catch (Throwable t) { /* package gone or PM error: treat as not launchable */ }
         }
-        favShown = FavoritePolicy.visible(store.favSlots(), valet, allowed, launchable);
+        favShown = FavoritePolicy.visible(store.favSlots(), valetOn, allowed, launchable);
         for (int i = 0; i < FavoritePolicy.MAX_SLOTS; i++) {
             String pkg = favShown.get(i);
             if (pkg.isEmpty()) {

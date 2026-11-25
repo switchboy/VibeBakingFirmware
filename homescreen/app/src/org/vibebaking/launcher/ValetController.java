@@ -4,8 +4,8 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.os.Bundle;
 import android.os.Handler;
+import android.os.PersistableBundle;
 import android.text.TextUtils;
 
 import org.vibebaking.launcher.logic.PhonePolicy;
@@ -229,10 +229,15 @@ public class ValetController {
 
     void suspend(List<String> pkgs, boolean on) {
         if (pkgs.isEmpty()) return;
+        String[] arr = pkgs.toArray(new String[0]);
         try {
-            Bundle appData = on ? new Bundle() : null;
-            if (on) appData.putString("reason", "valet");
-            pm.setPackagesSuspended(pkgs.toArray(new String[0]), appData);
+            // Android 14 signature: (pkgs, suspended, appExtras, launcherExtras, dialogInfo). The
+            // two Bundle overload is gone; SUSPEND_APPS is signature|privileged (see the whitelist).
+            PersistableBundle appExtras = on ? new PersistableBundle() : null;
+            PersistableBundle launcherExtras = on ? new PersistableBundle() : null;
+            if (on) appExtras.putString("reason", "valet");
+            pm.setPackagesSuspended(arr, on, appExtras, launcherExtras,
+                (android.content.pm.SuspendDialogInfo) null); // null = the platform's default suspended notice
         } catch (Throwable t) {
             // SecurityException/removed overload: leave manual toggle usable, log for debugging.
             android.util.Log.w("ValetController", "setPackagesSuspended failed", t);

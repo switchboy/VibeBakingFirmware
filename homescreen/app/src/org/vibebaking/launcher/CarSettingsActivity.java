@@ -77,7 +77,7 @@ public class CarSettingsActivity extends Activity {
 
         EditText pin = new EditText(this);
         pin.setHint("valet PIN");
-        pin.setInputType(android.input.InputType.TYPE_CLASS_NUMBER);
+        pin.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         Button save = new Button(this);
         save.setText("Save PIN");
         save.setOnClickListener(v -> {

@@ -1,7 +1,7 @@
 package org.vibebaking.launcher;
 
 import android.content.Context;
-import android.os.UiModeManager;
+import android.app.UiModeManager;
 import android.provider.Settings;
 import android.text.TextUtils;
 
