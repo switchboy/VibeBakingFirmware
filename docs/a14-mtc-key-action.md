@@ -1,3 +1,5 @@
+> **CORRECTION (2026-11-25, verified on the unit):** this report's root cause is wrong. The kernel writes the frame length **little-endian**, which is what `HctUtil.getInt2` reads, so `getFramePos` parses kernel frames correctly (measured 2026-11-25 on `/dev/ttyV2` (raw mode): status frames `fa 16 c0 02 00 79 00`, key frames `fa 16 4e 02 00 11 01` (key 0x0111) - the length `02 00` is **little-endian** and frames arrive on **ttyV2**). Do NOT apply the proposed `getInt` change: it would break every frame. The real cause was the tty mode: CarService's `FileInputStream` left `/dev/ttyV2` canonical with echo; with the port raw, keys work end to end (vol+ shows the volume slider). The dispatch chain in sections 2-4 below is correct. See `docs/findings.md`.
+
 # HCT key-frame trace (Android 14 port) — read-only smali analysis
 
 Paths abbreviated:
@@ -33,7 +35,7 @@ Paths abbreviated:
 For size=2 this yields `dat = buf[start+1]<<8 | buf[start]` = **little-endian u16**.
 (HctUtil.getInt at :521 is the big-endian variant, and it is NOT the one getFramePos uses.)
 
-### MISMATCH — the kernel's length field is big-endian, getFramePos reads little-endian
+### ~~MISMATCH — the kernel's length field is big-endian, getFramePos reads little-endian~~ (WRONG: the wire is little-endian, see the correction at the top)
 Kernel frame: `FA 16 4E <len u16 BE> payload`. getFramePos reads buf[framestart+3], buf[framestart+4].
 For payload_len < 256 the kernel writes `0x00 <len>`, so getInt2 returns `len<<8 | 0x00` = len*256.
 `len_computed = len*256 + 5`, then the completeness check at HctUtil.smali:494 (`remaining < len`) is
@@ -190,7 +192,7 @@ Handler chain for type "KeyDown":
 
 ## 5. Conclusion + minimal fix
 
-Root cause: the length field of a kernel frame is read little-endian by `HctUtil.getInt2`
+~~Root cause~~ (WRONG, see the correction at the top): the length field of a kernel frame is read little-endian by `HctUtil.getInt2`
 (mgr/com/android/server/microntek/HctUtil.smali:578-590) while the kernel writes it big-endian at
 framestart+3 (:474-478). `len = value + 5` therefore becomes `payload_len*256 + 5`, the completeness test
 at :494 fails, `getFramePos` returns -1, and `CarService.DataProc` (:659) drops the bytes without ever
@@ -198,7 +200,7 @@ calling `cmdProc` (:683). Nothing else in the chain is broken: cmd2=0x4E *is* ha
 MicrontekServer is attached ("CarEvent,CarPower,KeyDown,CarApp", MicrontekServer.smali:7438-7440).
 
 Minimal change: make the length read byte-order match the kernel — one instruction pair.
-Either (a) patch `HctUtil.getFramePos` to use the big-endian helper: replace
+~~Either (a) patch `HctUtil.getFramePos` to use the big-endian helper~~ (DO NOT; it would break parsing): replace
 `getInt2(buf, framestart+3, 2)` (HctUtil.smali:478) with `getInt(buf, framestart+3, 2)` (defined at :521),
 or (b) change the kernel to write the length little-endian (then payload must also start at framestart+5,
 matching cmdProc's code read at CarService.smali:2521-2523: `code = buf[start+5] | buf[start+6]<<8`).

@@ -1,3 +1,5 @@
+> **CORRECTION (2026-11-25, verified on the unit):** the conclusion that key frames go to **`/dev/ttyV3`** is wrong. With the owner pressing keys, `/dev/ttyV3` received 0 bytes even in raw mode, while key frames appear on `/dev/ttyV2` (measured 2026-11-25 on `/dev/ttyV2` (raw mode): status frames `fa 16 c0 02 00 79 00`, key frames `fa 16 4e 02 00 11 01` (key 0x0111) - the length `02 00` is **little-endian** and frames arrive on **ttyV2**); `/proc/tty/driver/ttyV` likewise shows traffic only on port 2. Whatever `vss[3]` is, it is the port that userspace sees as ttyV2. The rest of the kernel trace (mtc_cmd_process dispatch, back key 0x134 -> KEY_BACK, the `car_dev->+0x38` sink, `vs_send_func`, the `ctx+0xe0f` test flag) stands.
+
 # A14 kernel MTC "car" driver — why ordinary keys (0x111/0x119/0x128/0x136) deliver nothing
 
 Extracted Android 14 arm64 kernel Image (`keys/work/kernel.img`, 0x187b808 bytes), symbols from the
@@ -125,7 +127,7 @@ and `ldr x3,[x0,#0x10]; blr x3` with `w0`=3/5, `x1`=buf, `w2`=len.
 
 `vs_shutdown` zeroes `port+0x220` (`0x8aba8f4`) and `vs_stop_rx` zeroes `port+0x1b8` (`0x8aba4a8`), so once
 the tty is closed every frame is dropped again. Because the port array index is fixed at 3 and
-`vs_uart_driver.dev_name = "ttyV"` (`0x92e1bf0`), the sink is **`/dev/ttyV3`** — userspace bytes arrive as
+`vs_uart_driver.dev_name = "ttyV"` (`0x92e1bf0`), the sink is ~~**`/dev/ttyV3`**~~ **`/dev/ttyV2`** (measured; see the correction at the top) — userspace bytes arrive as
 `0xfa 0x16 <subcmd> <len:u16> <payload>`, payload = `buf+4` of the MCU frame (key u16 at payload[0..1]).
 
 ## Q3 — `[ctx+0xe0f]==1`, and the 0x134/0x135 paths
@@ -178,7 +180,7 @@ For an ordinary key (`0x111`, `0x119`, `0x128`, `0x136`, …) the **only** deliv
 
 1. **The vs driver must have probed.** DT node compatible `"mtc,vs"` / platform driver `mtc-vs`; check
    `/sys/bus/platform/drivers/mtc-vs/`. Without it `car_dev->+0x38` is NULL and every branch `cbz`-returns.
-2. **`/dev/ttyV3` must be open.** `vs_send_func` hard-wires `vss[3]` and refuses unless
+2. **The vs port must be open** (it is `/dev/ttyV2` as measured, not ttyV3). `vs_send_func` hard-wires `vss[3]` and refuses unless
    `port+0x220` and `port+0x1b8` are non-zero; those are set only in `vs_startup` (`0x8abb3d0`, reached from
    `uart_open` → `ops->startup`) and cleared in `vs_shutdown`/`vs_stop_rx`. So opening (and keeping open)
    `/dev/ttyV3` is what makes delivery happen; ports `ttyV0/1/2/4..7` are registered but never used by the key path.
