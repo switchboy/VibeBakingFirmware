@@ -575,3 +575,4 @@ HU-SERIALPORTS-RRO	sha	a7f1c79fbfefe80f551400f5d530c743ddf2e450b142123431db0bd08
 A14-SUPER-ATT35	sha	a39cddfd27c7cedc786f43da67749381e6cf808c84a046b74431f6274ab68388	bytes	2026-11-25	docs/findings.md	Super `a39cddfd27c7	docs/findings.md	attempt 35: HuSafe setprop, gocsdkrf210 oneshot
 A14-SUPER-ATT36	sha	e79502c2792a59d20ff1fe9f60b877c26963ac777d4679c92ed70b4b05f8ee05	bytes	2026-11-25	docs/findings.md	Super `e79502c2792a	docs/findings.md	attempt 36: GOC daemon via ABI shim
 LIBHUGOC-SO	sha	11a451000bd042ac3ef7188d19f2e455dcaf9fa0d8aacb4c8601051ee2825364	bytes	2026-11-25	docs/findings.md	11a451000bd0	docs/findings.md	libhugoc.so ABI shim
+GOCSDKRF210-A10-BIN	sha	f63cfeb5a726abaa85c77db06aad3401b587c94b472b500d0d3917a078143984	bytes	2026-11-25	docs/findings.md	f63cfeb5a726	docs/findings.md	original HCT GOC BT daemon (Android 10, 32-bit)
