@@ -6106,3 +6106,13 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   aside); the overlay plus both apps become attempt 34.
 
   Super `682f112aa679…`.
+* **Serial-port overlay built** (`hct/rro-serialports/`: manifest, `res/values/config.xml`, `build.sh`):
+  `HuSerialPortsOverlay.apk` (`a7f1c79fbfef…`, 8,538 B), a static overlay of `android` setting `config_serialPorts` =
+  `/dev/ttyV0`, `/dev/ttyV1`, `/dev/ttyV2`, `/dev/goc_serial`, `/dev/ttyS4` (Android 14's
+  `frameworks/base/core/res/res/values/config.xml:1337` is empty; `SerialService.java:62` reads it). Built on the
+  build host in `/tmp` with the tree's `aapt2`/`apksigner` and platform test key, without touching the tree or `out/` (SSData
+  has 2.1 GB free). Its signer (`c8a2e9bccf59…`) is the card's `framework-res.apk` signer.
+* **Attempt 34 prepared:** product `/overlay/HuSerialPortsOverlay.apk` (0644, `system_file`) + HCTBlueToothManager and
+  HCTCanBus restored, on top of attempt 33.
+
+  Super `87711ca53c39…`.

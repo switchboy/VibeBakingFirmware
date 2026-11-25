@@ -570,3 +570,5 @@ A14-SUPER-ATT33	sha	3ede7108ad1027a4582f1bd82d393301392d2ebeaadf15812b426b8e3689
 MINDTHEGAPPS-14-ZIP	sha	6e1c3616862ce5b33e2b96074f86ae846eb1351a26a980e1ed140f8a7e7a4fd6	bytes	2026-11-25	docs/findings.md	6e1c3616862c	docs/findings.md	MindTheGapps 14.0.0 arm64 20250203_200051
 A14-SUPER-ATT33B	sha	f07d31ab18044d1a5f6ed035397b77064b5f647f473aa7c295fbb4cb913a14f7	bytes	2026-11-25	docs/findings.md	Super `f07d31ab1804	docs/findings.md	attempt 33 rebuilt: + ttyV2 raw mode
 A14-SUPER-ATT33C	sha	682f112aa679dcc7f813e815a7d291e4af8b3b3c47fb3e10999be54ee28af034	bytes	2026-11-25	docs/findings.md	Super `682f112aa679	docs/findings.md	attempt 33 reduced: ttyV2 raw only
+A14-SUPER-ATT34	sha	87711ca53c39145527b28c0f998429b2a289db1d60b04294dea3f96b57d1241e	bytes	2026-11-25	docs/findings.md	Super `87711ca53c39	docs/findings.md	attempt 34: serial-port overlay + BT/CAN apps
+HU-SERIALPORTS-RRO	sha	a7f1c79fbfefe80f551400f5d530c743ddf2e450b142123431db0bd08529dba8	bytes	2026-11-25	docs/findings.md	a7f1c79fbfef	docs/findings.md	config_serialPorts overlay

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PX6 head unit: MCU/CAN/TPMS/BT serial ports for android.hardware.SerialManager (Android 10 had them in its
+     firmware overlay; Android 14 ships an empty list, so openSerialPort refused every HCT port). -->
+<resources>
+    <string-array translatable="false" name="config_serialPorts">
+        <item>/dev/ttyV0</item>
+        <item>/dev/ttyV1</item>
+        <item>/dev/ttyV2</item>
+        <item>/dev/goc_serial</item>
+        <item>/dev/ttyS4</item>
+    </string-array>
+</resources>
