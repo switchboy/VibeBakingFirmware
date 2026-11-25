@@ -79,22 +79,16 @@ public class LauncherActivity extends Activity {
             // Long-press empties a slot (owner un-pins); disabled in valet so the row stays fixed.
             favSlots[idx].setOnLongClickListener(v -> { clearFavorite(idx); return true; });
         }
-        refreshFavorites();
 
         store = App.store();
         theme = App.theme();
         car = App.car();
         valet = App.valet();
         audio = new AudioAttenuator(this, car, store);
+        refreshFavorites(); // needs store + valet (first on-device run: NPE when called before them)
 
         valet.replayPending();        // crash-safe re-apply (spec S22)
         valet.scheduleAutoEnter();    // spec S25 - HCT BT probe decides; UNKNOWN never auto-enters
-
-        // Car signals (spec S28-S31, S19): initial state + event stream.
-        headlightOn = car.booleanState("headlight");
-        car.attach(carListener);
-        applyTheme();
-        applyBacklight();
 
         map = new MapCardController(this, findViewById(R.id.map_card));
         map.init(store.mapTarget());
@@ -112,6 +106,13 @@ public class LauncherActivity extends Activity {
         TextView attribution = findViewById(R.id.radar_attribution);
         radar.setSink((text, frame) -> attribution.setText(text));
         radar.load();
+
+        // Car signals (spec S28-S31, S19): initial state + event stream. Attached last: the listener and
+        // applyTheme() use the map/media/radar cards (first on-device run: NPE on radar when this ran first).
+        headlightOn = car.booleanState("headlight");
+        car.attach(carListener);
+        applyTheme();
+        applyBacklight();
 
         main.postDelayed(tick, ClockFormat.TICK_MS);
     }
@@ -154,7 +155,7 @@ public class LauncherActivity extends Activity {
             DayNight.isNight(store.radarLat(), store.radarLon(), now, tz), store.themeOnLights());
         boolean wasNight = theme.systemNight();
         theme.apply(night);
-        radar.setNight(theme.systemNight());
+        if (radar != null) radar.setNight(theme.systemNight());
         if (wasNight != theme.systemNight() && now - lastThemeSwitch > 600L) {
             lastThemeSwitch = now;
             animateThemeSwap(); // spec S32: animated, not abrupt
@@ -192,7 +193,7 @@ public class LauncherActivity extends Activity {
         super.onConfigurationChanged(newConfig);
         // uiMode is handled here (configChanges in the manifest) so the theme switch animates
         // instead of recreating the activity (spec S38).
-        radar.setNight(theme.systemNight());
+        if (radar != null) radar.setNight(theme.systemNight());
         animateThemeSwap();
     }
 

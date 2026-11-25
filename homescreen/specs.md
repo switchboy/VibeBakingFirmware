@@ -224,4 +224,4 @@ Firmware facts this rests on (all verified in the repo, read-only):
 | S21–S27a | U06,U08,U14,U19,U20 | C11,C12,C17,C29,C30 | A07 (valet suspend + DND live), A12 (BT entry/exit live) |
 | S28–S31 | U09,U10,U11 | C13 | A08 (events live) |
 | S32–S35 | U12 | C14,C15 | A09 (night switch) |
-| S36–S38 | U13 | C16 | A10 (degrade live) |
+| S36–S38 | U13 | C16,C40 | A10 (degrade live) |

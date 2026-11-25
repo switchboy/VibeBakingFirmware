@@ -6304,4 +6304,12 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   errors across all logcat buffers this boot (the moved apps write their settings without throwing), and no app crash in
   dropbox or logcat. `com.microntek.avin`, `com.microntek.dvd` and `com.microntek.bluetooth` stay running; frontview/tv/
   backview start, open `/dev/mtc-cvbs` and exit themselves when no video signal is present (bench has no camera).
+* **Unit in card recovery after the owner's power-harness problem:** the card BCB held our known `--reason=RescueParty`
+  blob (Android 14's RescueParty also counts boots that never complete); no crash in dropbox since attempt 41's boot.
+  `flash_card_a14.sh bcb-clear` + reboot -> Android 14 again.
+* **VibeLauncher runs on the unit** (hand build on the build host, `homescreen/build-on-build-host.sh`, platform-signed,
+  installed with `adb install` for the test, not yet in the image). Two lifecycle-order NPEs in `LauncherActivity.onCreate`
+  fixed; the home screen then draws (map card, media card, battery, favourites row). The map card's TaskView embedding cannot
+  work from an app: `TaskViewHost` is SystemUI's WM Shell, not framework (`ClassNotFoundException`). Open items listed in
+  `homescreen/BUILD-ERRORS-A14.md`. Trebuchet stays installed as a fallback.
 

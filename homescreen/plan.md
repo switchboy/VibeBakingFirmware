@@ -82,8 +82,9 @@ model in use (RF210), and whether the device-list entries carry addresses or nam
 ## Verify-before-ship checks on the build host (things this workstation cannot check)
 - `StatusBarManager.disable()` mask constant values (`DISABLE_EXPAND`/`DISABLE_NOTIFICATIONS`/…)
   read from `frameworks/base/…/StatusBarManager.java` in the tree.
-- `setPackagesSuspended` enforcement permission in `PackageManagerService` for A14 — manifest
-  declares `MANAGE_APP_TOKENS`+`MANAGE_USERS`; if PMS checks another permission, add it.
+- `setPackagesSuspended` enforcement permission — **verified on the tree**: `PackageManagerService`
+  enforces `android.permission.SUSPEND_APPS` (`pm/PackageManagerService.java:3263/3302`), so the
+  manifest declares it and the privapp whitelist lists it alongside `MANAGE_APP_TOKENS`/`MANAGE_USERS`.
 - `ActivityOptions` embed method name/signature for TaskView on A14 (CarLauncher is the reference).
 - privapp whitelist completeness: boot log must show no "permission X not in whitelisting" for
   `org.vibebaking.launcher`.
@@ -100,7 +101,7 @@ model in use (RF210), and whether the device-list entries carry addresses or nam
 | Risk | Mitigation |
 |---|---|
 | TaskView API drift vs CarLauncher | contained in `MapCardController`; fallback path S8 ships regardless |
-| `setPackagesSuspended` permission mismatch | ValetController catches SecurityException → logs + keeps manual toggle; check PMS on host |
+| `setPackagesSuspended` permission mismatch | verified: PMS enforces SUSPEND_APPS, declared + whitelisted; ValetController still catches SecurityException → logs + keeps manual toggle |
 | Battery unit unknown (tenths?) | single `BatteryState.fromRaw` conversion point; A06 measurement before trusting display |
 | carservice binder absent at boot | CarClient reflective + retry loop; home still renders (S36/S37) |
 | RainViewer rate limits / offline | tile cache + retry backoff; placeholder never crashes |

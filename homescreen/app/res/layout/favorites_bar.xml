@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bottom favourite row (spec S40): four one-tap slots. Slot 0 ships preinstalled with the HCT
+     Bluetooth app (dialler tab); the rest are filled by long-pressing an app in the drawer (S40c).
+     Empty slots show "+" and open the drawer. Slots outside the allowed set are hidden in valet. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/favorites_bar"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/fav_bar_height"
+    android:orientation="horizontal"
+    android:background="@drawable/card_bg"
+    android:layout_margin="@dimen/card_margin"
+    android:gravity="center_vertical"
+    android:padding="@dimen/card_padding">
+
+    <LinearLayout android:id="@+id/fav_slot0" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:id="@+id/fav_icon0" android:layout_width="@dimen/fav_icon" android:layout_height="@dimen/fav_icon"
+            android:scaleType="centerInside" android:src="@drawable/ic_app_placeholder"
+            android:contentDescription="@string/fav_slot_desc" />
+        <TextView android:id="@+id/fav_glyph0" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="@color/text" android:textSize="@dimen/fav_glyph_size" />
+        <TextView android:id="@+id/fav_label0" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:textColor="@color/text_sub" android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/fav_slot1" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:id="@+id/fav_icon1" android:layout_width="@dimen/fav_icon" android:layout_height="@dimen/fav_icon"
+            android:scaleType="centerInside" android:src="@drawable/ic_app_placeholder"
+            android:contentDescription="@string/fav_slot_desc" />
+        <TextView android:id="@+id/fav_glyph1" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="@color/text" android:textSize="@dimen/fav_glyph_size" />
+        <TextView android:id="@+id/fav_label1" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:textColor="@color/text_sub" android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/fav_slot2" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:id="@+id/fav_icon2" android:layout_width="@dimen/fav_icon" android:layout_height="@dimen/fav_icon"
+            android:scaleType="centerInside" android:src="@drawable/ic_app_placeholder"
+            android:contentDescription="@string/fav_slot_desc" />
+        <TextView android:id="@+id/fav_glyph2" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="@color/text" android:textSize="@dimen/fav_glyph_size" />
+        <TextView android:id="@+id/fav_label2" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:textColor="@color/text_sub" android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/fav_slot3" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1" android:orientation="vertical" android:gravity="center"
+        android:clickable="true" android:focusable="true">
+        <ImageView android:id="@+id/fav_icon3" android:layout_width="@dimen/fav_icon" android:layout_height="@dimen/fav_icon"
+            android:scaleType="centerInside" android:src="@drawable/ic_app_placeholder"
+            android:contentDescription="@string/fav_slot_desc" />
+        <TextView android:id="@+id/fav_glyph3" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="@color/text" android:textSize="@dimen/fav_glyph_size" />
+        <TextView android:id="@+id/fav_label3" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:maxLines="1" android:ellipsize="end" android:textColor="@color/text_sub" android:textSize="12sp" />
+    </LinearLayout>
+</LinearLayout>

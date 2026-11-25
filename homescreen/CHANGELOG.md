@@ -2,6 +2,32 @@
 
 All timestamps are the workstation date (2026-11-25). Spec ids refer to `specs.md`.
 
+## 2026-11-25 — Android 14 compile: the app builds (owner: "make it build")
+Compiled for real on the NAS build host (`homescreen/build-on-build-host.sh`: aapt2 compile + link,
+javac against the tree's turbine jars, d8). The parent's first pass reported 35 errors; after those
+fixes the hand build found 12 more, then 3. Result: **javac 0 errors**, 77 classes, `classes.dex`
+109 KB, `aapt2 dump badging` shows `provides-component:'launcher'` and `targetSdkVersion 34`.
+- **API drift fixed** (full list in `BUILD-ERRORS-A14.md`): `android.app.UiModeManager`;
+  `android.media.session.{MediaController,MediaSessionManager}`; `MediaPlayerControl`/`getPlayer()`
+  removed in A14 → `PlaybackState` state + action mask and `TransportControls` for the buttons;
+  `ColorMatrix` (absent from the classpath) → night art dim as a `PorterDuffColorFilter` MULTIPLY
+  tint; `SharedPreferences` has no double API → lat/lon round-trip as raw bits in a `long`;
+  `setPackagesSuspended` A14 overload with `PersistableBundle`s; `android.content.pm.SuspendDialogInfo`
+  (not `android.app`); `MediaSessionManager.getActiveSessions(android.content.ComponentName)`;
+  `PlaybackState` has no `STATE_PREPARING`; `BluetoothProfile.ServiceListener` (no `ProxyListener`);
+  `android.text.InputType`; `ActivityOptions.toBundle()`; `RadarPlan.Plan`; `Set.of()` → Java 8-safe
+  `Collections.emptySet()`.
+- **Two bugs only a real compile could catch:** a local `boolean valet` shadowed the `ValetController`
+  field (so `valet.isActive()` and `valet.setNavTarget()` resolved to the boolean), and
+  `BluetoothPhoneProbe` never imported `PhonePresenceProbe`. Static smoke `SA38`/`SA39` now assert the
+  A14 API surfaces and that every logic type used outside `logic/` is imported — both are checks that
+  would have failed before this round.
+- **Suspend permission verified against the tree:** `PackageManagerService` enforces
+  `android.permission.SUSPEND_APPS` (`pm/PackageManagerService.java:3263/3302`), so the manifest and
+  the privapp whitelist now declare it. Conformance `C40` checks that pairing.
+- Static smoke grew to 58 checks, conformance to 51 (`SA38a–j`, `SA39`, `C40`); `SA09`/`C09`/`C27`
+  assertions updated to the TransportControls/`valetOn` forms.
+
 ## 2026-11-25 — bottom favourite row + phone dialler slot (owner request)
 - **Added S40/S40a/S40b/S40c**: four one-tap slots at the bottom of the home screen
   (`res/layout/favorites_bar.xml`, included under the card row). Slot 0 is **preinstalled** with the

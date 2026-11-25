@@ -37,10 +37,15 @@ Everything here is self-contained; nothing outside this directory was modified.
 3. `lunch lineage_rk3399-ap2a-userdebug` then `m VibeLauncher`.
    The launcher must be the **only** launcher (owner, Nov 25): drop Launcher3 from
    `PRODUCT_PACKAGES` in the device config on the build host, so nothing else can take the HOME role.
+   Soong's graph regeneration OOM-killed `soong_build` at 21 GB RSS (attempt 38), so until that is
+   solved the app is compiled with `build-on-build-host.sh` (aapt2 + javac + d8 against the tree's
+   built jars). **It compiles**: javac 0 errors, 77 classes, `classes.dex` 109 KB, badging reports
+   `provides-component:'launcher'`. Details: `BUILD-ERRORS-A14.md`.
 4. On the unit: `pm set-home-activity org.vibebaking.launcher/.LauncherActivity`
    (see `tests/device_acceptance.sh`, owner-gated with `VBF_CONFIRM=1`).
 5. Verify-before-ship list is in `plan.md` (TaskView module/API names, StatusBarManager mask,
-   `setPackagesSuspended` enforced permission, radio station state key, battery scaling vs multimeter).
+   radio station state key, battery scaling vs multimeter). The `setPackagesSuspended` permission is
+   no longer open: the tree enforces `android.permission.SUSPEND_APPS`, now declared + whitelisted.
 
 ## Using it
 - Home screen: left = navigation card (Maps or Waze embedded; placeholder if neither installed),
@@ -77,9 +82,11 @@ Everything here is self-contained; nothing outside this directory was modified.
 
 ## Testing layers
 - `bash tests/run.sh` — unit (228 checks) + degradation smoke (59 scenarios / 139 checks) +
-  static smoke (47 scenario checks) + conformance (50 spec C-ids). All pass on this workstation.
+  static smoke (58 scenario checks) + conformance (51 spec C-ids). All pass on this workstation.
 - `VBF_CONFIRM=1 bash tests/device_acceptance.sh` — only with owner approval; read-only adb dumps
   plus two reversible writes (`pm set-home-activity`, `setprop sys.hct.debug`). Results belong in
   `docs/findings.md` in the parent repo.
-- The Android classes themselves only compile on the build host; their failure paths are covered
-  by `tests/smoke_static.py` here and by device acceptance on the unit.
+- The Android classes themselves only compile on the build host (`build-on-build-host.sh`); their
+  failure paths are covered by `tests/smoke_static.py` here and by device acceptance on the unit.
+  `SA38`/`SA39` guard the Android 14 API surfaces and cross-package imports, which is what a local
+  workstation cannot check.
