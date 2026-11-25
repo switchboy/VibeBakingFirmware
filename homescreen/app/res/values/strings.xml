@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vibe Launcher</string>
+    <string name="media_idle">Nothing playing</string>
+    <string name="media_no_access">Media card needs notification-access permission</string>
+    <string name="media_grant_access">Tap to grant access</string>
+    <string name="map_placeholder">%1$s is not installed — tap once the app is from the Play Store</string>
+    <string name="radar_placeholder">Rain radar offline</string>
+    <string name="valet_badge_text">VALET</string>
+    <string name="settings_glyph">⚙</string>
+    <string name="pin_locked">Wrong PIN too often — retry in %1$d s</string>
+    <string name="pin_wrong">Wrong PIN, %1$d attempts left</string>
+    <string name="pin_not_active">Valet mode is not active</string>
+    <string name="pin_unset">No PIN set yet — set one in settings first</string>
+    <string name="valet_no_exit">valet mode: no exit configured — set a PIN below, or connect a trusted phone; entry is refused until then</string>
+</resources>

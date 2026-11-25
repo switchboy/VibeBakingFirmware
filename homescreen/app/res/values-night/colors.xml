@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Night theme (spec S33): low-luminance surfaces, NO pure white anywhere. -->
+    <color name="bg">#14161F</color>
+    <color name="card_bg">#1C2028</color>
+    <color name="text">#D6DCE4</color>
+    <color name="text_sub">#99A3B0</color>
+    <color name="clock">#C4CBD4</color>         <!-- dimmed light digits by night -->
+    <color name="accent">#79A98E</color>        <!-- same hue as day accent, lower brightness -->
+    <color name="battery_ok">#79A98E</color>
+    <color name="battery_low">#D97A5F</color>
+    <color name="map_placeholder_bg">#262B36</color>
+</resources>

@@ -1,0 +1,18 @@
+// VibeBaking homescreen launcher, staged in the device tree like the HCT apps (apps/VibeLauncher/).
+// android_app WITHOUT sdk_version compiles against the full framework (hidden APIs available at
+// compile time; platform signature exempts hidden-API enforcement at runtime).
+// certificate "platform" = the same test key that signs framework-res/SystemUI/Settings here.
+// privileged: true installs into /system/priv-app and grants the signature|privileged perms that
+// are whitelisted in privapp-permissions-vibelauncher.xml (copied by hu_apps.mk, see README.md).
+android_app {
+    name: "VibeLauncher",
+    srcs: ["src/**/*.java"],
+    manifest: "AndroidManifest.xml",
+    certificate: "platform",
+    privileged: true,
+    dex_preopt: { enabled: false }, // boot-time dexopt on this unit; same choice as the HCT apps
+    // VERIFY on the build host before enabling:
+    //   static_libs: ["car-wm-shell-lib"],   // or wm_shell_lib, check frameworks/base/libs/wm/shell/Android.bp
+    //   optional material lib for dynamic accent (reflection handles its absence anyway):
+    //   static_libs: ["com.google.android.material"],
+}

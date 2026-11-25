@@ -573,3 +573,5 @@ A14-SUPER-ATT33C	sha	682f112aa679dcc7f813e815a7d291e4af8b3b3c47fb3e10999be54ee28
 A14-SUPER-ATT34	sha	87711ca53c39145527b28c0f998429b2a289db1d60b04294dea3f96b57d1241e	bytes	2026-11-25	docs/findings.md	Super `87711ca53c39	docs/findings.md	attempt 34: serial-port overlay + BT/CAN apps
 HU-SERIALPORTS-RRO	sha	a7f1c79fbfefe80f551400f5d530c743ddf2e450b142123431db0bd08529dba8	bytes	2026-11-25	docs/findings.md	a7f1c79fbfef	docs/findings.md	config_serialPorts overlay
 A14-SUPER-ATT35	sha	a39cddfd27c7cedc786f43da67749381e6cf808c84a046b74431f6274ab68388	bytes	2026-11-25	docs/findings.md	Super `a39cddfd27c7	docs/findings.md	attempt 35: HuSafe setprop, gocsdkrf210 oneshot
+A14-SUPER-ATT36	sha	e79502c2792a59d20ff1fe9f60b877c26963ac777d4679c92ed70b4b05f8ee05	bytes	2026-11-25	docs/findings.md	Super `e79502c2792a	docs/findings.md	attempt 36: GOC daemon via ABI shim
+LIBHUGOC-SO	sha	11a451000bd042ac3ef7188d19f2e455dcaf9fa0d8aacb4c8601051ee2825364	bytes	2026-11-25	docs/findings.md	11a451000bd0	docs/findings.md	libhugoc.so ABI shim

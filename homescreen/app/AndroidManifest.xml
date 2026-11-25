@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.vibebaking.launcher"
+    android:sharedUserId="android.uid.system">
+
+    <!-- Normal -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /> <!-- day/night cycle (S30) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /> <!-- reverse volume (S31) -->
+    <!-- Signature|privileged / special: whitelisted in privapp-permissions-vibelauncher.xml -->
+    <uses-permission android:name="android.permission.MANAGE_ACTIVITY_TASKS" /> <!-- TaskView embed (S6) -->
+    <uses-permission android:name="android.permission.MANAGE_APP_TOKENS" />     <!-- valet suspend (S22) -->
+    <uses-permission android:name="android.permission.MANAGE_USERS" />          <!-- suspend across users -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />    <!-- enumerate apps for valet -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />        <!-- backlight dim (S28) -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" /> <!-- DND total silence (S23) -->
+
+    <application
+        android:name=".App"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.Vibe"
+        android:supportsRtl="false">
+
+        <!-- Home app (S1): MAIN + HOME + DEFAULT. uiMode handled here so the theme switch
+             animates instead of recreating (S38). Landscape-only car panel (S4). -->
+        <activity
+            android:name=".LauncherActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:configChanges="uiMode|orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|navigation|density|colorMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".CarSettingsActivity" android:exported="true" android:screenOrientation="landscape" />
+        <activity android:name=".ValetPinActivity" android:exported="false" android:screenOrientation="landscape" />
+
+        <!-- Media sessions come through the notification listener (S10/S14). -->
+        <service
+            android:name=".MediaListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

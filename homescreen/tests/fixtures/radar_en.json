@@ -1,0 +1,59 @@
+{
+  "info": {
+    "attribution": "RainViewer.com (Rain, Snow) Radar \u00A9",
+    "updateTime": 1764073800000,
+    "timeZone": "UTC"
+  },
+  "types": {
+    "rain": {
+      "radar": [
+        {
+          "date": "2026-11-25T10:00:00.0Z",
+          "layer": "rain",
+          "tiles": [
+            {
+              "zoom": 7,
+              "image": "https://rainviewer.com/radar/rain/7/65/42.png",
+              "maxZoom": 9,
+              "minZoom": 5,
+              "url": "https://rainviewer.com/radar/rain/{z}/{x}/{y}.png?"
+            }
+          ]
+        },
+        {
+          "date": "2026-11-25T12:30:00.0Z",
+          "layer": "rain",
+          "tiles": [
+            {
+              "zoom": 7,
+              "image": "https://rainviewer.com/radar/rain/7/65/42.png",
+              "maxZoom": 9,
+              "minZoom": 5,
+              "url": "https://rainviewer.com/radar/rain/{z}/{x}/{y}.png?"
+            }
+          ]
+        }
+      ],
+      "satellite": [
+        { "date": "2026-11-25T12:30:00.0Z" }
+      ]
+    },
+    "snow": {
+      "radar": [
+        {
+          "date": "2026-11-25T09:00:00.0Z",
+          "layer": "snow",
+          "tiles": [
+            {
+              "zoom": 6,
+              "image": "https://rainviewer.com/radar/snow/6/65/42.png",
+              "maxZoom": 8,
+              "minZoom": 4,
+              "url": "https://rainviewer.com/radar/snow/{z}/{x}/{y}.png"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

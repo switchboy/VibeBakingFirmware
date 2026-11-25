@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Day theme (spec S35): light, high-contrast for sunlight. -->
+    <color name="bg">#F5EFE3</color>
+    <color name="card_bg">#FFFFFF</color>
+    <color name="text">#1B1B1B</color>
+    <color name="text_sub">#4A4A4A</color>
+    <color name="clock">#131313</color>          <!-- dark digits by day -->
+    <color name="accent">#2F6D57</color>         <!-- static fallback accent (Material You wins if present) -->
+    <color name="battery_ok">#2F6D57</color>
+    <color name="battery_low">#C2432E</color>
+    <color name="map_placeholder_bg">#E4D9C6</color>
+</resources>

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home layout for the 1024x600 landscape panel (spec S3/S5). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/home_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:padding="@dimen/card_margin">
+
+        <FrameLayout
+            android:id="@+id/map_card"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.58"
+            android:layout_margin="@dimen/card_margin"
+            android:background="@drawable/card_bg">
+            <TextView
+                android:id="@+id/map_placeholder"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="@string/map_placeholder"
+                android:textColor="@color/text_sub"
+                android:visibility="invisible" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.42"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="@dimen/card_padding">
+                <TextView android:id="@+id/clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="@color/clock" android:textSize="@dimen/clock_size" />
+                <TextView android:id="@+id/clock_date" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp" android:textColor="@color/text_sub" android:textSize="@dimen/date_size" />
+                <TextView android:id="@+id/battery" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp" android:textColor="@color/battery_ok" android:textSize="@dimen/battery_size"
+                    android:visibility="gone" />
+                <TextView android:id="@+id/valet_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp" android:text="@string/valet_badge_text"
+                    android:textColor="@color/battery_low" android:textSize="@dimen/badge_size" android:visibility="gone" />
+                <TextView android:id="@+id/btn_settings" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:gravity="end" android:text="@string/settings_glyph"
+                    android:textColor="@color/text" android:textSize="28sp" android:clickable="true" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/media_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_margin="@dimen/card_margin"
+                android:background="@drawable/card_bg"
+                android:orientation="horizontal"
+                android:padding="@dimen/card_padding">
+                <ImageView android:id="@+id/media_art" android:layout_width="@dimen/art_size" android:layout_height="@dimen/art_size"
+                    android:scaleType="centerCrop" android:src="@drawable/ic_music_placeholder" android:contentDescription="@string/media_idle" />
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:layout_marginStart="12dp" android:orientation="vertical">
+                    <TextView android:id="@+id/media_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:textColor="@color/text" android:textSize="22sp" />
+                    <TextView android:id="@+id/media_artist" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:textColor="@color/text_sub" android:textSize="16sp" />
+                    <TextView android:id="@+id/media_source" android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:textColor="@color/text_sub" android:textSize="14sp" />
+                    <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp" android:orientation="horizontal">
+                        <ImageButton android:id="@+id/media_prev" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_skip_prev" android:background="@android:color/transparent" android:contentDescription="@string/media_idle" />
+                        <ImageButton android:id="@+id/media_play_pause" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_pause" android:background="@android:color/transparent" android:contentDescription="@string/media_idle" />
+                        <ImageButton android:id="@+id/media_next" android:layout_width="44dp" android:layout_height="44dp"
+                            android:src="@drawable/ic_skip_next" android:background="@android:color/transparent" android:contentDescription="@string/media_idle" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/radar_card"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_margin="@dimen/card_margin"
+                android:background="@drawable/card_bg">
+                <org.vibebaking.launcher.RadarView
+                    android:id="@+id/radar_view"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
+                <TextView android:id="@+id/radar_attribution" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="bottom" android:padding="8dp" android:textColor="@color/text_sub" android:textSize="12sp" />
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

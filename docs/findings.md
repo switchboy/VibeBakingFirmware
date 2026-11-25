@@ -6145,4 +6145,23 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
 * **Attempt 35 - clean boot.** No `system_server_crash` and no app crashes; `gocsdkrf210` stays `stopped`; HCTCanBus runs
   and holds `/dev/ttyV0` open (`/proc/tty/driver/ttyV` port 0: RTS|DTR, rx 0, so no CAN data on the bench, as
   expected without a car bus); `/dev/ttyV2` raw and receiving; `HCTPort: carservice registered`.
+* **GOC Bluetooth daemon runs on Android 14 through an ABI shim** (`hct/goc-shim/`: `hugoc_shim.cpp`, `build.sh`,
+  `rename_syms.py`). `rename_syms.py` renames the daemon's 23 references to `android::AudioTrack` / `AudioRecord` /
+  `MediaPlayer` to namespace `hugoc__` in place in `.dynstr` (161 bytes = 23 x 7; it refuses if any other symbol
+  changes through string-tail sharing or if a renamed reference is not exported by the shim). `libhugoc.so` (32-bit
+  ARM, `11a451000bd0…`) defines those classes with the Android 10 signatures as RefBase proxies to real Android 14
+  objects (Android 14 32-bit sizeof: AudioTrack 1000 B, AudioRecord 856 B, MediaPlayer 220 B), wraps the old
+  function-pointer callbacks in `IAudioTrackCallback`/`IAudioRecordCallback`, stubs `__cxa_type_match` for HCT's
+  `libGbtsTask.so` (returns no-match), and clears `LD_PRELOAD` in a constructor so the daemon's `system()` children
+  (64-bit `sh`) start clean. It is built on the build host with libaudioclient's exact soong compile flags (expanded from
+  the ninja file) and linked with `--no-undefined` against the device's own system/lib. Offline check against the unit's
+  32-bit libraries: no missing symbols for the renamed daemon, `libGbtsTask.so` or the shim. **Live test** from
+  `/data/local/tmp` with `LD_PRELOAD`: `gocsdk main start,module:MD909`, `link /dev/pts/0 to /dev/goc_serial succeed`,
+  GoodoCom driver `D3.2` loaded; in 25 s the BCSP link to the module on `/dev/ttyS1` kept timing out (`read timeout`,
+  `lemsgid_tshy_timeout`; `ttyS1` rx 3,409 B). To be seen with the full stack running.
+  Original `gocsdkrf210` sha256 `f63cfeb5a726…` (restore it and drop the `setenv` line to undo).
+* **Attempt 36 written:** `/system/lib/libhugoc.so`, the renamed `/system/bin/gocsdkrf210` (0755 root:shell,
+  `system_file`), and in `hct.rc` `setenv LD_PRELOAD /system/lib/libhugoc.so` for the `gocsdkrf210` service (the
+  `oneshot` from attempt 35 removed).
 
+  Super `e79502c2792a…`.
