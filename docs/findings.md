@@ -6118,4 +6118,17 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   Super `87711ca53c39…`.
 * **Attempt 33 - keys survive a reboot.** `/dev/ttyV2` is raw from boot (`-opost -isig -icanon -echo`); port 2 tx stays
   at 11 B while rx grows (no echo to the MCU). Attempt 34 written and verified (super `87711ca53c39…`).
+* **Attempt 34 - serial-port overlay works; CAN bus service runs; two new blockers.** `cmd overlay list android`:
+  `[x] org.vibebaking.hu.serialports`; `service call serial 1` lists `/dev/ttyV0`, `/dev/ttyV1`, ...;
+  `android.microntek.canbus` running. (1) One system_server crash: `RuntimeException: failed to set system
+  property` from `MicrontekServer.powerOn` (`SystemProperties.set(AppManager.packageNameCARPLAY[i], "enable")`;
+  Android 14 throws where Android 10 failed quietly). (2) Bluetooth: `/dev/goc_serial` is never created, because the GOC
+  bridge daemon `gocsdkrf210` (`bt.goc.type=11`; 32-bit ARM, NDK r16b, Android 10) cannot link:
+  `cannot locate symbol "_ZN7android11AudioRecord16getMinFrameCountEPjj14audio_format_tj"` (the Android 14
+  libaudioclient signature changed), and init restarted it every few seconds ("process with updatable components
+  'gocsdkrf210' exited 4 times in 4 minutes"). Stopped live with `setprop ctl.stop gocsdkrf210`.
+* **Attempt 35 written:** HCTManagerService with `android.microntek.service.HuSafe.setProp` (all 16
+  `SystemProperties.set` call sites in 6 HCT classes go through it; failures are logged under `HCTPort` and ignored);
+  `gocsdkrf210` is `oneshot` in `hct.rc` until an ABI shim exists (the full symbol gap is being mapped).
 
+  Super `a39cddfd27c7…`.
