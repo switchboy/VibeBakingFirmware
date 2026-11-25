@@ -34,6 +34,7 @@ public class MapCardController {
     private final TextView placeholder;
     private Object taskViewHost; // com.android.wm.shell.taskview.TaskViewHost (reflection-safe init)
     private boolean embedded;
+    private String target;       // nav package the card aims at (installed), null = placeholder
 
     public MapCardController(Context c, FrameLayout card) {
         ctx = c.getApplicationContext();
@@ -43,7 +44,7 @@ public class MapCardController {
 
     /** Pick the target per the owner setting, then try to embed; placeholder otherwise (S7/S8). */
     public void init(String setting) {
-        String target = MapTargetPolicy.target(setting, installedNav());
+        target = MapTargetPolicy.target(setting, installedNav());
         if (target == null) { showPlaceholder(setting); return; }
         try {
             embed(target);
@@ -52,6 +53,12 @@ public class MapCardController {
             showPlaceholder(setting);
         }
     }
+
+    /**
+     * The nav package this card aims at (installed, even if embedding failed). Valet keeps it in
+     * the allowed set (spec S21) so the map card is never suspended while driving.
+     */
+    public String navTarget() { return target; }
 
     boolean isNavigation(String pkg) {
         return MapTargetPolicy.MAPS.equals(pkg) || MapTargetPolicy.WAZE.equals(pkg);

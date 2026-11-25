@@ -37,6 +37,9 @@
         </activity>
 
         <activity android:name=".CarSettingsActivity" android:exported="true" android:screenOrientation="landscape" />
+        <!-- App drawer (S39): internal, alphabetical 4-column grid; only allowed apps in valet. -->
+        <activity android:name=".AppDrawerActivity" android:exported="false" android:screenOrientation="landscape"
+            android:configChanges="uiMode|orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|navigation|density|colorMode" />
         <activity android:name=".ValetPinActivity" android:exported="false" android:screenOrientation="landscape" />
 
         <!-- Media sessions come through the notification listener (S10/S14). -->

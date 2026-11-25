@@ -1,5 +1,6 @@
 package org.vibebaking.launcher.unit;
 
+import org.vibebaking.launcher.logic.AppDrawerPolicy;
 import org.vibebaking.launcher.logic.ArtPalette;
 import org.vibebaking.launcher.logic.BacklightPolicy;
 import org.vibebaking.launcher.logic.BatteryState;
@@ -22,6 +23,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -60,6 +62,7 @@ public class Main {
         t15DayNight();
         t16MapTarget();
         t17OwnerDefaults();
+        t18AppDrawer();
         System.out.println(checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
             System.out.println("FAILED: " + String.join(", ", failures));
@@ -354,8 +357,7 @@ public class Main {
     }
 
     // U17: owner defaults exactly as homescreen.md (spec S28-S31, S25-S27a).
-    static void t17OwnerDefaults() {
-        check("U17.backlight", SettingsKeys.DEFAULT_BACKLIGHT_MODE.equals("nothing"));
+    static void t17OwnerDefaults() {        check("U17.backlight", SettingsKeys.DEFAULT_BACKLIGHT_MODE.equals("nothing"));
         check("U17.theme", SettingsKeys.DEFAULT_THEME_ON_LIGHTS.equals("nothing"));
         check("U17.darkCycle", SettingsKeys.DEFAULT_DARK_MODE.equals("cycle"));
         check("U17.reverseLower", SettingsKeys.DEFAULT_REVERSE_VOLUME.equals("lower"));
@@ -366,5 +368,51 @@ public class Main {
         check("U17.enabledOff", SettingsKeys.DEFAULT_VALET_ENABLED == false);
         check("U17.mapAuto", SettingsKeys.DEFAULT_MAP_TARGET.equals("auto"));
         check("U17.coords", SettingsKeys.DEFAULT_LAT == 52.09 && SettingsKeys.DEFAULT_LON == 5.29);
+    }
+
+    // U18: app drawer arrangement (spec S39/S39a/S39b/S2b).
+    static void t18AppDrawer() {
+        List<AppDrawerPolicy.Entry> all = Arrays.asList(
+            new AppDrawerPolicy.Entry("com.waze", "Waze", true),
+            new AppDrawerPolicy.Entry("com.google.android.apps.maps", "Google Maps", true),
+            new AppDrawerPolicy.Entry("com.spotify.music", "Spotify", true),
+            new AppDrawerPolicy.Entry("com.foo.svc", "Foo Service", false),   // no launch intent
+            new AppDrawerPolicy.Entry("org.vibebaking.launcher", "Vibe Launcher", true),
+            new AppDrawerPolicy.Entry("com.android.launcher3", "Launcher3", true),
+            new AppDrawerPolicy.Entry("android.microntek.service", "HCT Manager", false),
+            new AppDrawerPolicy.Entry("com.android.settings", "Settings", true),
+            new AppDrawerPolicy.Entry("com.microntek.radio", "Radio", true),
+            new AppDrawerPolicy.Entry("aaa.app", "aaa", true));               // lowercase label test
+        Set<String> home = Set.of("org.vibebaking.launcher", "com.android.launcher3");
+        List<String> full = labels(AppDrawerPolicy.visible(all, false, Set.of(), home));
+        check("U18.alpha", full.equals(Arrays.asList("aaa", "Google Maps", "Radio", "Settings", "Spotify", "Waze")));
+        check("U18.noService", !full.contains("Foo Service"));      // services are not apps
+        check("U18.noHomeApps", !full.contains("Vibe Launcher") && !full.contains("Launcher3")); // S2b
+        check("U18.noProtected", !full.contains("HCT Manager"));
+        List<String> valet = labels(AppDrawerPolicy.visible(all, true, Set.of(), home));
+        check("U18.valetAllowed", valet.equals(Arrays.asList("Google Maps", "Radio")));
+        check("U18.valetNoSettings", !valet.contains("Settings"));
+        check("U18.valetExtras", labels(AppDrawerPolicy.visible(all, true, Set.of("com.spotify.music"), home))
+            .contains("Spotify"));
+        // The nav app the map card aims at is always allowed in valet (S21/S7): Waze would otherwise
+        // be suspended and blank the map card.
+        Set<String> withWazeTarget = ValetPolicy.withMapTarget(Set.of(), MapTargetPolicy.WAZE);
+        check("U18.valetMapTarget", labels(AppDrawerPolicy.visible(all, true, withWazeTarget, home))
+            .equals(Arrays.asList("Google Maps", "Radio", "Waze")));
+        check("U18.mapTargetNull", labels(AppDrawerPolicy.visible(all, true,
+            ValetPolicy.withMapTarget(Set.of(), null), home)).equals(Arrays.asList("Google Maps", "Radio")));
+        check("U18.grid4x3", AppDrawerPolicy.GRID_COLUMNS == 4 && AppDrawerPolicy.GRID_ROWS == 3
+            && AppDrawerPolicy.PAGE_SIZE == 12);
+        check("U18.pages", AppDrawerPolicy.pageCount(12) == 1 && AppDrawerPolicy.pageCount(13) == 2
+            && AppDrawerPolicy.pageCount(0) == 0);
+        check("U18.rows", AppDrawerPolicy.rowCount(12) == 3 && AppDrawerPolicy.rowCount(13) == 4);
+        check("U18.empty", AppDrawerPolicy.visible(List.of(), false, Set.of(), Set.of()).isEmpty());
+        check("U18.nullSafe", AppDrawerPolicy.visible(null, true, null, null).isEmpty());
+    }
+
+    static List<String> labels(List<AppDrawerPolicy.Entry> e) {
+        List<String> out = new ArrayList<>();
+        for (AppDrawerPolicy.Entry x : e) out.add(x.label);
+        return out;
     }
 }

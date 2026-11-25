@@ -166,6 +166,22 @@ bs = read("app/src/org/vibebaking/launcher/logic/BatteryState.java")
 ok("C20", "RAW_SCALE = 10.0" in bs and '"%.1f V"' in bs and "DEFAULT_LOW_THRESHOLD_V" in bs
         and "BATTERY" in la and "updateBattery" in la)
 
+# ---- S39 app drawer ----
+drw = read("app/src/org/vibebaking/launcher/AppDrawerActivity.java")
+dp = read("app/src/org/vibebaking/launcher/logic/AppDrawerPolicy.java")
+drwlay = read("app/res/layout/drawer_activity.xml")
+ok("C26", 'android:name=".AppDrawerActivity"' in man and "drawer_grid" in drwlay
+   and 'android:columnCount="4"' in drwlay and "GRID_COLUMNS = 4" in dp and "GRID_ROWS = 3" in dp
+   and "R.id.btn_apps" in la and "apps_glyph" in read("app/res/values/strings.xml"),
+   "drawer activity + 4-column grid + entry glyph wired")
+ok("C27", "ValetPolicy.allowedSet" in dp and "homeApps.contains(e.pkg)" in dp
+   and "queryIntentActivities" in drw and "getLaunchIntentForPackage" in drw
+   and "allowedExtras" in drw and "settingsButton.setVisibility(valet ? View.GONE : View.VISIBLE)" in la,
+   "drawer: launchable-only, HOME packages hidden, valet limited to allowed set, gear hidden in valet")
+ok("C28", "withMapTarget" in read("app/src/org/vibebaking/launcher/logic/ValetPolicy.java")
+   and "valet.setNavTarget(map.navTarget())" in la and "refreshSuspension" in vc,
+   "valet allowed set follows the map card nav target")
+
 # ---- docs ----
 ok("C22", exists("specs.md") and exists("plan.md") and exists("README.md") and exists("HANDOFF.md"))
 hand = read("HANDOFF.md")

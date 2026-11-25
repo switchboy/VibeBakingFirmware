@@ -576,3 +576,5 @@ A14-SUPER-ATT35	sha	a39cddfd27c7cedc786f43da67749381e6cf808c84a046b74431f6274ab6
 A14-SUPER-ATT36	sha	e79502c2792a59d20ff1fe9f60b877c26963ac777d4679c92ed70b4b05f8ee05	bytes	2026-11-25	docs/findings.md	Super `e79502c2792a	docs/findings.md	attempt 36: GOC daemon via ABI shim
 LIBHUGOC-SO	sha	11a451000bd042ac3ef7188d19f2e455dcaf9fa0d8aacb4c8601051ee2825364	bytes	2026-11-25	docs/findings.md	11a451000bd0	docs/findings.md	libhugoc.so ABI shim
 GOCSDKRF210-A10-BIN	sha	f63cfeb5a726abaa85c77db06aad3401b587c94b472b500d0d3917a078143984	bytes	2026-11-25	docs/findings.md	f63cfeb5a726	docs/findings.md	original HCT GOC BT daemon (Android 10, 32-bit)
+A14-SUPER-ATT37	sha	1946056739b2bcef4b43008c84329e9960a6ef57c692be2e3f0818c341a4a380	bytes	2026-11-25	docs/findings.md	Super `1946056739b2	docs/findings.md	attempt 37: av_active=1 at boot
+HU-MTC-PARAM2-BIN	sha	c9a8cb464d3bbe6383748ab57996cf678c8314fdc6cccf5c441afbf0d1b7f573	bytes	2026-11-25	docs/findings.md	c9a8cb464d3b	docs/findings.md	hu-mtc-param with --dev

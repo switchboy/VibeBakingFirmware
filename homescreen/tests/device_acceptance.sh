@@ -47,6 +47,14 @@ echo "A08 MCU frames seen: $("$ADB" shell logcat -d 2>/dev/null | grep -cE 'cmdP
 "$ADB" shell screencap -p /data/local/tmp/vibe_night.png && "$ADB" pull /data/local/tmp/vibe_night.png /tmp/vibe_night.png
 echo "A09 night screenshot pulled - owner checks: no pure white, animated switch"
 
+# A11 - app drawer (spec S39): owner taps the ▦ glyph; owner checks 4x3 alphabetical grid.
+echo "A11 drawer: owner taps the ▦ glyph - grid must be alphabetical 4 columns, launchable apps only"
+# A11 - app drawer (spec S39): owner taps the ▦ glyph; owner checks the 4x3 alphabetical grid.
+echo "A11 drawer: owner taps the ▦ glyph - grid must be alphabetical, 4 columns, launchable apps only"
+drw=$("$ADB" shell dumpsys activity activities 2>/dev/null | grep -c AppDrawerActivity)
+echo "A11 drawer activity lines: ${drw:-0} (owner opens it, then closes with the ✕)"
+echo "A11 valet drawer: in valet only allowed apps must appear (Maps, radio, camera, Bluetooth; no Settings, no games)"
+
 # A10 - degrade: no crash records for the launcher.
 crashes=$("$ADB" shell ls /data/system/dropbox 2>/dev/null | grep -i vibebaking || true)
 echo "A10 crash dropboxes: ${crashes:-none}"

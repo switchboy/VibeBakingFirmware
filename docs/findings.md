@@ -6187,4 +6187,18 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
 * **Owner note:** Bluetooth audio passthrough (A2DP to the head unit) "never ever worked" on the stock Android 10 ROM. On
   Android 14 the stream reaches Android's mixer through the shim's AudioTrack proxy without errors; whether it is audible
   depends on the MCU's audio routing to the amplifier and must be confirmed with speakers connected.
+* **Why there was no sound: the MCU audio path stays off without `av_active`.** HCT volume changes reach Android 14's audio
+  HAL as `AudioHardwareTiny: adev_set_parameters: kvpairs = av_volume=…` (the setting is stored as Settings.System
+  `av_volume=`, with the `=` in the key, value 9), but the vendor primary audio HAL forwards nothing to the MCU. Android 10's
+  `libaudioflinger.so` was HCT-patched (strings `av_channel_enter`, `av_channel_exit`, `av_volume`, `carservice`,
+  `/dev/mtc-av`; one ioctl site at 0x39394: `open("/dev/mtc-av", O_RDONLY)`, `ioctl(fd, strlen(s), s)`). Android 14's
+  kernel `av_ioctl` accepts strings of up to 99 bytes, splits at the last `=`, and accepts only the key **`av_active`**
+  (`strcmp` against the string at `0xffffff80092e11c8`); everything else returns -1 (seen as EPERM). The other `av_*` keys are in
+  mtc-car's table. Live, with Bluetooth music playing: `av_volume=20` + `av_focus_gain=gsm_bt` on `/dev/mtc-car`, then
+  `av_active=1` on `/dev/mtc-av` -> `--mtc a_active 01`, `--mtc @ dsp on`, `--mtc @ av vol (0) (20)`. Audible output not yet
+  verified (the test speaker was on FL+ only; FL+/FL- is a bridged pair, FL- is not ground).
+* **Attempt 37 prepared:** `hu-mtc-param` gains `--dev` (opening `mtc-av` read-only; `c9a8cb464d3b…`), and `hu-mtc.rc` sends
+  `av_active=1` to `/dev/mtc-av` at boot completion. A playback-tracking reporter (`av_active` as AudioFlinger set it, perhaps a
+  bitmask) can replace the constant later.
 
+  Super `1946056739b2…`.

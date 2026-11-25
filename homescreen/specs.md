@@ -44,6 +44,9 @@ Firmware facts this rests on (all verified in the repo, read-only):
 - **S2** Default home resolution points to `org.vibebaking.launcher/.LauncherActivity`
   (`adb shell pm set-home-activity …`, recorded as a live fix; release checklist moves it into a
   first-boot step). [A]
+- **S2b** The launcher is the **only** launcher (owner, Nov 25): Launcher3 is dropped from
+  `PRODUCT_PACKAGES` on the build host, and any HOME-resolving package is hidden from the app
+  drawer so nothing else can be started from our home screen. [C, A]
 
 ## S3–S5 — layout for the 1024x600 landscape panel
 - **S3** One screen, no scroll: map card left (≈58% width, full height), media card top-right,
@@ -115,8 +118,9 @@ Firmware facts this rests on (all verified in the repo, read-only):
 - **S27a** Master switch `valet_enabled` (default **off**): when off, no auto-entry, no manual
   entry, no suspension, no DND/shade disabling — valet code is inert. Turning it off while valet
   is active exits immediately. [U, C]
-- **S27** Valet home screen shows only allowed-app tiles + a valet badge; exit affordance is the
-  PIN pad; launcher itself keeps full UI. Badge hidden while `valet_enabled` is off. [A]
+- **S27** Valet home screen keeps the cards + a valet badge; the app surface is the drawer limited
+  to the allowed set (spec S39b), and the gear is hidden; exit affordance is the PIN pad.
+  Launcher itself keeps full UI. Badge hidden while `valet_enabled` is off. [A]
 
 ## S28–S31 — car settings (in launcher settings screen)
 - **S28** Car lights on → backlight: `nothing` / `dim to N %`; **default `nothing`**. Signal =
@@ -152,11 +156,27 @@ Firmware facts this rests on (all verified in the repo, read-only):
 - **S38** Survives uiMode/orientation configuration changes without activity recreation storm
   (`onConfigurationChanged` handles uiMode for the animated theme switch). [C]
 
+## S39 — app drawer (owner, 2026-11-25)
+- **S39** Simple app drawer: **alphabetical**, laid out as a **4x3 grid** on the 1024x600 panel
+  (`AppDrawerPolicy.GRID_COLUMNS/GRID_ROWS`); more apps scroll vertically, page math is unit-testable.
+  Entry = `▦` glyph in the clock row (`AppDrawerActivity`); exit = `✕` or the HOME key (HOME returns
+  to the home screen, no back stack left behind). [U, C, A]
+- **S39a** Contents: packages with a launch intent only — services and components are not apps;
+  packages that resolve as `HOME` (this launcher, Launcher3 if still present) are hidden; protected
+  framework/HCT service packages are hidden. Sorted case-insensitive by app label, package name as
+  tie-breaker. [U]
+- **S39b** In valet mode the drawer lists **only the allowed set** (spec S21/S27) — it is never an
+  escape around the suspension. The gear (`⚙`) is hidden while valet is active; the badge opens the
+  PIN pad. Replacing the old "valet tiles" idea: the drawer *is* the valet app surface. [U, C, A]
+- **S39c** Launch failures (app uninstalled mid-list, suspended package, activity-not-exported)
+  are caught: the drawer logs and stays usable. [C]
+
 ## Verification map
 | Spec | U | C | A |
 |---|---|---|---|
-| S0,S1,S2 | – | C01–C04 | A01 (default home) |
+| S0,S1,S2,S2b | – | C01–C04 | A01 (default home) |
 | S3–S5 | – | C05 | A02 (layout visible) |
+| S39/S39a/b/c | U18 | C26,C27 | A11 (drawer live + valet filter) |
 | S6–S8 | U07 | C06,C07 | A03 (map task embedded) |
 | S10–S14 | U02 | C08,C09 | A04 (media card live) |
 | S15–S18' | U01,U03 | C10 | A05 (radar tiles) |

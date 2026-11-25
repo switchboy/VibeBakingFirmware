@@ -93,6 +93,17 @@ public final class ValetPolicy {
     }
 
     /**
+     * Extras plus the navigation app the map card is aiming at (spec S7/S21): if the owner picked
+     * Waze, suspending Waze would blank the map card while in valet - so the chosen nav target is
+     * always allowed. `null`/empty adds nothing.
+     */
+    public static Set<String> withMapTarget(Set<String> extras, String mapTargetPkg) {
+        Set<String> s = new HashSet<>(extras == null ? Set.of() : extras);
+        if (mapTargetPkg != null && !mapTargetPkg.isEmpty()) s.add(mapTargetPkg);
+        return s;
+    }
+
+    /**
      * Packages to suspend on valet entry: every installed NON-system package outside the allowed
      * set, plus com.android.settings (owner decision), minus everything protected.
      */

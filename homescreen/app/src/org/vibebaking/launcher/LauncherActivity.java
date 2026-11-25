@@ -28,13 +28,14 @@ public class LauncherActivity extends Activity {
     private MapCardController map;
     private MediaCardController media;
     private RadarView radar;
-    private TextView clock, date, battery, badge;
+    private TextView clock, date, battery, badge, settingsButton;
     private View root;
 
     private boolean headlightOn;
     private Double brightnessBeforeLights; // captured once per lights-on spell (spec S28)
     private int batteryRaw = 0;            // 0 = no event yet -> chip hidden (spec S19)
     private long lastThemeSwitch = 0L;
+    private String lastMapTarget;          // applied map card target (spec S7)
 
     @Override
     protected void onCreate(android.os.Bundle saved) {
@@ -45,8 +46,11 @@ public class LauncherActivity extends Activity {
         date = findViewById(R.id.clock_date);
         battery = findViewById(R.id.battery);
         badge = findViewById(R.id.valet_badge);
+        settingsButton = findViewById(R.id.btn_settings);
         findViewById(R.id.btn_settings).setOnClickListener(v ->
             startActivity(new Intent(this, CarSettingsActivity.class)));
+        findViewById(R.id.btn_apps).setOnClickListener(v ->
+            startActivity(new Intent(this, AppDrawerActivity.class)));
         badge.setOnClickListener(v -> startActivity(new Intent(this, ValetPinActivity.class)));
 
         store = App.store();
@@ -66,6 +70,9 @@ public class LauncherActivity extends Activity {
 
         map = new MapCardController(this, findViewById(R.id.map_card));
         map.init(store.mapTarget());
+        valet.setNavTarget(map.navTarget()); // valet allowed set follows the map card (S21)
+        lastMapTarget = store.mapTarget();
+        if (valet.isActive()) valet.refreshSuspension(); // replay ran before the target was known
 
         media = new MediaCardController(this, findViewById(R.id.media_card), store, car, theme);
         MediaListenerService.callback = () -> main.post(media::refresh);
@@ -164,7 +171,16 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        badge.setVisibility(valet.isActive() && store.valetEnabled() ? View.VISIBLE : View.GONE);
+        boolean valet = valet.isActive() && store.valetEnabled();
+        badge.setVisibility(valet ? View.VISIBLE : View.GONE);
+        // In valet mode Settings is suspended anyway: hide the gear so the screen stays clean.
+        settingsButton.setVisibility(valet ? View.GONE : View.VISIBLE);
+        // Map target may have changed in settings while the home screen was in the background.
+        if (map != null && !java.util.Objects.equals(lastMapTarget, store.mapTarget())) {
+            map.init(store.mapTarget());
+            valet.setNavTarget(map.navTarget()); // keep the chosen nav app allowed in valet (S21)
+            lastMapTarget = store.mapTarget();
+        }
         media.refresh();
         if (radar != null) radar.restart(); // one refresh timer per visible activity (S18')
     }

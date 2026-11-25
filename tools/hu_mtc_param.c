@@ -7,7 +7,7 @@
  * framework, so nothing sends them; on warm boots the MCU then never reports "@ usb on" and the
  * USB hub with the ethernet dongle stays unpowered (attempt 25). This tool sends the strings itself.
  *
- * Usage: hu-mtc-param [--delay SECONDS] STRING...
+ * Usage: hu-mtc-param [--dev /dev/mtc-av] [--delay SECONDS] STRING...
  * Every result goes to /dev/kmsg ("hu-mtc: ...") so it lands in the console ring and pstore.
  * Build: zig cc -target aarch64-linux-musl -static -Os -Wall -o hu-mtc-param tools/hu_mtc_param.c
  */
@@ -33,6 +33,8 @@ static void klog(const char *msg) {
 int main(int argc, char **argv) {
   char line[512];
   int i = 1, fails = 0;
+  const char *dev = HU_MTC_DEV;
+  if (i + 1 < argc && strcmp(argv[i], "--dev") == 0) { dev = argv[i + 1]; i += 2; }   /* e.g. /dev/mtc-av */
   if (i + 1 < argc && strcmp(argv[i], "--delay") == 0) {
     struct timespec ts = { atoi(argv[i + 1]), 0 };
     i += 2;
@@ -43,15 +45,17 @@ int main(int argc, char **argv) {
   if (i >= argc) { klog("hu-mtc: usage: hu-mtc-param [--delay S] STRING...\n"); return 2; }
   for (; i < argc; i++) {
     const char *s = argv[i];
-    int fd = open(HU_MTC_DEV, O_RDWR | O_CLOEXEC);
+    /* Android 10's patched AudioFlinger opens /dev/mtc-av read-only (libaudioflinger.so 0x3937c); ioctl on an
+     * O_RDWR fd of mtc-av returns EPERM. /dev/mtc-car is opened O_RDWR as CarService did. */
+    int fd = open(dev, (strstr(dev, "mtc-av") ? O_RDONLY : O_RDWR) | O_CLOEXEC);
     if (fd < 0) {
-      snprintf(line, sizeof line, "hu-mtc: open %s failed: %s\n", HU_MTC_DEV, strerror(errno));
+      snprintf(line, sizeof line, "hu-mtc: open %s failed: %s\n", dev, strerror(errno));
       klog(line); fails++; continue;
     }
     int r = ioctl(fd, (unsigned long)strlen(s), s);
     int e = errno;
     close(fd);
-    snprintf(line, sizeof line, "hu-mtc: sent '%s' ret=%d%s%s\n", s, r, r < 0 ? " errno=" : "",
+    snprintf(line, sizeof line, "hu-mtc: sent '%s' to %s ret=%d%s%s\n", s, dev, r, r < 0 ? " errno=" : "",
              r < 0 ? strerror(e) : "");
     klog(line);
     if (r < 0) fails++;

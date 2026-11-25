@@ -13,6 +13,7 @@ import org.vibebaking.launcher.logic.ValetPolicy;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Valet mode (spec S22-S26): suspend everything outside the allowed list, total-silence DND,
@@ -133,12 +134,31 @@ public class ValetController {
     }
 
     List<String> suspendList() {
-        return ValetPolicy.computeSuspend(installedApps(), store.valetExtras());
+        return ValetPolicy.computeSuspend(installedApps(), allowedExtras());
     }
 
     /** Home tiles while in valet (spec S27). */
     public List<String> homeTiles() {
-        return ValetPolicy.homeTiles(installedApps(), store.valetExtras());
+        return ValetPolicy.homeTiles(installedApps(), allowedExtras());
+    }
+
+    /** Extras for the drawer/suspend list: owner extras + the nav app the map card targets. */
+    public Set<String> allowedExtras() {
+        return ValetPolicy.withMapTarget(store.valetExtras(), navTarget);
+    }
+
+    /** Set by LauncherActivity after the map card resolved its target (spec S21/S7). */
+    public void setNavTarget(String pkg) { navTarget = pkg; }
+
+    private String navTarget;
+
+    /** Re-derive the suspend list while active (nav target changed / replay ran before init). */
+    public void refreshSuspension() {
+        if (!active) return;
+        List<String> fresh = suspendList();
+        suspend(split(store.getString("valet_suspend", "")), false); // lift the old list first
+        store.put("valet_suspend", TextUtils.join(",", fresh));
+        suspend(fresh, true);
     }
 
     List<ValetPolicy.App> installedApps() {
