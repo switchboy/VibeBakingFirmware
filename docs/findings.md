@@ -6257,4 +6257,12 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   The repeated `set stream to NULL` lines are the app's own logging. Audible reception needs an antenna and speakers.
 * **Radio locks on a real station (owner test, attempt 39), even without a proper antenna.** Signal level in the MCU's
   seek reports climbs from single digits/~0x20 on empty channels to 0xca-0xe0 around 100.35 MHz, where the seek stopped.
+* **GPS receiver works (attempt 39, indoors, owner's antenna on the GPS input).** The built-in GNSS module talks NMEA at 9600 baud
+  on `/dev/ttyS0` (`vendor.gps.channel`), held by the stock `android.hardware.gnss@1.0-service` (running, uid gps). No new USB
+  device appeared: the antenna feeds the internal receiver. Indoors it tracks satellites without a fix: `$GPGSV` GPS 26
+  (SNR 19-21 dB-Hz) and 31 (28-29), `$GLGSV` GLONASS 78 (28-29); `$GNRMC ... V` (no fix), UTC time and date correct.
+  `dumpsys location`: gps provider present, `locations = 0` so far. Outdoor fix test pending.
+* **Wrong time zone:** `persist.sys.timezone=Asia/Shanghai` (stock default, carried over in `/data`), so the clock shows CST
+  (+7 h vs CET) even with `auto_time_zone=1` (no SIM/network time zone source). Fix: set the zone in Settings, or default
+  `persist.sys.timezone=Europe/Amsterdam` for the release build.
 
