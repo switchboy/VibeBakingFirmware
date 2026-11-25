@@ -6175,4 +6175,9 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   phonebook download in the HCT Bluetooth app (PBAP).
 * **Bluetooth phonebook (PBAP) works (owner test):** after allowing contacts access on the phone, the contact sync from the
   HCT Bluetooth app completed. Calls (HFP audio through the shim's AudioRecord/AudioTrack) and A2DP music still to test.
+* **Bluetooth calls work (owner test):** dialling from the HCT dialer and the call itself work. The shim's audio paths
+  opened during the call: `hugoc_shim: AudioRecord proxy: src=1 rate=8000 fmt=0x1 mask=0x10 frames=96 cb=1 initCheck=0`
+  and `AudioTrack proxy: rate=8000 fmt=0x1 mask=0x1 frames=945 cb=1 initCheck=0` (both in callback mode, so the
+  `IAudioRecordCallback`/`IAudioTrackCallback` adapters are used); SCO audio started and was stopped at hang-up
+  (`sco_audio_stop`, `ring_stop`). Audibility not yet verified: no speakers on the bench.
 
