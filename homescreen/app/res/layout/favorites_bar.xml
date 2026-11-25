@@ -6,9 +6,14 @@
     android:id="@+id/favorites_bar"
     android:layout_width="match_parent"
     android:layout_height="@dimen/fav_bar_height"
+    android:layout_gravity="bottom"
+    android:layout_marginBottom="@dimen/bottom_strip_height"
+    android:elevation="8dp"
+    android:visibility="gone"
     android:orientation="horizontal"
     android:background="@drawable/card_bg"
-    android:layout_margin="@dimen/card_margin"
+    android:layout_marginStart="@dimen/card_margin"
+    android:layout_marginEnd="@dimen/card_margin"
     android:gravity="center_vertical"
     android:padding="@dimen/card_padding">
 

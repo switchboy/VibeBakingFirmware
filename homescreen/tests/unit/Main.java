@@ -11,6 +11,7 @@ import org.vibebaking.launcher.logic.CombinedPhoneProbe;
 import org.vibebaking.launcher.logic.DayNight;
 import org.vibebaking.launcher.logic.FavoritePolicy;
 import org.vibebaking.launcher.logic.Json;
+import org.vibebaking.launcher.logic.MapCardPolicy;
 import org.vibebaking.launcher.logic.MapTargetPolicy;
 import org.vibebaking.launcher.logic.MediaCardPolicy;
 import org.vibebaking.launcher.logic.PhonePolicy;
@@ -646,6 +647,13 @@ public class Main {
             "~4.6 km of drift is inside the 5 km band: do not recentre");
         check("U23.unknownRecentres", RadarPosition.movedFar(Double.NaN, Double.NaN, 52.10, 5.18, RadarPosition.RECENTRE_METERS),
             "no previous position (NaN) must take the first fix");
+
+        // U24 map card compact mode (owner 2026-11-25): hide Maps' tab bar only while idle and not navigating.
+        check("U24.idleCompact", MapCardPolicy.compact(false, Long.MAX_VALUE), "never touched, not navigating -> compact");
+        check("U24.touchedFull", !MapCardPolicy.compact(false, 1000L), "touched 1 s ago -> full (route preview Start button)");
+        check("U24.idleBoundary", MapCardPolicy.compact(false, MapCardPolicy.IDLE_MS) && !MapCardPolicy.compact(false, MapCardPolicy.IDLE_MS - 1));
+        check("U24.navFull", !MapCardPolicy.compact(true, Long.MAX_VALUE), "navigating -> always the full UI");
+        check("U24.cropPx", MapCardPolicy.cropPx(160) == 68 && MapCardPolicy.cropPx(192) == 82);
     }
 
     static List<String> labels(List<AppDrawerPolicy.Entry> e) {

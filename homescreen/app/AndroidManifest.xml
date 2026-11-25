@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="org.vibebaking.launcher"
-    android:sharedUserId="android.uid.system">
+    package="org.vibebaking.launcher">
+    <!-- No sharedUserId: the platform signature grants every permission used here; running as the system uid
+         (android.uid.system) would give the launcher system_server's identity and file access for nothing. -->
 
     <!-- Normal -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -11,6 +12,7 @@
     <!-- Signature|privileged / special: whitelisted in privapp-permissions-vibelauncher.xml -->
     <uses-permission android:name="android.permission.ADD_TRUSTED_DISPLAY" />   <!-- live map: trusted virtual display (S6) -->
     <uses-permission android:name="android.permission.INJECT_EVENTS" />         <!-- live map: touches to the nav app (S6) -->
+    <uses-permission android:name="android.permission.REAL_GET_TASKS" />        <!-- live map watchdog: tasks on the card display -->
     <uses-permission android:name="android.permission.MANAGE_APP_TOKENS" />     <!-- valet suspend (S22) -->
     <!-- PackageManagerService.enforceCallingOrSelfPermission(SUSPEND_APPS) for setPackagesSuspended
          (verified against the tree's PackageManagerService.java:3263/3302, Android 14). -->

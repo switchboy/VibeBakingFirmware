@@ -130,17 +130,25 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Bottom favourite row (spec S40): 4 one-tap slots, phone slot preinstalled. -->
-    <include layout="@layout/favorites_bar" />
+    <!-- Bottom strip (owner 2026-11-25): the favourites row is an overlay now, so the cards get its height.
+         The strip holds the four-dot button that opens it (centre) and the volt meter (right). -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/bottom_strip_height">
+        <ImageView android:id="@+id/fav_handle" android:layout_width="64dp" android:layout_height="match_parent"
+            android:layout_gravity="center" android:src="@drawable/ic_four_dots" android:scaleType="center"
+            android:clickable="true" android:focusable="true" android:contentDescription="@string/fav_handle_desc" />
+        <!-- Volt meter (spec S19): bottom-right corner, in the strip so it never covers a card. -->
+        <TextView android:id="@+id/battery" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical|end" android:layout_marginEnd="@dimen/card_margin"
+            android:textColor="@color/battery_ok" android:textSize="@dimen/battery_size"
+            android:visibility="gone" />
+    </FrameLayout>
 
     </LinearLayout>
 
-    <!-- Volt meter (spec S19), Round 3: moved out of the top-right row (it pushed ▦/⚙ off-screen)
-         to the bottom-right corner of the content area, directly above the favourites bar
-         (bar height + margins = battery_above_fav_bar). Same id, same updateBattery() logic. -->
-    <TextView android:id="@+id/battery" android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end" android:layout_marginEnd="@dimen/card_margin"
-        android:layout_marginBottom="@dimen/battery_above_fav_bar"
-        android:textColor="@color/battery_ok" android:textSize="@dimen/battery_size"
-        android:visibility="gone" />
+    <!-- Favourite row (spec S40) as an overlay over the cards, just above the strip; hidden until the four-dot
+         button is pressed (LauncherActivity.toggleFavorites), hidden again after a launch or when home is left. -->
+    <include layout="@layout/favorites_bar" />
+
 </FrameLayout>

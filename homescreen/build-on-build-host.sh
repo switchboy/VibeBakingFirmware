@@ -38,7 +38,7 @@ echo "framework jar: $FW"
 echo "framework resources: $FWRES"
 echo "classpath jars: $(echo "$CP" | tr ':' '\n' | grep -c '\.jar')"
 
-rm -rf "$B/gen" "$B/classes" "$B/dexout"; mkdir -p "$B/gen" "$B/classes" "$B/dexout"
+rm -rf "$B/gen" "$B/classes" "$B/dexout" "$B/VibeLauncher.apk"; mkdir -p "$B/gen" "$B/classes" "$B/dexout"
 
 echo "== aapt2 compile (resource validation) =="
 "$BIN/aapt2" compile --dir "$A/res" -o "$B/res.zip" 2>&1 | head -20
@@ -98,7 +98,11 @@ echo "R.java: $RJ ($(grep -c 'public static final int' "$RJ") resource constants
 echo "== javac (app sources against the A14 framework) =="
 "$JAVAC" -nowarn -source 8 -target 8 -bootclasspath "$CORE" -classpath "$CP" \
     -d "$B/classes" $(find "$A/src" -name '*.java') "$RJ" 2>&1 | head -60
-echo "javac exit: ${PIPESTATUS[0]}"
+JRC=${PIPESTATUS[0]}
+echo "javac exit: $JRC"
+# A failed compile must not produce an APK: on Nov 26 a javac error still yielded a dex-less APK that installed and
+# crashed the home screen (ClassNotFoundException: org.vibebaking.launcher.App).
+[ "$JRC" -eq 0 ] || { echo "BUILD FAILED: javac"; exit 1; }
 echo "classes produced: $(find "$B/classes" -name '*.class' | wc -l)"
 
 echo "== d8 (dex compile) =="
@@ -107,7 +111,9 @@ CPARGS=""; for j in $(echo "$CP" | tr ':' ' '); do CPARGS="$CPARGS --classpath $
 LIBARGS=""; for j in $FW $(echo "$CORE" | tr ':' ' '); do [ -n "$j" ] && LIBARGS="$LIBARGS --lib $j"; done
 "$BIN/d8" --min-api 28 $LIBARGS $CPARGS --output "$B/dexout" \
     $(find "$B/classes" -name '*.class') 2>&1 | head -20
-echo "d8 exit: ${PIPESTATUS[0]}"; ls -l "$B/dexout" 2>/dev/null | tail -3
+DRC=${PIPESTATUS[0]}
+echo "d8 exit: $DRC"; ls -l "$B/dexout" 2>/dev/null | tail -3
+[ "$DRC" -eq 0 ] && [ -s "$B/dexout/classes.dex" ] || { echo "BUILD FAILED: d8"; exit 1; }
 
 if [ -f "$B/dexout/classes.dex" ]; then
   cp "$B/app.apk" "$B/VibeLauncher.apk" 2>/dev/null && (cd "$B/dexout" && zip -q "$B/VibeLauncher.apk" classes.dex)

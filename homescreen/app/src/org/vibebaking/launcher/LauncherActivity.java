@@ -79,6 +79,9 @@ public class LauncherActivity extends Activity {
         findViewById(R.id.btn_apps).setOnClickListener(v ->
             startActivity(new Intent(this, AppDrawerActivity.class)));
         badge.setOnClickListener(v -> startActivity(new Intent(this, ValetPinActivity.class)));
+        // Favourite row is an overlay (owner 2026-11-25): the four-dot button in the bottom strip opens/closes it.
+        favBar = findViewById(R.id.favorites_bar);
+        findViewById(R.id.fav_handle).setOnClickListener(v -> toggleFavorites());
 
         // Bottom favourite row (spec S40): slot 0 ships preinstalled with the HCT dialler.
         favSlots = new View[] { findViewById(R.id.fav_slot0), findViewById(R.id.fav_slot1),
@@ -322,7 +325,28 @@ public class LauncherActivity extends Activity {
     }
 
     /** Tap a slot: launch it; the phone slot opens the BT app on its dialler tab (spec S40a). */
+    private View favBar;
+
+    void toggleFavorites() { setFavoritesShown(favBar.getVisibility() != View.VISIBLE); }
+
+    /** Slide the favourite overlay in/out over the cards. */
+    void setFavoritesShown(boolean show) {
+        if (favBar == null) return;
+        if (show == (favBar.getVisibility() == View.VISIBLE)) return;
+        favBar.animate().cancel();
+        if (show) {
+            favBar.setTranslationY(favBar.getHeight() > 0 ? favBar.getHeight() : 120f);
+            favBar.setAlpha(0f);
+            favBar.setVisibility(View.VISIBLE);
+            favBar.animate().translationY(0f).alpha(1f).setDuration(180).start();
+        } else {
+            favBar.animate().translationY(favBar.getHeight()).alpha(0f).setDuration(150)
+                .withEndAction(() -> favBar.setVisibility(View.GONE)).start();
+        }
+    }
+
     void launchFavorite(String pkg, int slot) {
+        setFavoritesShown(false); // the overlay closes on every slot tap
         if (pkg.isEmpty()) { startActivity(new Intent(this, AppDrawerActivity.class)); return; }
         try {
             Intent i = getPackageManager().getLaunchIntentForPackage(pkg);
@@ -352,6 +376,7 @@ public class LauncherActivity extends Activity {
     @Override
     public void onPause() {
         super.onPause();
+        if (favBar != null) { favBar.animate().cancel(); favBar.setVisibility(View.GONE); } // closed when home is left
         // The home screen stays as-is; valet state is owned by ValetController + persisted prefs.
         // The trusted-phone exit watch (S26) is NOT stopped here: while valet is active the owner
         // may be sitting in the app drawer or settings, and the phone must still end valet.

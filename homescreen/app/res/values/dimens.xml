@@ -13,5 +13,5 @@
     <dimen name="card_margin">8dp</dimen>
     <dimen name="card_padding">12dp</dimen>
     <!-- Battery chip sits above the favourites bar: bar height + its top and bottom margins. -->
-    <dimen name="battery_above_fav_bar">76dp</dimen>
+    <dimen name="bottom_strip_height">32dp</dimen>
 </resources>

@@ -50,7 +50,8 @@ public class CarClient {
             Class<?> mgrCls = Class.forName(MANAGER_CLASS);
             if (carManager == null) carManager = mgrCls.getConstructor().newInstance();
             // CarManager.attach(CarListener, String) registers the callback for ALL event types;
-            // the callback delivers onStatusChanged(String type, Bundle bundle) on our handler.
+            // the callback delivers onStatusChanged(String type, Bundle bundle) on a BINDER thread (no handler is
+            // passed): the bundle is copied there, the event is handed to the main thread (see deliver()).
             Class<?> listenerCls = Class.forName(LISTENER_CLASS);
             Object proxy = java.lang.reflect.Proxy.newProxyInstance(
                 listenerCls.getClassLoader(), new Class<?>[]{listenerCls},
@@ -58,7 +59,8 @@ public class CarClient {
                     if ("onStatusChanged".equals(m.getName())) {
                         String type = args[0] instanceof String ? (String) args[0] : "";
                         Bundle b = args[1] instanceof Bundle ? (Bundle) args[1] : null;
-                        deliver(type, mirrorBundle(b));
+                        final Map<String, Object> copy = mirrorBundle(b);
+                        main.post(() -> deliver(type, copy));
                     }
                     return null;
                 });
@@ -77,6 +79,11 @@ public class CarClient {
         }
     }
 
+    /**
+     * Main thread only. The listener touches views (volt meter, theme); on the unit (2026-11-26) a binder-thread
+     * delivery set layout flags up to the DecorView before ViewRootImpl threw CalledFromWrongThreadException, which
+     * the HCT callback swallowed - every later layout request was then ignored (favourites overlay, compact map).
+     */
     private void deliver(String type, Map<String, Object> bundle) {
         if (!connected) { connected = true; if (listener != null) listener.onCarAvailable(true); }
         CarEventParser.CarEvent e = CarEventParser.parse(type, bundle);

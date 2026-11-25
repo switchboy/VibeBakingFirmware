@@ -25,4 +25,5 @@
     <string name="pin_unset">No PIN set yet — set one in settings first</string>
     <string name="valet_no_exit">valet mode: no exit configured — set a PIN below, or connect a trusted phone; entry is refused until then</string>
     <string name="map_open_full">%1$s cannot run inside the card - tap to open it full screen</string>
+    <string name="fav_handle_desc">Show or hide the favourite apps</string>
 </resources>

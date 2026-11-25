@@ -50,7 +50,8 @@ man = read("app/AndroidManifest.xml")
 bp = read("app/Android.bp")
 priv = read("app/privapp-permissions-vibelauncher.xml")
 
-ok("C01", 'package="org.vibebaking.launcher"' in man and 'android:sharedUserId="android.uid.system"' in man)
+ok("C01", 'package="org.vibebaking.launcher"' in man and 'sharedUserId="' not in man,
+   "own app uid: the platform signature grants the permissions; never android.uid.system (system_server identity)")
 ok("C03", re.search(r'name:\s*"VibeLauncher"', bp) and re.search(r'certificate:\s*"platform"', bp)
    and re.search(r"privileged:\s*true", bp))
 ok("C02", 'android.intent.category.HOME' in man and 'android.intent.category.DEFAULT' in man

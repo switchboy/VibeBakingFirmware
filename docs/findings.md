@@ -6332,4 +6332,32 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
     in the card (display 2, 570x376), taps inside the card work (tab switch verified). No soong build needed.
   - Layout: media card 2/3 height, volt meter bottom right above the favourites row, clock/date painted at start.
   Hand build (javac/d8/aapt2) clean; tests: ALL TESTS PASSED. Still installed via `adb install`, not yet in the image.
+* **Kernel panic caused by `getevent` (2026-11-25 23:51, my diagnostic).** `getevent -lp` asks every input device for its
+  name/location/serial; one device's string pointer is invalid (`ffffff800807bc70`, just below the kernel image), and
+  `evdev_ioctl_handler -> strlen` faulted: "Unable to handle kernel paging request ... Kernel panic - not syncing"
+  (pstore `dmesg-ramoops-0` saved in `a14-work/panic-20261125/`). Latent bug in the stock HCT kernel or a driver; apps cannot
+  reach `/dev/input`, root tools can. **Never run `getevent` on this unit.** Side effects: the RescueParty BCB was armed
+  (cleared with `bcb-clear`), and a launcher APK installed one minute earlier was not yet on the card ("Failed to parse
+  base.apk"), so the home app fell back to Trebuchet.
+* **Google Play services had no location permission** (GApps added to an existing /data: the location-provider grant is made
+  on first boot only). Fused location delivered nothing, so Maps never found "Mijn locatie" and route search hung.
+  Fixed live with `pm grant com.google.android.gms` ACCESS_FINE/COARSE/BACKGROUND_LOCATION. Release: a fresh /data gets
+  this by default; for upgrades, grant at first boot. Spoofed fixes for tests: adb as `shell` (root is refused
+  MOCK_LOCATION), `cmd location providers add-test-provider gps`, `set-test-provider-location`.
+* **Maps navigation notification** (measured): category `navigation`, flags `0x16a` (ONGOING|NO_CLEAR|FOREGROUND_SERVICE),
+  channel `1_foreground_1`.
+* **VibeLauncher round 4 (owner feedback):** Maps' bottom tab bar hidden in the card while idle (no touch for 15 s, no
+  navigation; `logic/MapCardPolicy`, the view and display grow by 68 dp and the card clips them; TextureView instead of
+  SurfaceView so the parent clip applies); full height on touch and during navigation (notification listener tracks the
+  `navigation` notification). Favourites row is an overlay opened by a four-dot button in a 32 dp bottom strip (volt meter
+  in the strip). Watchdog relaunches the nav app when no task runs on the card's display (verified: force-stopped Maps
+  was back in 8 s). On-screen navigation bar off (`force_show_navbar=0`, hardware keys work). Play Protect no longer
+  scans adb installs (`verifier_verify_adb_installs=0`), lock screen disabled (`locksettings set-disabled true`), Trebuchet
+  disabled (its swipe-up gesture monitor ANR'd while frozen in the background and the dialog took input focus).
+* **Launcher bugs found on the unit:** (1) the manifest had `sharedUserId="android.uid.system"`, so the launcher ran as
+  system_server's uid; removed (the platform signature grants all its permissions). (2) `CarClient` delivered HCT car events
+  on the binder thread; the volt-meter `setText` set layout flags up to the DecorView before `ViewRootImpl` threw
+  `CalledFromWrongThreadException` (swallowed by the HCT callback), so no layout pass ever ran again (favourites overlay
+  0x0, compact map never applied). Events now go to the main thread. (3) The hand-build script packaged an APK without
+  code after a javac error; it now stops (`BUILD FAILED`).
 

@@ -10,12 +10,17 @@ import android.util.Log;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.MotionEvent;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.graphics.SurfaceTexture;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.view.Surface;
+import android.view.TextureView;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
+import org.vibebaking.launcher.logic.MapCardPolicy;
 import org.vibebaking.launcher.logic.MapTargetPolicy;
 
 import java.util.HashSet;
@@ -24,7 +29,7 @@ import java.util.Set;
 /**
  * Map card (spec S6-S8): the navigation app runs live inside the card.
  *
- * Mechanism: a private, trusted virtual display that renders into a SurfaceView in the card. The nav app is started on
+ * Mechanism: a private, trusted virtual display that renders into a TextureView in the card. The nav app is started on
  * that display (ActivityOptions.setLaunchDisplayId) and touches on the card are re-targeted to the display and injected
  * (MotionEvent.setDisplayId + InputManager.injectInputEvent). This is how Android's former ActivityView worked and how
  * projection (Android Auto) hosts apps.
@@ -37,6 +42,11 @@ import java.util.Set;
  * Needs the platform signature: ADD_TRUSTED_DISPLAY (a trusted display may host any activity and has its own focus),
  * INJECT_EVENTS (input to another app's window). If anything fails, the card falls back to a tap-to-open placeholder;
  * the home screen must never crash because the nav app misbehaved.
+ *
+ * Compact mode (MapCardPolicy): while nobody touches the card and no navigation runs, the view (and so the display)
+ * is made taller than the card, and the card clips the bottom strip - Maps' tab bar (Explore/Saved/Contribute) is not
+ * shown. A touch or navigation restores the full height, so route preview (Start button) and guidance are complete.
+ * A TextureView is used because it is clipped by its parent like any view; a SurfaceView's layer is not.
  */
 public class MapCardController {
 
@@ -51,7 +61,11 @@ public class MapCardController {
     private final Context ctx;          // the activity (startActivity with a display id must come from an activity)
     private final FrameLayout card;
     private final TextView placeholder;
-    private SurfaceView surface;
+    private TextureView surface;
+    private Surface vdSurface;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private long lastTouch = 0L;     // uptime ms of the last touch on the card, 0 = never
+    private boolean compact;
     private TextView expand;
     private VirtualDisplay display;
     private boolean embedded;
@@ -99,25 +113,19 @@ public class MapCardController {
 
     private void attachSurface() {
         placeholder.setVisibility(View.GONE);
-        surface = new SurfaceView(ctx);
+        surface = new TextureView(ctx);
         card.addView(surface, 0, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        surface.getHolder().addCallback(new SurfaceHolder.Callback() {
-            @Override public void surfaceCreated(SurfaceHolder h) { }
-
-            @Override public void surfaceChanged(SurfaceHolder h, int format, int w, int hgt) {
-                try {
-                    onSurface(h, w, hgt);
-                } catch (Throwable t) {
-                    Log.w(TAG, "virtual display failed", t);
-                    showPlaceholder(true);
-                }
-            }
-
-            @Override public void surfaceDestroyed(SurfaceHolder h) {
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.TOP));
+        surface.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+            @Override public void onSurfaceTextureAvailable(SurfaceTexture st, int w, int hgt) { onSurface(st, w, hgt); }
+            @Override public void onSurfaceTextureSizeChanged(SurfaceTexture st, int w, int hgt) { onSurface(st, w, hgt); }
+            @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture st) {
                 // Keep the display (and the nav app on it) alive while the home screen is hidden; it just stops drawing.
                 if (display != null) display.setSurface(null);
+                if (vdSurface != null) { vdSurface.release(); vdSurface = null; }
+                return true;
             }
+            @Override public void onSurfaceTextureUpdated(SurfaceTexture st) { }
         });
         surface.setOnTouchListener((v, e) -> forwardTouch(e));
 
@@ -134,20 +142,81 @@ public class MapCardController {
         card.addView(expand, lp);
     }
 
-    private void onSurface(SurfaceHolder h, int w, int hgt) {
+    private void onSurface(SurfaceTexture st, int w, int hgt) {
+        try {
+            onSurfaceUnsafe(st, w, hgt);
+        } catch (Throwable t) {
+            Log.w(TAG, "virtual display failed", t);
+            showPlaceholder(true);
+        }
+    }
+
+    private void onSurfaceUnsafe(SurfaceTexture st, int w, int hgt) {
         if (w <= 0 || hgt <= 0) return;
+        boolean fresh = vdSurface == null;
+        if (fresh) vdSurface = new Surface(st);
         int dpi = ctx.getResources().getDisplayMetrics().densityDpi;
         if (display == null) {
             DisplayManager dm = ctx.getSystemService(DisplayManager.class);
-            display = dm.createVirtualDisplay("vibelauncher-map", w, hgt, dpi, h.getSurface(), VD_FLAGS);
+            display = dm.createVirtualDisplay("vibelauncher-map", w, hgt, dpi, vdSurface, VD_FLAGS);
             if (display == null) throw new IllegalStateException("createVirtualDisplay returned null");
             Log.i(TAG, "virtual display " + display.getDisplay().getDisplayId() + " " + w + "x" + hgt + " @" + dpi);
         } else {
             display.resize(w, hgt, dpi);
-            display.setSurface(h.getSurface());
+            display.setSurface(vdSurface);
         }
+        boolean first = !embedded;
         embedded = true;
-        launchOnDisplay();
+        // (Re)launch when the texture is new (home screen shown again: pulls the app back from full screen), not on a
+        // compact/full resize - that would bring the nav app's start screen back over a route the owner is planning.
+        if (fresh || first) launchOnDisplay();
+        if (first) { MediaListenerService.navCallback = nav -> applyCompact(); main.postDelayed(compactTick, 2000L); }
+    }
+
+    private int tickCount;
+
+    private final Runnable compactTick = new Runnable() {
+        @Override public void run() {
+            if (display == null) return;
+            applyCompact();
+            if (++tickCount % 5 == 0) watchdog(); // every 10 s
+            main.postDelayed(this, 2000L);
+        }
+    };
+
+    /**
+     * The card must always show the nav app. If no task runs on the card's display any more (the app was killed, crashed,
+     * or its task went full screen and was closed there), start it on the display again. Only while the card is on
+     * screen (the texture exists): a hidden home screen must not pull the app away from the owner.
+     */
+    private void watchdog() {
+        if (display == null || vdSurface == null || !launched) return;
+        int id = display.getDisplay().getDisplayId();
+        try {
+            android.app.ActivityManager am = ctx.getSystemService(android.app.ActivityManager.class);
+            for (android.app.ActivityManager.RunningTaskInfo t : am.getRunningTasks(30)) {
+                if (t.getDisplayId() == id) return; // still hosted
+            }
+            Log.i(TAG, "no task on display " + id + ": relaunching " + target);
+            launchOnDisplay();
+        } catch (Throwable t) {
+            Log.w(TAG, "watchdog failed", t);
+        }
+    }
+
+    /** Compact (bottom strip clipped) only while idle and not navigating (MapCardPolicy). */
+    private void applyCompact() {
+        if (surface == null || card.getHeight() <= 0) return;
+        long since = lastTouch == 0L ? Long.MAX_VALUE : SystemClock.uptimeMillis() - lastTouch;
+        boolean nav = MediaListenerService.isNavigating();
+        boolean want = MapCardPolicy.compact(nav, since);
+        if (want == compact) return;
+        Log.i(TAG, "compact " + compact + " -> " + want + " (navigating=" + nav + ", idle=" + (since == Long.MAX_VALUE ? "never touched" : since + " ms") + ")");
+        compact = want;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) surface.getLayoutParams();
+        lp.height = want ? card.getHeight() + MapCardPolicy.cropPx(ctx.getResources().getDisplayMetrics().densityDpi)
+                         : FrameLayout.LayoutParams.MATCH_PARENT;
+        surface.setLayoutParams(lp); // -> onSurfaceTextureSizeChanged -> display.resize
     }
 
     /** Start (or bring back) the nav app on the card's display. Called on every new surface: after the owner used the
@@ -178,6 +247,8 @@ public class MapCardController {
     /** Touch in card coordinates == virtual display coordinates (the display has the surface's size). */
     private boolean forwardTouch(MotionEvent e) {
         if (display == null || !launched) return false;
+        lastTouch = SystemClock.uptimeMillis();
+        if (compact && e.getActionMasked() == MotionEvent.ACTION_DOWN) applyCompact(); // full UI as soon as touched
         MotionEvent m = MotionEvent.obtain(e);
         try {
             m.setDisplayId(display.getDisplay().getDisplayId());
@@ -191,6 +262,10 @@ public class MapCardController {
     }
 
     public void release() {
+        main.removeCallbacks(compactTick);
+        if (MediaListenerService.navCallback != null) MediaListenerService.navCallback = null;
+        compact = false;
+        if (vdSurface != null) { vdSurface.release(); vdSurface = null; }
         if (display != null) {
             try { display.release(); } catch (Throwable ignore) { }
             display = null;
