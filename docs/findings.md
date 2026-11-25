@@ -6116,3 +6116,6 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   HCTCanBus restored, on top of attempt 33.
 
   Super `87711ca53c39…`.
+* **Attempt 33 - keys survive a reboot.** `/dev/ttyV2` is raw from boot (`-opost -isig -icanon -echo`); port 2 tx stays
+  at 11 B while rx grows (no echo to the MCU). Attempt 34 written and verified (super `87711ca53c39…`).
+
