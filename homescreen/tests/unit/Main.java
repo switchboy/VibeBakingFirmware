@@ -13,6 +13,7 @@ import org.vibebaking.launcher.logic.FavoritePolicy;
 import org.vibebaking.launcher.logic.Json;
 import org.vibebaking.launcher.logic.MapCardPolicy;
 import org.vibebaking.launcher.logic.MapTargetPolicy;
+import org.vibebaking.launcher.logic.RadioState;
 import org.vibebaking.launcher.logic.MediaCardPolicy;
 import org.vibebaking.launcher.logic.PhonePolicy;
 import org.vibebaking.launcher.logic.PhonePresence;
@@ -654,6 +655,30 @@ public class Main {
         check("U24.idleBoundary", MapCardPolicy.compact(false, MapCardPolicy.IDLE_MS) && !MapCardPolicy.compact(false, MapCardPolicy.IDLE_MS - 1));
         check("U24.navFull", !MapCardPolicy.compact(true, Long.MAX_VALUE), "navigating -> always the full UI");
         check("U24.cropPx", MapCardPolicy.cropPx(160) == 68 && MapCardPolicy.cropPx(192) == 82);
+
+        // U25 HCT radio on the media card (owner 2026-11-26)
+        check("U25.channelFm", RadioState.isRadioChannel("fm") && RadioState.isRadioChannel(" FM ")
+            && !RadioState.isRadioChannel("bt") && !RadioState.isRadioChannel(null) && !RadioState.isRadioChannel(""));
+        check("U25.formatFm", RadioState.formatFreq(100350).equals("100.35 MHz") && RadioState.formatFreq(87500).equals("87.50 MHz"));
+        check("U25.formatAm", RadioState.formatFreq(1008).equals("1008 kHz") && RadioState.formatFreq(0).equals(""));
+        check("U25.psnDecode", RadioState.decodePsn("RADIO 2 ".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)).equals("RADIO 2")
+            && RadioState.decodePsn(new byte[]{0x51, 0x2D, 0x6D, 0x75, 0x73, 0x69, 0x63, 0x00}).equals("Q-music")
+            && RadioState.decodePsn(null).equals("") && RadioState.decodePsn(new byte[]{0, 0, 0}).equals(""));
+        RadioState rs = new RadioState();
+        check("U25.titleUnknown", rs.title().equals("Radio") && rs.subtitle().equals(""));
+        rs.setFreq(100350);
+        check("U25.titleFreq", rs.title().equals("100.35 MHz") && rs.subtitle().equals("FM"), "no RDS: frequency as title");
+        rs.psn = "SKYRADIO";
+        check("U25.titlePsn", rs.title().equals("SKYRADIO") && rs.subtitle().equals("FM 100.35 MHz"), "RDS name as title");
+        rs.setFreq(100350);
+        check("U25.sameFreqKeepsPsn", rs.psn.equals("SKYRADIO"));
+        rs.setFreq(101200);
+        check("U25.newFreqClearsPsn", rs.psn.isEmpty() && rs.title().equals("101.20 MHz"));
+        check("U25.normalize", RadioState.normalizeKhz(10135) == 101350 && RadioState.normalizeKhz(100350) == 100350
+            && RadioState.normalizeKhz(8750) == 87500 && RadioState.normalizeKhz(1008) == 1008 && RadioState.normalizeKhz(0) == 0,
+            "radio app fre=10135 (10 kHz steps, measured) and MCU kHz both become kHz; AM stays kHz");
+        rs.setFreq(10135);
+        check("U25.fre10k", rs.title().equals("101.35 MHz") && rs.subtitle().equals("FM"), "first unit run showed 10135 kHz AM");
     }
 
     static List<String> labels(List<AppDrawerPolicy.Entry> e) {

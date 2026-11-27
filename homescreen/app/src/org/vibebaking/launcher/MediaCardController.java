@@ -1,6 +1,9 @@
 package org.vibebaking.launcher;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
@@ -17,9 +20,11 @@ import android.widget.TextView;
 
 import org.vibebaking.launcher.logic.ArtPalette;
 import org.vibebaking.launcher.logic.MediaCardPolicy;
+import org.vibebaking.launcher.logic.RadioState;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /** Media card presentation (spec S10-S14). All decisions delegate to MediaCardPolicy/ArtPalette. */
 public class MediaCardController {
@@ -35,6 +40,13 @@ public class MediaCardController {
     private final ImageButton prev, playPause, next;
     private List<MediaController> controllers = new ArrayList<>();
     private int cursor = -1; // active controller index, for source cycling
+
+    // HCT radio (no media session): shown whenever the radio is the MCU audio source (logic/RadioState).
+    private final RadioState radio = new RadioState();
+    private boolean radioMode;
+    private boolean radioOnBroadcast;   // last canbusdisplay radio-on/radio-off, fallback when the car service is down
+    private boolean polling;
+    private static final long RADIO_POLL_MS = 3000L;
 
     public MediaCardController(Context c, LinearLayout card, SettingsStore store,
                                CarClient car, ThemeApplier theme) {
@@ -54,10 +66,94 @@ public class MediaCardController {
         playPause.setOnClickListener(v -> act(MediaCardPolicy.TR_PLAY_PAUSE));
         next.setOnClickListener(v -> act(MediaCardPolicy.TR_NEXT));
         source.setOnClickListener(v -> cycleSource());
+        car.setRadioListener(this::onRadioEvent);
+        try {
+            ctx.registerReceiver(radioReceiver, new IntentFilter(RadioState.BC_DISPLAY), Context.RECEIVER_EXPORTED);
+        } catch (Throwable t) { android.util.Log.w("MediaCardController", "radio receiver", t); }
+    }
+
+    /** Home screen visible: follow the radio source (av_channel) every few seconds and ask the radio for its state. */
+    public void onResume() {
+        if (!polling) { polling = true; main.post(radioPoll); }
+        sendRadio(RadioState.ACT_REQUEST);
+    }
+
+    public void onPause() { polling = false; main.removeCallbacks(radioPoll); }
+
+    private final Runnable radioPoll = new Runnable() {
+        @Override public void run() {
+            if (!polling) return;
+            if (radioActive() != radioMode) refresh();
+            main.postDelayed(this, RADIO_POLL_MS);
+        }
+    };
+
+    private boolean radioActive() {
+        if (car.isAvailable()) return RadioState.isRadioChannel(car.stringState("av_channel"));
+        return radioOnBroadcast;
+    }
+
+    /** HCT car event type "Radio" (main thread): frequency and RDS station name. */
+    void onRadioEvent(Map<String, Object> b) {
+        Object t = b.get("type"), v = b.get("value");
+        if ("freq".equals(t) && v instanceof Integer) radio.setFreq((Integer) v);
+        else if ("psn".equals(t) && v instanceof byte[]) radio.psn = RadioState.decodePsn((byte[]) v);
+        else return;
+        if (radioMode) showRadio();
+    }
+
+    /** com.microntek.canbusdisplay from the radio app: radio-on / radio-off / radio (fre = kHz). */
+    private final BroadcastReceiver radioReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            String type = i.getStringExtra("type");
+            if ("radio-on".equals(type)) { radioOnBroadcast = true; refresh(); }
+            else if ("radio-off".equals(type)) { radioOnBroadcast = false; refresh(); }
+            else if ("radio".equals(type)) {
+                int fre = i.getIntExtra("fre", 0);
+                if (fre > 0) radio.setFreq(fre);
+                if (radioMode) showRadio();
+            }
+        }
+    };
+
+    private void sendRadio(String action) {
+        try { ctx.sendBroadcast(new Intent(action).setPackage(RadioState.PKG)); } catch (Throwable ignore) { }
+    }
+
+    void showRadio() {
+        boolean entering = !radioMode;
+        radioMode = true;
+        radio.active = true;
+        title.setText(radio.title());
+        artist.setText(radio.subtitle());
+        source.setText(ctx.getString(R.string.media_source_radio));
+        art.setColorFilter(null);
+        art.setImageResource(R.drawable.ic_radio);
+        art.setOnClickListener(v -> {
+            try {
+                Intent l = ctx.getPackageManager().getLaunchIntentForPackage(RadioState.PKG);
+                if (l != null) ctx.startActivity(l.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Throwable ignore) { }
+        });
+        playPause.setImageResource(R.drawable.ic_power);
+        prev.setEnabled(true); playPause.setEnabled(true); next.setEnabled(true);
+        if (entering || radio.freqKhz <= 0) sendRadio(RadioState.ACT_REQUEST);
+    }
+
+    /** Back to session/idle presentation: undo the radio-only bits. */
+    private void leaveRadio() {
+        if (!radioMode) return;
+        radioMode = false;
+        radio.active = false;
+        art.setOnClickListener(null);
+        art.setClickable(false);
+        playPause.setImageResource(R.drawable.ic_pause);
     }
 
     /** Called when the notification listener connects (or from onResume, refreshed periodically). */
     public void refresh() {
+        if (radioActive()) { showRadio(); return; }   // the radio is what the car plays: it wins over sessions
+        leaveRadio();
         List<MediaController> list = new ArrayList<>();
         if (MediaListenerService.instance == null) {
             showNoAccess();
@@ -172,6 +268,12 @@ public class MediaCardController {
     }
 
     void act(int which) {
+        if (radioMode) {
+            if (which == MediaCardPolicy.TR_PREV) sendRadio(RadioState.ACT_PREV);
+            else if (which == MediaCardPolicy.TR_NEXT) sendRadio(RadioState.ACT_NEXT);
+            else if (which == MediaCardPolicy.TR_PLAY_PAUSE) sendRadio(RadioState.ACT_POWER); // off; the poll follows
+            return;
+        }
         if (cursor < 0 || cursor >= controllers.size()) return;
         MediaController m = controllers.get(cursor);
         try {
@@ -186,7 +288,7 @@ public class MediaCardController {
     }
 
     void cycleSource() {
-        if (controllers.isEmpty()) return;
+        if (radioMode || controllers.isEmpty()) return;
         cursor = (cursor + 1) % controllers.size();
         showController(controllers.get(cursor));
     }

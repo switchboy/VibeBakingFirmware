@@ -230,6 +230,7 @@ public class LauncherActivity extends Activity {
             lastMapTarget = store.mapTarget();
         }
         media.refresh();
+        media.onResume(); // radio source polling + state request while home is visible
         if (radar != null) radar.restart(); // one refresh timer per visible activity (S18')
         refreshFavorites(); // installs/uninstalls and valet state may have changed (S40)
         // Owner position (Round 3): the app read no position at all before. Newest known GPS fix,
@@ -376,6 +377,7 @@ public class LauncherActivity extends Activity {
     @Override
     public void onPause() {
         super.onPause();
+        if (media != null) media.onPause();
         if (favBar != null) { favBar.animate().cancel(); favBar.setVisibility(View.GONE); } // closed when home is left
         // The home screen stays as-is; valet state is owned by ValetController + persisted prefs.
         // The trusted-phone exit watch (S26) is NOT stopped here: while valet is active the owner

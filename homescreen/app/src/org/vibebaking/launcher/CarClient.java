@@ -23,6 +23,11 @@ public class CarClient {
     private static final String LISTENER_CLASS = "android.microntek.CarListener";
     private static final String MANAGER_CLASS = "android.microntek.CarManager";
 
+    /** HCT radio events (type "Radio"): bundle keys "type" (freq, psn, tp, ta, seek_*) and "value". Main thread. */
+    public interface RadioListener { void onRadioEvent(Map<String, Object> bundle); }
+    private volatile RadioListener radioListener;
+    public void setRadioListener(RadioListener l) { radioListener = l; }
+
     public interface Listener {
         void onCarEvent(CarEventParser.CarEvent e);
         void onCarAvailable(boolean available);
@@ -65,7 +70,9 @@ public class CarClient {
                     return null;
                 });
             Method attach = mgrCls.getMethod("attach", listenerCls, String.class);
-            attach.invoke(carManager, proxy, "CarEvent");
+            // HCT CarManager keeps ONE listener per instance (a second attach is ignored) and filters events with
+            // mType.contains(eventType): one type list for the car events and the radio (RDS name, frequency).
+            attach.invoke(carManager, proxy, "CarEvent," + org.vibebaking.launcher.logic.RadioState.CAR_EVENT_TYPE);
             getBooleanState = mgrCls.getMethod("getBooleanState", String.class);
             getStringState = mgrCls.getMethod("getStringState", String.class);
             setParameters = mgrCls.getMethod("setParameters", String.class);
@@ -86,6 +93,11 @@ public class CarClient {
      */
     private void deliver(String type, Map<String, Object> bundle) {
         if (!connected) { connected = true; if (listener != null) listener.onCarAvailable(true); }
+        if (org.vibebaking.launcher.logic.RadioState.CAR_EVENT_TYPE.equals(type)) {
+            RadioListener r = radioListener;
+            if (r != null) r.onRadioEvent(bundle);
+            return;
+        }
         CarEventParser.CarEvent e = CarEventParser.parse(type, bundle);
         if (listener != null && e.kind != CarEventParser.Kind.UNKNOWN) listener.onCarEvent(e);
     }
