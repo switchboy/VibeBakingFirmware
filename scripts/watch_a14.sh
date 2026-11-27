@@ -5,7 +5,7 @@
 # this pulls BOTH log channels: the pstore records (survive a software reboot) and the card copy (survives
 # any reset, so it works even after the owner's button press).
 set -u
-IP=192.168.1.127
+IP=${HU_IP:-192.168.1.127}   # override: HU_IP=192.168.1.128 when DHCP hands out another address
 export ANDROID_SERIAL=$IP:5555
 N=${1:?attempt number}
 D=/run/media/Daan/Opslagmonster/VibeBakingFirmware/log/attempt$N

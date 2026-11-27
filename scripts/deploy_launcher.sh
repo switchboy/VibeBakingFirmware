@@ -4,7 +4,7 @@
 set -u
 REPO=/run/media/Daan/Opslagmonster/VibeBakingFirmware/homescreen
 OUT=/run/media/Daan/Opslagmonster/a14-work/staging/VibeLauncher-signed.apk
-export ANDROID_SERIAL=${ANDROID_SERIAL:-192.168.1.127:5555}
+export ANDROID_SERIAL=${ANDROID_SERIAL:-${HU_IP:-192.168.1.127}:5555}
 cd "$REPO" || exit 1
 bash tests/run.sh > /run/media/Daan/Opslagmonster/VibeBakingFirmware/log/launcher-tests.txt 2>&1; tail -1 /run/media/Daan/Opslagmonster/VibeBakingFirmware/log/launcher-tests.txt
 grep -q "ALL TESTS PASSED" /run/media/Daan/Opslagmonster/VibeBakingFirmware/log/launcher-tests.txt || { echo "DEPLOY STOPPED: tests"; exit 1; }

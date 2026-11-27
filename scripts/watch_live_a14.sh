@@ -5,7 +5,7 @@
 # (pkill -x hu-crasher) and captures a live snapshot; if the card recovery answers first, the dead-man
 # crasher fired (or something else rebooted) and watch.sh's capture is run instead.
 set -u
-IP=192.168.1.127
+IP=${HU_IP:-192.168.1.127}   # override: HU_IP=192.168.1.128 when DHCP hands out another address
 export ANDROID_SERIAL=$IP:5555
 N=${1:?attempt number}
 KEEP=${KEEP:-1}     # 1 = leave Android 14 running after the capture; 0 = reboot it into recovery
