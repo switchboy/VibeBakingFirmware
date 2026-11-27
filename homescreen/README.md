@@ -6,6 +6,21 @@ media card, RainViewer radar card, clock, battery chip, car settings, valet mode
 Specs live in `specs.md` (S-ids), the build plan in `plan.md`, the changelog in `CHANGELOG.md`.
 Everything here is self-contained; nothing outside this directory was modified.
 
+
+## Screenshots (PX6 head unit, 1024x600, Android 14)
+
+| Night | Day |
+|---|---|
+| ![Home screen, night](../docs/screenshots/home-night.png) | ![Home screen, day](../docs/screenshots/home-day.png) |
+| Live Google Maps in the map card (trusted virtual display), clock + weather, gauges (battery, coolant, RPM), media card, rain radar | Same screen in the day theme |
+| ![Favourites overlay](../docs/screenshots/favourites.png) | ![App drawer](../docs/screenshots/app-drawer.png) |
+| Favourite apps slide up over the cards from the four-dot button | App drawer |
+| ![Car settings](../docs/screenshots/settings.png) | ![Car settings, continued](../docs/screenshots/settings-2.png) |
+| Car settings: switches, choices and sliders in one aligned column | |
+
+Engine values in these shots are bench test values (the unit was not in a car); the map shows Utrecht and the
+Maps account picture is blurred.
+
 ## Layout
 - `app/src/org/vibebaking/launcher/logic/` — **pure Java** decision core (no Android imports):
   `RadarTiles`, `RadarPlan` (fetch + tile plan incl. offline/bad-JSON/partial degrade),
