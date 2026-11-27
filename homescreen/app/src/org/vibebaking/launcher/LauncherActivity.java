@@ -6,7 +6,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
+import android.graphics.drawable.Drawable;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -26,7 +28,10 @@ import org.vibebaking.launcher.logic.RadarPosition;
 import org.vibebaking.launcher.logic.SettingsKeys;
 import org.vibebaking.launcher.logic.ThemePolicy;
 import org.vibebaking.launcher.logic.ValetPolicy;
+import org.vibebaking.launcher.logic.WeatherFetcher;
+import org.vibebaking.launcher.logic.WeatherIcon;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -46,6 +51,8 @@ public class LauncherActivity extends Activity {
     private MediaCardController media;
     private RadarView radar;
     private TextView clock, date, battery, badge, settingsButton, engineTemp, engineRpm;
+    private ImageView weatherIcon;
+    private TextView weatherTemp;
     private View root;
     private View[] favSlots;
     private ImageView[] favIcons;
@@ -73,6 +80,28 @@ public class LauncherActivity extends Activity {
     private static final String TEST_RADAR_ACTION = "org.vibebaking.launcher.TEST_RADAR_CENTER";
     private static final long RADAR_TEST_MS = 5 * 60_000L;
     private long radarTestUntil;
+    // Outside temperature + weather icon (owner request 2026-11-27). Two sources: Open-Meteo's
+    // `current` block (weather code + is_day -> icon, temperature_2m) and HCTCanBus's
+    // com.canbus.temperature (String extra "temperature", the outside air temp). A car frame
+    // younger than WeatherIcon.CAR_TEMP_FRESH_MS wins for the number; the icon always comes from
+    // Open-Meteo. Privacy: only rounded (~10 km) coordinates go in the URL, nothing is stored or logged.
+    private static final String CAN_TEMP_ACTION = "com.canbus.temperature";
+    private static final String CAN_TEMP_EXTRA = "temperature";
+    private final WeatherFetcher weatherHttp = new HttpWeatherFetcher();
+    private boolean weatherPending;          // one in-flight fetch at a time (no stacked threads)
+    private long lastWeatherAttempt;         // 0 = never; a failed attempt only retries after REFRESH_MS
+    private WeatherIcon.Icon weatherKind;    // null until the first Open-Meteo reading
+    private Double openMeteoTemp;            // last temperature_2m from Open-Meteo
+    private Double carTemp;                  // last com.canbus.temperature value
+    private long carTempAt;                  // wall clock of that frame
+    private boolean homeVisible;             // refresh only while the home screen is on screen
+    // Gauge glyphs are tinted with their value's colour; the resource id is kept so the tint can be
+    // re-resolved when the day/night qualifier swaps (onConfigurationChanged, spec S38).
+    private int batteryColorRes = R.color.gauge_ok;
+    private int engineTempColorRes = R.color.gauge_ok;
+    // Gauge icons (owner 2026-11-27): 20dp glyph left of the value, 4dp gap, tinted like the value.
+    private static final float GAUGE_ICON_DP = 20f;
+    private static final float GAUGE_ICON_PADDING_DP = 4f;
     private long lastThemeSwitch = 0L;
     private String lastMapTarget;          // applied map card target (spec S7)
     private LocationManager locationManager;
@@ -93,6 +122,19 @@ public class LauncherActivity extends Activity {
         // appear when a value arrives (onEngineTemp / the rpm broadcast).
         engineTemp = findViewById(R.id.engine_temp);
         engineRpm = findViewById(R.id.engine_rpm);
+        // Weather beside the date (owner 2026-11-27): stays hidden until the first value arrives.
+        weatherIcon = findViewById(R.id.weather_icon);
+        weatherTemp = findViewById(R.id.weather_temp);
+        weatherIcon.setVisibility(View.GONE);
+        weatherTemp.setVisibility(View.GONE);
+        // Gauge icons left of every value (owner 2026-11-27); the tint is re-applied whenever the
+        // value's colour changes (updateBattery / onEngineTemp / the rpm paint path).
+        setGaugeIcon(battery, R.drawable.ic_gauge_battery);
+        tintGauge(battery, getResources().getColor(R.color.gauge_ok));
+        setGaugeIcon(engineTemp, R.drawable.ic_gauge_coolant);
+        tintGauge(engineTemp, getResources().getColor(R.color.gauge_ok));
+        setGaugeIcon(engineRpm, R.drawable.ic_gauge_engine);
+        tintGauge(engineRpm, getResources().getColor(R.color.text_sub));
         // The owner saw no clock on the first run: the tick fired a minute after start, so paint
         // the clock/date right away; the minute tick keeps them updated from then on (spec S5).
         long startedAt = System.currentTimeMillis();
@@ -158,6 +200,7 @@ public class LauncherActivity extends Activity {
         applyTheme();
         applyBacklight();
         registerRpmReceiver(); // car signal attached last, per the first-run NPE lesson
+        registerWeatherReceiver();
 
         main.postDelayed(tick, ClockFormat.TICK_MS);
     }
@@ -188,6 +231,8 @@ public class LauncherActivity extends Activity {
             applyTheme();            // cycle mode re-evaluates night each minute (spec S30)
             updateBattery();
             media.refresh();         // session changes without a push event are picked up here
+            // Owner 2026-11-27: the minute tick is the 15-minute weather clock (only while visible).
+            if (homeVisible) refreshWeatherIfNeeded();
             main.postDelayed(this, ClockFormat.TICK_MS);
         }
     };
@@ -201,6 +246,7 @@ public class LauncherActivity extends Activity {
         boolean wasNight = theme.systemNight();
         theme.apply(night);
         if (radar != null) radar.setNight(theme.systemNight());
+        repaintIconTints(); // gauge + weather glyphs follow the day/night palette
         if (wasNight != theme.systemNight() && now - lastThemeSwitch > 600L) {
             lastThemeSwitch = now;
             animateThemeSwap(); // spec S32: animated, not abrupt
@@ -229,17 +275,24 @@ public class LauncherActivity extends Activity {
         battery.setVisibility(View.VISIBLE);
         battery.setText(BatteryState.label(batteryRaw));
         // Round 5 policy (EngineGauges) instead of the old battery_ok/battery_low pair.
-        battery.setTextColor(levelColor(EngineGauges.batteryLevel(BatteryState.volts(batteryRaw))));
+        // Round 7: the battery icon takes the same colour as the value.
+        int colorRes = levelColorRes(EngineGauges.batteryLevel(BatteryState.volts(batteryRaw)));
+        batteryColorRes = colorRes;
+        battery.setTextColor(getResources().getColor(colorRes));
+        tintGauge(battery, getResources().getColor(colorRes));
     }
 
-    /** EngineGauges.Level -> gauge_* colour; the theme swaps day/night values via the qualifier. */
-    private int levelColor(EngineGauges.Level level) {
+    /**
+     * EngineGauges.Level -> gauge_* colour as a resource id, so a value's text colour and its glyph
+     * tint can be re-resolved after a day/night swap (the theme changes the qualifier, spec S30/S38).
+     */
+    private int levelColorRes(EngineGauges.Level level) {
         switch (level) {
-            case COLD: return getResources().getColor(R.color.gauge_cold);
-            case WARN: return getResources().getColor(R.color.gauge_warn);
-            case BAD:  return getResources().getColor(R.color.gauge_bad);
+            case COLD: return R.color.gauge_cold;
+            case WARN: return R.color.gauge_warn;
+            case BAD:  return R.color.gauge_bad;
             case OK:
-            default:   return getResources().getColor(R.color.gauge_ok);
+            default:   return R.color.gauge_ok;
         }
     }
 
@@ -252,9 +305,149 @@ public class LauncherActivity extends Activity {
     void onEngineTemp(int celsius, boolean isOil) {
         if (engineTemp == null) return;
         engineTemp.setText(isOil ? celsius + " °C oil" : celsius + " °C");
-        engineTemp.setTextColor(levelColor(isOil
-            ? EngineGauges.oilLevel(celsius) : EngineGauges.coolantLevel(celsius)));
+        int colorRes = levelColorRes(isOil ? EngineGauges.oilLevel(celsius) : EngineGauges.coolantLevel(celsius));
+        engineTempColorRes = colorRes;
+        engineTemp.setTextColor(getResources().getColor(colorRes));
+        // Round 7 glyph: coolant vs oil outline, always tinted with the value's colour.
+        setGaugeIcon(engineTemp, isOil ? R.drawable.ic_gauge_oil : R.drawable.ic_gauge_coolant);
+        tintGauge(engineTemp, getResources().getColor(colorRes));
         engineTemp.setVisibility(View.VISIBLE);
+    }
+
+    /**
+     * Icon tints follow the theme (owner 2026-11-27): uiMode is handled in onConfigurationChanged
+     * (no recreation, spec S38), so every gauge glyph and the weather glyph are re-resolved after a
+     * day/night swap. Idempotent - re-applying the same tint costs nothing.
+     */
+    private void repaintIconTints() {
+        if (battery != null) tintGauge(battery, getResources().getColor(batteryColorRes));
+        if (engineTemp != null) tintGauge(engineTemp, getResources().getColor(engineTempColorRes));
+        if (engineRpm != null) tintGauge(engineRpm, getResources().getColor(R.color.text_sub));
+        if (weatherIcon != null && weatherKind != null) {
+            weatherIcon.setImageResource(weatherDrawable(weatherKind));
+            weatherIcon.setImageTintList(ColorStateList.valueOf(
+                getResources().getColor(weatherTint(weatherKind))));
+        }
+    }
+
+    /**
+     * Gauge glyph on the start side of a value (owner 2026-11-27). The owner named
+     * `setCompoundDrawablesRelativeWithIntrinsicBounds`, but that draws these vectors at their
+     * intrinsic 24dp while 20dp is asked for, so the bounds are set explicitly and the same
+     * relative API without intrinsic sizing is used (both API 17, long-standing).
+     */
+    private void setGaugeIcon(TextView tv, int drawableRes) {
+        float density = getResources().getDisplayMetrics().density;
+        Drawable d = getResources().getDrawable(drawableRes);
+        int px = Math.round(GAUGE_ICON_DP * density);
+        d.setBounds(0, 0, px, px);
+        tv.setCompoundDrawablesRelative(d, null, null, null);
+        tv.setCompoundDrawablePadding(Math.round(GAUGE_ICON_PADDING_DP * density));
+    }
+
+    /** Icon tint = the value's colour (owner 2026-11-27): called whenever that colour changes. */
+    private void tintGauge(TextView tv, int color) {
+        tv.setCompoundDrawableTintList(ColorStateList.valueOf(color));
+    }
+
+    /**
+     * Weather refresh decision (owner 2026-11-27): at most every WeatherIcon.REFRESH_MS while the
+     * home screen is visible (the minute tick calls this), and immediately on resume when the last
+     * attempt is older than that or never happened. One in-flight fetch at a time.
+     */
+    private void refreshWeatherIfNeeded() {
+        if (weatherPending || weatherIcon == null) return;
+        long now = System.currentTimeMillis();
+        if (lastWeatherAttempt != 0L && now - lastWeatherAttempt < WeatherIcon.REFRESH_MS) return;
+        lastWeatherAttempt = now;
+        weatherPending = true;
+        // urlFor() rounds lat/lon to 1 decimal (~10 km): the full position never leaves the unit,
+        // and neither the URL nor the coordinates are ever logged or stored.
+        final String url = WeatherIcon.urlFor(lastPosLat, lastPosLon);
+        new Thread(() -> {
+            WeatherIcon.Reading reading = null;
+            try {
+                byte[] body = weatherHttp.fetch(url);
+                reading = WeatherIcon.parseCurrent(new String(body, StandardCharsets.UTF_8));
+            } catch (Throwable offline) {
+                // Offline / HTTP error / HTML page / truncated body: keep the last value (S36).
+                // Deliberately not logged: the failure message could carry the position.
+            }
+            final WeatherIcon.Reading result = reading;
+            main.post(() -> {
+                weatherPending = false;
+                if (result != null) applyWeather(result); // garbled body: previous values stay
+            });
+        }).start();
+    }
+
+    /** Main thread: remember the Open-Meteo reading and repaint. Missing fields leave the old value. */
+    void applyWeather(WeatherIcon.Reading r) {
+        if (r == null) return;
+        if (r.tempC != null) openMeteoTemp = r.tempC;
+        if (r.wmoCode != null) {
+            // is_day missing: fall back to the theme's night decision rather than guessing.
+            boolean day = r.day != null ? r.day.booleanValue() : !theme.systemNight();
+            weatherKind = WeatherIcon.iconFor(r.wmoCode.intValue(), day);
+        }
+        showWeather();
+    }
+
+    /** The number to show: the car's own outside-air sensor beats Open-Meteo while it is fresh. */
+    private Double preferredTemp() {
+        if (carTemp != null && WeatherIcon.preferCarTemp(carTempAt, System.currentTimeMillis())) return carTemp;
+        return openMeteoTemp;
+    }
+
+    /** Paint the icon + temperature; both stay GONE until the first value of either kind arrives. */
+    private void showWeather() {
+        if (weatherIcon == null || weatherTemp == null) return;
+        Double temp = preferredTemp();
+        String label = temp == null ? "" : WeatherIcon.formatTemp(temp.doubleValue());
+        if (label.isEmpty()) {
+            weatherTemp.setVisibility(View.GONE);
+        } else {
+            weatherTemp.setText(label);
+            weatherTemp.setVisibility(View.VISIBLE);
+        }
+        if (weatherKind == null) { weatherIcon.setVisibility(View.GONE); return; }
+        weatherIcon.setImageResource(weatherDrawable(weatherKind));
+        weatherIcon.setImageTintList(ColorStateList.valueOf(getResources().getColor(weatherTint(weatherKind))));
+        weatherIcon.setVisibility(View.VISIBLE);
+    }
+
+    /** WeatherIcon.Icon -> drawable resource (the logic layer returns names; ids are compile-checked). */
+    private static int weatherDrawable(WeatherIcon.Icon icon) {
+        switch (icon) {
+            case SUN: return R.drawable.ic_wx_sun;
+            case MOON: return R.drawable.ic_wx_moon;
+            case SUN_CLOUD: return R.drawable.ic_wx_sun_cloud;
+            case MOON_CLOUD: return R.drawable.ic_wx_moon_cloud;
+            case CLOUD: return R.drawable.ic_wx_cloud;
+            case FOG: return R.drawable.ic_wx_fog;
+            case RAIN: return R.drawable.ic_wx_rain;
+            case POURING: return R.drawable.ic_wx_pouring;
+            case SNOW: return R.drawable.ic_wx_snow;
+            case THUNDER:
+            default: return R.drawable.ic_wx_thunder;
+        }
+    }
+
+    /** Icon tint (owner palette 2026-11-27): sun/thunder warm, moon pale, rain blue, snow white-blue. */
+    private static int weatherTint(WeatherIcon.Icon icon) {
+        switch (icon) {
+            case SUN:
+            case SUN_CLOUD: return R.color.weather_sun;     // partly cloudy keeps the warm sun hue
+            case MOON:
+            case MOON_CLOUD: return R.color.weather_moon;
+            case RAIN:
+            case POURING: return R.color.weather_rain;
+            case SNOW: return R.color.weather_snow;
+            case THUNDER: return R.color.weather_thunder;
+            case CLOUD:
+            case FOG:
+            default: return R.color.weather_cloud;          // owner: text_sub in both themes
+        }
     }
 
     private final BroadcastReceiver testRadarReceiver = new BroadcastReceiver() {
@@ -284,6 +477,7 @@ public class LauncherActivity extends Activity {
                 if (engineRpm == null) return;
                 rpmSeen = true;
                 engineRpm.setText(rpm == 0 ? getString(R.string.engine_off) : rpm + " rpm");
+                tintGauge(engineRpm, getResources().getColor(R.color.text_sub)); // neutral, also for "Engine off"
                 engineRpm.setVisibility(View.VISIBLE);
                 main.removeCallbacks(rpmStale);
                 main.postDelayed(rpmStale, RPM_STALE_MS);
@@ -316,12 +510,42 @@ public class LauncherActivity extends Activity {
         }
     }
 
+    /**
+     * HCTCanBus outside-air temperature broadcast: com.canbus.temperature, String extra
+     * "temperature". The frame format has not been seen on a car yet (UNKNOWN), so
+     * WeatherIcon.parseCanTemp reads the first signed decimal in it; an unrecognised frame changes
+     * nothing (Open-Meteo's value stays). Exported like the rpm receiver (sendBroadcastAsUser).
+     */
+    private final BroadcastReceiver canTempReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            try {
+                Double t = WeatherIcon.parseCanTemp(i.getStringExtra(CAN_TEMP_EXTRA));
+                if (t == null) return; // junk / unknown format: keep the previous value
+                carTemp = t;
+                carTempAt = System.currentTimeMillis();
+                showWeather();
+            } catch (Throwable junkBroadcast) {
+                android.util.Log.w("LauncherActivity", "junk canbus temperature broadcast", junkBroadcast);
+            }
+        }
+    };
+
+    private void registerWeatherReceiver() {
+        try {
+            registerReceiver(canTempReceiver, new IntentFilter(CAN_TEMP_ACTION), Context.RECEIVER_EXPORTED);
+        } catch (Throwable t) {
+            // Denied or framework drift: the Open-Meteo temperature still works, no crash (S36).
+            android.util.Log.w("LauncherActivity", "canbus temperature receiver registration failed", t);
+        }
+    }
+
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         // uiMode is handled here (configChanges in the manifest) so the theme switch animates
         // instead of recreating the activity (spec S38).
         if (radar != null) radar.setNight(theme.systemNight());
+        repaintIconTints(); // the night palette differs for gauge + weather glyphs (owner 2026-11-27)
         animateThemeSwap();
     }
 
@@ -350,6 +574,10 @@ public class LauncherActivity extends Activity {
             catch (Throwable t) { locationManager = null; } // service absent: stay on the default position
         }
         updateHomePosition();
+        // Weather (owner 2026-11-27): refresh now when the last attempt is older than 15 min (or
+        // never happened); updateHomePosition() above is what the rounded URL is built from.
+        homeVisible = true;
+        refreshWeatherIfNeeded();
         try {
             if (locationManager != null) {
                 locationManager.requestLocationUpdates("gps", 60_000L, 1000f, locationListener, Looper.getMainLooper());
@@ -493,6 +721,7 @@ public class LauncherActivity extends Activity {
         // The trusted-phone exit watch (S26) is NOT stopped here: while valet is active the owner
         // may be sitting in the app drawer or settings, and the phone must still end valet.
         if (radar != null) radar.stop();
+        homeVisible = false; // the 15-minute weather clock stops with the home screen (owner rule)
         try {
             if (locationManager != null) locationManager.removeUpdates(locationListener);
         } catch (SecurityException | IllegalArgumentException t) {
@@ -510,6 +739,8 @@ public class LauncherActivity extends Activity {
         try { unregisterReceiver(testTempReceiver); } catch (Throwable ignore) { }
         try { unregisterReceiver(testRadarReceiver); } catch (Throwable ignore) { }
         try { unregisterReceiver(rpmReceiver); }
+        catch (Throwable ignore) { /* never registered (guarded above) or already unregistered */ }
+        try { unregisterReceiver(canTempReceiver); }
         catch (Throwable ignore) { /* never registered (guarded above) or already unregistered */ }
     }
 }

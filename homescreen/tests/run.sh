@@ -6,7 +6,8 @@ cd "$(dirname "$0")/.."
 echo "== unit tests (pure logic, javac) =="
 rm -rf tests/out
 javac -d tests/out app/src/org/vibebaking/launcher/logic/*.java \
-    app/src/org/vibebaking/launcher/HttpRadarFetcher.java tests/unit/*.java
+    app/src/org/vibebaking/launcher/HttpRadarFetcher.java app/src/org/vibebaking/launcher/HttpWeatherFetcher.java \
+    tests/unit/*.java
 java -cp tests/out org.vibebaking.launcher.unit.Main "$(pwd)"
 
 echo "== smoke tests (30+ degradation scenarios) =="

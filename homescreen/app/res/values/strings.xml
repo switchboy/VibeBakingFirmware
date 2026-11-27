@@ -28,4 +28,5 @@
     <string name="fav_handle_desc">Show or hide the favourite apps</string>
     <string name="media_source_radio">Radio · tap the icon to open</string>
     <string name="engine_off">Engine off</string>
+    <string name="weather_desc">Outside temperature and weather</string>
 </resources>

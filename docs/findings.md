@@ -6392,3 +6392,25 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   2026-11-05. Hardware props (`ro.hardware`, `ro.board.platform`) and `ro.debuggable` unchanged.
 
   Super attempt 44 `8da509c43b48…`.
+* **Attempt 44 booted (Nov 27):** identity `google/husky_beta/husky:CANARY/...` (Pixel 8 Pro canary). Maps still showed the
+  block until Maps' data was cleared (`pm clear com.google.android.apps.maps`), then it ran normally. Side effects:
+  (1) `ro.build.type=user` makes LineageOS gate adb root behind "Rooted debugging"; Developer options crash on this unit
+  (`BluetoothMaxConnectedAudioDevicesPreferenceController`: Android's BluetoothAdapter is null because HCT's GOC daemon does
+  Bluetooth), so the switch was set where LineageOS's `adb_root` service keeps it: `/data/adbroot/enabled` = `1`
+  (root:root 0600, `u:object_r:adbroot_data_file:s0`), written from the card recovery (`/data` = card p15 f2fs, not
+  encrypted: `ro.crypto.state=unsupported`). `adb root` works again (sometimes only on the second call after boot).
+  (2) Clearing Play services' data earlier left a "sign-in required" notification for the Google account (owner action).
+* **Attempt 45 (canary fingerprints expire after ~6 weeks; owner asked for a durable one):** Pixel 5 `redfin` final stable
+  build `google/redfin/redfin:14/UP1A.231105.001.B2/11260668:user/release-keys` (end of life, Feb 2024; Google flash station,
+  confirmed by independent OTA metadata). Patch level kept at the ROM's 2026-11-05: the build's own 2023-11-05 would be a
+  downgrade for KeyMint (keys bound to the patch level). Written (9 chunks), card = image. Booted: Maps runs normally.
+* **The "RescueParty" BCB of the last days was our own wrapper.** `tools/hu_card_arm.c` (PID 1 on the card boot image) arms
+  the card BCB on every boot (the flash script's "our armed BCB", `ceaae1a6314a…`); after any power cut the unit therefore
+  comes up in the card recovery until the BCB is cleared. The dead-man build (`-DHU_DEADMAN`) also panics at 600 s unless
+  `hu-crasher` is killed over adb. For field testing (owner, Nov 27): boot image without the wrapper -> every boot goes to
+  Android 14; the restore route is booting Android 10.
+* **Launcher round 7 (local model):** outside temperature + weather icon next to the date (Open-Meteo, position rounded to
+  0.1 deg; CAN outside temperature preferred when fresh, its string format still UNKNOWN), outline gauge icons tinted with
+  their values (Material Design Icons, Apache 2.0, `homescreen/CREDITS.md`), four-dot contrast. Verified on the unit.
+
+  Super attempt 45 `20121516d5c1…`.

@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Four dots (2x2): opens / closes the favourites overlay (owner request 2026-11-25). -->
+<!-- Four dots (2x2): opens / closes the favourites overlay (owner request 2026-11-25).
+     Round 7 (owner 2026-11-27): the hard-coded #FFB8C0CC fill was almost invisible on the light
+     day theme, so it follows the theme via @color/text_sub like the other bottom-strip glyphs. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFB8C0CC" android:pathData="M8,8m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
-    <path android:fillColor="#FFB8C0CC" android:pathData="M16,8m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
-    <path android:fillColor="#FFB8C0CC" android:pathData="M8,16m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
-    <path android:fillColor="#FFB8C0CC" android:pathData="M16,16m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+    <path android:fillColor="@color/text_sub" android:pathData="M8,8m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+    <path android:fillColor="@color/text_sub" android:pathData="M16,8m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+    <path android:fillColor="@color/text_sub" android:pathData="M8,16m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+    <path android:fillColor="@color/text_sub" android:pathData="M16,16m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
 </vector>

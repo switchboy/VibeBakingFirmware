@@ -48,7 +48,11 @@
             android:orientation="vertical">
 
             <!-- Top-right row (Round 5): ▦/⚙ are gone (bottom strip), so clock + date use the
-                 full column width; the date ellipsizes, the valet badge stays at the end. -->
+                 full column width; the date ellipsizes, the valet badge stays at the end.
+                 Round 7 (owner request 2026-11-27): the weather icon (28dp) + outside temperature
+                 sit right of the date, hidden until the first value. They are wrap_content at the
+                 end of the row, so the shrinking child is the weighted date (which may ellipsize),
+                 never the clock: ~120dp of free space measured on the panel, weather needs ~64dp. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -60,6 +64,13 @@
                 <TextView android:id="@+id/clock_date" android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1" android:layout_marginStart="12dp" android:textColor="@color/text_sub"
                     android:textSize="@dimen/date_size" android:maxLines="1" android:ellipsize="end" />
+                <ImageView android:id="@+id/weather_icon" android:layout_width="@dimen/weather_icon_size"
+                    android:layout_height="@dimen/weather_icon_size" android:layout_marginStart="12dp"
+                    android:scaleType="fitCenter" android:src="@drawable/ic_wx_sun"
+                    android:contentDescription="@string/weather_desc" android:visibility="gone" />
+                <TextView android:id="@+id/weather_temp" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp" android:textColor="@color/text_sub" android:textSize="@dimen/date_size"
+                    android:maxLines="1" android:visibility="gone" />
                 <TextView android:id="@+id/valet_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginStart="16dp" android:text="@string/valet_badge_text"
                     android:textColor="@color/battery_low" android:textSize="@dimen/badge_size" android:visibility="gone" />

@@ -20,4 +20,15 @@
          lighter), so the day fill equals the card and the stroke separates it; at night the
          fill is lighter than the card. -->
     <color name="field_bg">#FFFFFFFF</color>
+    <!-- Weather icon tints (owner 2026-11-27). The owner's hexes are chosen for the dark theme and
+         are used verbatim at night; on the light day theme the pale ones (moon, snow) would be
+         nearly invisible on #F5EFE3/#FFFFFF, so the day variants keep the same hue, darkened.
+         Clouds/fog are text_sub in both themes, exactly as the owner asked. -->
+    <color name="weather_sun">#FFB8860B</color>      <!-- warm amber, readable by day -->
+    <color name="weather_moon">#FF64708C</color>     <!-- pale blue-grey, darkened -->
+    <color name="weather_cloud">@color/text_sub</color>
+    <color name="weather_fog">@color/text_sub</color>
+    <color name="weather_rain">#FF2573C4</color>     <!-- blue, darkened -->
+    <color name="weather_snow">#FF7FA8CC</color>     <!-- white-blue, darkened -->
+    <color name="weather_thunder">#FFB8860B</color>  <!-- same amber as the sun -->
 </resources>

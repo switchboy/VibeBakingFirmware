@@ -321,6 +321,50 @@ ok("SA42", "addCycle" not in code(settings) and "store.getString(key, def)" in c
    and "store.getBool(key, def)" in code(settings) and "store.getInt(key, def)" in code(settings),
    "the captured-copy addCycle is gone; every control reads the store fresh at click time")
 
+# SA43-SA45 - Round 7 (owner 2026-11-27): weather beside the date + gauge glyphs + dot contrast.
+wxlogic = read("app/src/org/vibebaking/launcher/logic/WeatherIcon.java")
+wf = read("app/src/org/vibebaking/launcher/HttpWeatherFetcher.java")
+day = read("app/res/values/colors.xml")
+dots = read("app/res/drawable/ic_four_dots.xml")
+aca = code(act)
+wxspan = aca[aca.find("private void refreshWeatherIfNeeded"):aca.find("private static int weatherDrawable")]
+ok("SA43", "new Thread(" in wxspan and "main.post(" in wxspan and "catch (Throwable offline)" in wxspan
+   and "if (result != null)" in wxspan,
+   "weather is fetched off the UI thread and posted back; offline/garbled bodies paint nothing and keep the last value")
+ok("SA43b", "android.util.Log" not in wxspan,
+   "the weather path logs nothing: the request URL carries the (rounded) position")
+ok("SA43c", "WeatherIcon.urlFor(" in wxspan and "MAX_BODY_BYTES" in wf and "USER_AGENT" in wf
+   and "setConnectTimeout(10_000)" in wf and "setReadTimeout(15_000)" in wf,
+   "the Open-Meteo request goes through the same helper style as the radar (User-Agent, bounded timeouts)")
+ok("SA43d", "catch (Throwable junkBroadcast)" in aca[aca.find("canTempReceiver"):]
+   and "unregisterReceiver(canTempReceiver)" in aca[aca.find("protected void onDestroy"):],
+   "a junk com.canbus.temperature frame cannot crash the receiver, and it is unregistered in onDestroy")
+ok("SA43e", "homeVisible = true" in aca[aca.find("protected void onResume"):]
+   and "homeVisible = false" in aca[aca.find("public void onPause"):]
+   and "if (homeVisible) refreshWeatherIfNeeded()" in aca,
+   "the 15-minute clock only runs while the home screen is visible (paused: no requests)")
+
+ok("SA44", "setCompoundDrawablesRelative" in aca and "setCompoundDrawableTintList" in aca
+   and "setCompoundDrawablePadding" in aca and "GAUGE_ICON_DP" in aca
+   and all(g in aca for g in ["ic_gauge_battery", "ic_gauge_coolant", "ic_gauge_oil", "ic_gauge_engine"]),
+   "every gauge gets a 20dp glyph with 4dp padding; coolant vs oil chosen by the isOil flag")
+ok("SA44b", "tintGauge(battery," in aca[aca.find("void updateBattery"):]
+   and "tintGauge(engineTemp," in aca[aca.find("void onEngineTemp"):]
+   and "tintGauge(engineRpm," in aca[aca.find("rpmReceiver"):],
+   "the glyph tint is re-applied whenever the value's colour changes (battery, temp, rpm)")
+ok("SA44c", "repaintIconTints()" in aca[aca.find("void applyTheme"):]
+   and "repaintIconTints()" in aca[aca.find("public void onConfigurationChanged"):],
+   "uiMode is handled without recreation, so gauge + weather glyphs re-resolve after a theme swap")
+
+ok("SA45", "@color/text_sub" in dots and 'fillColor="#FF' not in dots,
+   "the four-dot button follows the theme instead of the fixed light fill that was invisible by day")
+ok("SA45b", all(c in day and c in night for c in
+                 ["weather_sun", "weather_moon", "weather_cloud", "weather_fog",
+                  "weather_rain", "weather_snow", "weather_thunder"]),
+   "weather tints exist in both themes (clouds/fog mirror text_sub)")
+ok("SA45c", "R.color.weather_" in aca and "setImageTintList" in code(act),
+   "the weather glyph is tinted in code from the theme colours, not baked into the drawable")
+
 fails = [r for r in results if not r[1]]
 print(f"{len(results)} scenario checks, {len(fails)} failed")
 sys.exit(1 if fails else 0)

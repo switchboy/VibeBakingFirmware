@@ -4,6 +4,8 @@
     <dimen name="date_size">18sp</dimen>
     <dimen name="battery_size">18sp</dimen>
     <dimen name="badge_size">16sp</dimen>
+    <!-- Weather glyph beside the date (owner 2026-11-27): one icon, tinted in code. -->
+    <dimen name="weather_icon_size">28dp</dimen>
     <dimen name="art_size">64dp</dimen>
     <dimen name="drawer_icon">72dp</dimen>
     <dimen name="drawer_cell_height">120dp</dimen>

@@ -17,4 +17,13 @@
     <color name="gauge_bad">#FFD96A6A</color>    <!-- dimmed red -->
     <!-- Settings number field fill (Round 6): lighter than the night card, no pure white. -->
     <color name="field_bg">#FF262B36</color>
+    <!-- Weather icon tints (owner 2026-11-27): the owner's exact hexes (see colors.xml), no pure
+         white among them (spec S33). -->
+    <color name="weather_sun">#FFFFC83D</color>      <!-- warm yellow -->
+    <color name="weather_moon">#FFB8C7E0</color>     <!-- pale moonlight -->
+    <color name="weather_cloud">@color/text_sub</color>
+    <color name="weather_fog">@color/text_sub</color>
+    <color name="weather_rain">#FF4FA3FF</color>     <!-- rain blue -->
+    <color name="weather_snow">#FFCFE3FF</color>     <!-- white-blue snow, not pure white -->
+    <color name="weather_thunder">#FFFFC83D</color>  <!-- storm yellow -->
 </resources>

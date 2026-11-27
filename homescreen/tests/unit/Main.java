@@ -29,6 +29,7 @@ import org.vibebaking.launcher.logic.ThemePolicy;
 import org.vibebaking.launcher.logic.ValetPin;
 import org.vibebaking.launcher.logic.ValetPolicy;
 import org.vibebaking.launcher.logic.VolumePolicy;
+import org.vibebaking.launcher.logic.WeatherIcon;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -88,6 +89,7 @@ public class Main {
         t23EngineGauges();
         t24SettingsCycle();
         t25SettingsValidation();
+        t26WeatherIcon();
         System.out.println(checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
             System.out.println("FAILED: " + String.join(", ", failures));
@@ -776,6 +778,138 @@ public class Main {
         check("U33.mirrorsKeys", SettingsValidation.TIMEOUT_MIN_S == 10 && SettingsValidation.TIMEOUT_MAX_S == 3600
             && SettingsKeys.clampTimeoutS(9) == 10 && SettingsKeys.clampTimeoutS(3601) == 3600,
             "the inline error band mirrors SettingsKeys.clampTimeoutS");
+    }
+
+    // U34-U38: weather icon policy (owner 2026-11-27) - WMO code + is_day, temperature format,
+    // Open-Meteo JSON, the com.canbus.temperature parser, the 10-minute preference and privacy rounding.
+    static void t26WeatherIcon() {
+        // U34: the owner's table, day and night, plus the unknown-code fallback and drawable names.
+        check("U34.clear", WeatherIcon.iconFor(0, true) == WeatherIcon.Icon.SUN
+            && WeatherIcon.iconFor(1, true) == WeatherIcon.Icon.SUN
+            && WeatherIcon.iconFor(0, false) == WeatherIcon.Icon.MOON
+            && WeatherIcon.iconFor(1, false) == WeatherIcon.Icon.MOON);
+        check("U34.partlyCloudy", WeatherIcon.iconFor(2, true) == WeatherIcon.Icon.SUN_CLOUD
+            && WeatherIcon.iconFor(2, false) == WeatherIcon.Icon.MOON_CLOUD,
+            "code 2 has its own night glyph (moon behind cloud)");
+        check("U34.overcast", WeatherIcon.iconFor(3, true) == WeatherIcon.Icon.CLOUD
+            && WeatherIcon.iconFor(3, false) == WeatherIcon.Icon.CLOUD);
+        check("U34.fog", WeatherIcon.iconFor(45, true) == WeatherIcon.Icon.FOG
+            && WeatherIcon.iconFor(48, false) == WeatherIcon.Icon.FOG,
+            "fog (45) and glaze fog (48) - the codes VAG regions actually get");
+        check("U34.drizzleRain", codesAll(WeatherIcon.Icon.RAIN, new int[] { 51, 53, 55, 56, 57, 61, 80 }),
+            "drizzle + light rain + rain showers, day and night");
+        check("U34.pouring", codesAll(WeatherIcon.Icon.POURING, new int[] { 63, 65, 66, 67, 81, 82 }),
+            "moderate/heavy drizzle and rain, day and night");
+        check("U34.snow", codesAll(WeatherIcon.Icon.SNOW, new int[] { 71, 73, 75, 77, 85, 86 }),
+            "snow fall/blizzard and snow showers, day and night");
+        check("U34.thunder", codesAll(WeatherIcon.Icon.THUNDER, new int[] { 95, 96, 99 }),
+            "thunder with and without hail");
+        check("U34.unknownFallsBackToCloud", WeatherIcon.iconFor(4, true) == WeatherIcon.Icon.CLOUD
+            && WeatherIcon.iconFor(-1, false) == WeatherIcon.Icon.CLOUD
+            && WeatherIcon.iconFor(9999, true) == WeatherIcon.Icon.CLOUD,
+            "an unlisted code must stay neutral, never crash");
+        check("U34.drawableNames", WeatherIcon.drawableName(WeatherIcon.Icon.SUN).equals("ic_wx_sun")
+            && WeatherIcon.drawableName(WeatherIcon.Icon.MOON).equals("ic_wx_moon")
+            && WeatherIcon.drawableName(WeatherIcon.Icon.SUN_CLOUD).equals("ic_wx_sun_cloud")
+            && WeatherIcon.drawableName(WeatherIcon.Icon.MOON_CLOUD).equals("ic_wx_moon_cloud")
+            && WeatherIcon.drawableName(WeatherIcon.Icon.CLOUD).equals("ic_wx_cloud")
+            && WeatherIcon.drawableName(WeatherIcon.Icon.FOG).equals("ic_wx_fog")
+            && WeatherIcon.drawableName(WeatherIcon.Icon.RAIN).equals("ic_wx_rain")
+            && WeatherIcon.drawableName(WeatherIcon.Icon.POURING).equals("ic_wx_pouring")
+            && WeatherIcon.drawableName(WeatherIcon.Icon.SNOW).equals("ic_wx_snow")
+            && WeatherIcon.drawableName(WeatherIcon.Icon.THUNDER).equals("ic_wx_thunder"),
+            "the names must match the drawables the parent engineer added");
+        check("U34.everyIconNamed", WeatherIcon.drawableName(WeatherIcon.Icon.CLOUD) != null
+            && WeatherIcon.drawableName(WeatherIcon.Icon.THUNDER) != null);
+
+        // U35: whole degrees only, and "-0°" must never appear.
+        check("U35.roundDown", WeatherIcon.formatTemp(8.3).equals("8\u00B0"));
+        check("U35.noMinusZero", WeatherIcon.formatTemp(-0.4).equals("0\u00B0")
+            && WeatherIcon.formatTemp(-0.5).equals("0\u00B0"),
+            "-0.4 rounds to 0: the sign must not be printed");
+        check("U35.roundAwayFromZero", WeatherIcon.formatTemp(-3.6).equals("-4\u00B0"));
+        check("U35.roundHalfUp", WeatherIcon.formatTemp(2.5).equals("3\u00B0"));
+        check("U35.numeric", WeatherIcon.formatTemp(12.49).equals("12\u00B0")
+            && WeatherIcon.formatTemp(-12.6).equals("-13\u00B0")
+            && WeatherIcon.formatTemp(0.0).equals("0\u00B0"),
+            "the decimal is never shown");
+        check("U35.notANumber", WeatherIcon.formatTemp(Double.NaN).equals("")
+            && WeatherIcon.formatTemp(Double.POSITIVE_INFINITY).equals("")
+            && WeatherIcon.formatTemp(Double.NEGATIVE_INFINITY).equals(""),
+            "garbage reading: nothing is painted, the chip stays hidden");
+
+        // U36: Open-Meteo `current` block, exactly the shape the parent engineer verified.
+        String sample = "{\"current\":{\"temperature_2m\":8.3,\"weather_code\":3,\"is_day\":1,"
+            + "\"time\":\"2026-11-27T12:00\",\"utc_offset_seconds\":3600},\"hourly\":{}}";
+        WeatherIcon.Reading r = WeatherIcon.parseCurrent(sample);
+        check("U36.sample", r != null && r.tempC == 8.3 && r.wmoCode == 3 && r.day == Boolean.TRUE, sample);
+        String nightBody = "{\"current\":{\"temperature_2m\":-1.2,\"weather_code\":71,\"is_day\":0}}";
+        WeatherIcon.Reading n = WeatherIcon.parseCurrent(nightBody);
+        check("U36.night", n != null && n.tempC == -1.2 && n.wmoCode == 71 && n.day == Boolean.FALSE, nightBody);
+        check("U36.booleanFlag", WeatherIcon.parseCurrent("{\"current\":{\"weather_code\":2,\"is_day\":true}}").day == Boolean.TRUE
+            && WeatherIcon.parseCurrent("{\"current\":{\"weather_code\":2,\"is_day\":false}}").day == Boolean.FALSE,
+            "a boolean is_day (some builds) parses too");
+        check("U36.missingIsDay", WeatherIcon.parseCurrent("{\"current\":{\"temperature_2m\":5,\"weather_code\":1}}").day == null,
+            "missing is_day -> null; the activity falls back to the theme's night decision");
+        check("U36.missingFields", WeatherIcon.parseCurrent("{\"current\":{}}").tempC == null
+            && WeatherIcon.parseCurrent("{\"current\":{}}").wmoCode == null,
+            "empty current block: every field null, nothing painted");
+        check("U36.noCurrent", WeatherIcon.parseCurrent("{\"hourly\":{\"temperature_2m\":[8.3]}}") == null,
+            "no current block -> offline");
+        check("U36.garbled", WeatherIcon.parseCurrent("{\"current\":{\"temperature_2m\":8.3") == null
+            && WeatherIcon.parseCurrent("") == null && WeatherIcon.parseCurrent(null) == null,
+            "truncated body / empty body -> null, never a throw");
+        check("U36.htmlPage", WeatherIcon.parseCurrent("<html>429 Too Many Requests</html>") == null,
+            "rate-limit HTML page -> offline, the last value stays");
+        check("U36.wrongTypes", WeatherIcon.parseCurrent("{\"current\":{\"temperature_2m\":\"cold\",\"weather_code\":[]}}").tempC == null
+            && WeatherIcon.parseCurrent("{\"current\":{\"temperature_2m\":\"cold\",\"weather_code\":[]}}").wmoCode == null,
+            "string/array values are not numbers -> null fields");
+        check("U36.currentNotAnObject", WeatherIcon.parseCurrent("{\"current\":[1,2]}") == null);
+
+        // U37: com.canbus.temperature extra "temperature" - format UNKNOWN on a car, so the first
+        // signed decimal anywhere in the string is used, and junk never throws.
+        check("U37.plain", WeatherIcon.parseCanTemp("12.5") == 12.5 && WeatherIcon.parseCanTemp("-3") == -3.0);
+        check("U37.padded", WeatherIcon.parseCanTemp(" -3 ") == -3.0 && WeatherIcon.parseCanTemp("  12.5 ") == 12.5);
+        check("U37.unitSuffix", WeatherIcon.parseCanTemp("12.5\u00B0C") == 12.5
+            && WeatherIcon.parseCanTemp("temp: 7.2 deg") == 7.2,
+            "trailing unit text / prefix text: the first number wins");
+        check("U37.plusSign", WeatherIcon.parseCanTemp("+8") == 8.0);
+        check("U37.junk", WeatherIcon.parseCanTemp("abc") == null && WeatherIcon.parseCanTemp("") == null
+            && WeatherIcon.parseCanTemp(null) == null && WeatherIcon.parseCanTemp("-") == null
+            && WeatherIcon.parseCanTemp("NaN") == null && WeatherIcon.parseCanTemp("--3") == null,
+            "unrecognised frame -> null, so Open-Meteo's value stays");
+
+        // U38: the car sensor wins for 10 minutes; coordinates are rounded before the URL is built.
+        long now = 1_700_000_000_000L;
+        check("U38.freshCarWins", WeatherIcon.preferCarTemp(now - 60_000L, now)
+            && WeatherIcon.preferCarTemp(now - 10 * 60_000L, now),
+            "exactly 10 minutes still counts as fresh");
+        check("U38.staleCarLoses", !WeatherIcon.preferCarTemp(now - 10 * 60_000L - 1, now)
+            && !WeatherIcon.preferCarTemp(now - 40 * 60_000L, now),
+            "older than 10 min: Open-Meteo's temperature is shown again");
+        check("U38.clockJumpBack", WeatherIcon.preferCarTemp(now + 60_000L, now),
+            "boot/NTP clock jump backwards: the frame is treated as fresh, not stale");
+        check("U38.constants", WeatherIcon.REFRESH_MS == 15 * 60_000L && WeatherIcon.CAR_TEMP_FRESH_MS == 10 * 60_000L,
+            "15-minute refresh while visible, 10-minute sensor preference");
+        check("U38.round1", WeatherIcon.round1(52.109876) == 52.1 && WeatherIcon.round1(5.178) == 5.2
+            && WeatherIcon.round1(-3.14159) == -3.1 && WeatherIcon.round1(0.05) == 0.1,
+            "~10 km resolution (owner privacy rule)");
+        String url = WeatherIcon.urlFor(52.109876, 5.178);
+        check("U38.urlShape", url.equals("https://api.open-meteo.com/v1/forecast?latitude=52.1&longitude=5.2"
+            + "&current=temperature_2m,weather_code,is_day"), url);
+        check("U38.urlPrivacy", !url.contains("52.109") && !url.contains("5.178"),
+            "full-precision coordinates must never appear in the URL");
+        check("U38.urlNaNDefaults", WeatherIcon.urlFor(Double.NaN, Double.NaN).contains("latitude=52.1")
+            && WeatherIcon.urlFor(Double.NaN, Double.NaN).contains("longitude=5.2"),
+            "no position yet: the De Bilt default, rounded like everything else");
+    }
+
+    /** true when every listed WMO code maps to `want` by day and by night. */
+    static boolean codesAll(WeatherIcon.Icon want, int[] codes) {
+        for (int code : codes) {
+            if (WeatherIcon.iconFor(code, true) != want || WeatherIcon.iconFor(code, false) != want) return false;
+        }
+        return true;
     }
 
     static List<String> labels(List<AppDrawerPolicy.Entry> e) {

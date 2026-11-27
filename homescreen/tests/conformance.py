@@ -306,6 +306,51 @@ ok("C44", ("resyncSwitch(sw, l," in code(cs) or "resyncSwitch(sw, this," in code
    "valet switches resync without re-triggering; timeout editable on its existing key with a unit label;"
    " fresh store reads; styled rounded fields via GradientDrawable + field_bg")
 
+# ---- Round 7 (owner 2026-11-27): weather beside the date, gauge glyphs, four-dot contrast ----
+la_c = code(la)
+wxlogic = read("app/src/org/vibebaking/launcher/logic/WeatherIcon.java")
+wfetch = read("app/src/org/vibebaking/launcher/HttpWeatherFetcher.java")
+wx_lay = lay[lay.find("@+id/weather_icon"):lay.find("@+id/valet_badge")]
+ok("C45", 'android:id="@+id/weather_icon"' in lay and 'android:id="@+id/weather_temp"' in lay
+   and lay.find("@+id/clock_date") < lay.find("@+id/weather_icon") < lay.find("@+id/weather_temp") < lay.find("@+id/valet_badge")
+   and "@dimen/weather_icon_size" in lay and 'weather_icon_size">28dp' in dimens
+   and wx_lay.count('android:visibility="gone"') == 2
+   and "@color/text_sub" in wx_lay and "@dimen/date_size" in wx_lay
+   and "android:layout_weight" not in lay[lay.find('android:id="@+id/clock"'):lay.find('android:id="@+id/clock_date"')],
+   "28dp weather icon + outside temperature sit right of the date (same text size/colour as the date,"
+   " hidden until the first value); the clock keeps wrap_content and no weight, so the date is the one that shrinks")
+ok("C46", '"com.canbus.temperature"' in la_c and '"temperature"' in la_c
+   and "Context.RECEIVER_EXPORTED" in la_c
+   and "unregisterReceiver(canTempReceiver)" in la_c[la_c.find("protected void onDestroy"):]
+   and "WeatherIcon.REFRESH_MS" in la_c and "CAR_TEMP_FRESH_MS" in wxlogic
+   and "WeatherIcon.parseCanTemp" in la_c and "WeatherIcon.iconFor" in la_c
+   and "homeVisible" in la_c and "refreshWeatherIfNeeded()" in la_c
+   and "api.open-meteo.com/v1/forecast" in wxlogic and "temperature_2m,weather_code,is_day" in wxlogic
+   and "round1" in wxlogic and "USER_AGENT" in wfetch and "MAX_BODY_BYTES" in wfetch
+   and "UNKNOWN" in wxlogic and "UNKNOWN" in la,
+   "Open-Meteo forecast URL + current fields as the parent engineer verified; coordinates rounded to 1 decimal"
+   " before the URL is built (privacy, never stored/logged); exported com.canbus.temperature receiver,"
+   " unregistered in onDestroy, junk frames ignored; 15-minute refresh while visible; the unseen CAN"
+   " frame format is marked UNKNOWN instead of guessed")
+names = re.findall(r'return "(ic_wx_[a-z_]+)"', wxlogic)
+used = set(re.findall(r"R\.drawable\.(ic_wx_[a-z_]+)", la_c))
+gauge_names = ["ic_gauge_battery", "ic_gauge_coolant", "ic_gauge_oil", "ic_gauge_engine"]
+ok("C47", len(names) == 10 and used == set(names)
+   and all(exists("app/res/drawable/" + n + ".xml") for n in names)
+   and all(g in la_c for g in gauge_names)
+   and all(re.search(r'fillColor="@color/text_sub"', read("app/res/drawable/" + g + ".xml")) for g in gauge_names)
+   and "@color/text_sub" in read("app/res/drawable/ic_four_dots.xml")
+   and 'fillColor="#FF' not in read("app/res/drawable/ic_four_dots.xml"),
+   "every enum icon maps to a drawable that exists (path data untouched); gauge outlines fill text_sub and"
+   " are tinted per value in code; the four dots follow the theme palette instead of a fixed light fill")
+ok("C47b", "#FFFFC83D" in night_colors and "#FFB8C7E0" in night_colors and "#FF4FA3FF" in night_colors
+   and "#FFCFE3FF" in night_colors and "@color/text_sub" in day_colors
+   and "#FFB8860B" in day_colors and "#FF64708C" in day_colors and "#FF2573C4" in day_colors
+   and "#FF7FA8CC" in day_colors
+   and not re.search(r"#(FFFF(FFFFFF)?|FFFFFF|FFFFFFFF)\b", night_colors, re.I),
+   "night uses the owner's exact tints; the day variants keep those hues darkened so they read on the light"
+   " theme; the night palette still has no pure white (spec S33)")
+
 # ---- Android 14 API surface (the tree's javac is the only real compile) ----
 ok("C40", "android.media.MediaPlayerControl;" not in read("app/src/org/vibebaking/launcher/MediaCardController.java")
    and "android.os.UiModeManager" not in ta and "android.input.InputType" not in cs

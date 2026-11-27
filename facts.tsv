@@ -587,3 +587,4 @@ HUGNSS-SO	sha	82ff40a1b5f33b930b3d8be24f496f67268112d81af41a31bcb7766c48d25121	b
 LIBCVBS-JNI-A10	sha	2531b0d2c9200023cd9b1b310fd2706b2f58b113371f67a1a1f114379cd73e11	bytes	2026-11-25	docs/findings.md	2531b0d2c920	docs/findings.md	stock A10 libcvbs_jni.so (arm64, 37136 B)
 GPS-DEFAULT-SO	sha	18b7411368846a802407fa38d033b292d6ddf7c5d170c07285a2d19041e44d84	bytes	2026-11-25	docs/findings.md	18b7411368846a80	docs/findings.md	stock vendor gps.default.so (MTC GPS Module)
 A14-SUPER-ATT44	sha	8da509c43b48b024c7806fb2368094e292272daba9ae2703f2831e7185e3e1f0	bytes	2026-11-27	docs/findings.md	Super attempt 44 `8da509c43b48	docs/findings.md	attempt 44: certification identity spoof
+A14-SUPER-ATT45	sha	20121516d5c115bdaf1bb89822137bbd431432c760c44dcbcf0212bb0dcac950	bytes	2026-11-27	docs/findings.md	Super attempt 45 `20121516d5c1	docs/findings.md	attempt 45: Pixel 5 final-build identity

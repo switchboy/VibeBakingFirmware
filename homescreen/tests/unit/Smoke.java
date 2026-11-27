@@ -2,6 +2,7 @@ package org.vibebaking.launcher.unit;
 
 import com.sun.net.httpserver.HttpServer;
 import org.vibebaking.launcher.HttpRadarFetcher;
+import org.vibebaking.launcher.HttpWeatherFetcher;
 import org.vibebaking.launcher.logic.AppDrawerPolicy;
 import org.vibebaking.launcher.logic.ArtPalette;
 import org.vibebaking.launcher.logic.BacklightPolicy;
@@ -28,6 +29,8 @@ import org.vibebaking.launcher.logic.ThemePolicy;
 import org.vibebaking.launcher.logic.ValetPin;
 import org.vibebaking.launcher.logic.ValetPolicy;
 import org.vibebaking.launcher.logic.VolumePolicy;
+import org.vibebaking.launcher.logic.WeatherFetcher;
+import org.vibebaking.launcher.logic.WeatherIcon;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -159,6 +162,10 @@ public class Smoke {
         favorites();
         gaugesJunk();
         settingsInput();
+        weatherOffline();
+        weatherGarbled();
+        weatherCarSensor();
+        weatherPrivacy();
 
         System.out.println(titles.size() + " scenarios, " + checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
@@ -692,6 +699,87 @@ public class Smoke {
             "the inline save path must never throw on absent or junk text");
         check("SG63b", !SettingsValidation.timeoutOk(Integer.MAX_VALUE) && !SettingsValidation.timeoutOk(Integer.MIN_VALUE),
             "overflowed timeout input is refused, the auto-entry timer keeps the stored sane value");
+    }
+
+    /** Round 7 (owner 2026-11-27): Open-Meteo degrade paths, the CAN outside-air sensor, privacy. */
+    static final String WX_SAMPLE = "{\"current\":{\"temperature_2m\":8.3,\"weather_code\":3,\"is_day\":1}}";
+
+    static void weatherOffline() throws Exception {
+        scenario("SG64", "weather: Open-Meteo 404 / oversized body / no connection -> last value stays, no crash");
+        HttpServer srv = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        srv.createContext("/forecast", ex -> { ex.sendResponseHeaders(404, -1); ex.close(); });
+        srv.createContext("/big", ex -> {
+            byte[] big = new byte[WeatherIcon.MAX_BODY_BYTES + 16];
+            Arrays.fill(big, (byte) 'x');
+            ex.sendResponseHeaders(200, big.length); ex.getResponseBody().write(big); ex.close();
+        });
+        srv.createContext("/ok", ex -> {
+            byte[] b = WX_SAMPLE.getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200, b.length); ex.getResponseBody().write(b); ex.close();
+        });
+        srv.start();
+        String base = "http://127.0.0.1:" + srv.getAddress().getPort();
+        HttpWeatherFetcher f = new HttpWeatherFetcher();
+        String err404 = null;
+        try { f.fetch(base + "/forecast?latitude=52.1&longitude=5.2"); } catch (Exception e) { err404 = e.getMessage(); }
+        check("SG64", err404 != null, "HTTP 404 must surface as an exception (the activity keeps the last reading)");
+        check("SG64b", err404 != null && !err404.contains("latitude") && !err404.contains("127.0.0.1"),
+            "the failure message must not carry the coordinates (privacy rule)");
+        boolean oversized = false;
+        try { f.fetch(base + "/big"); } catch (Exception e) { oversized = true; }
+        check("SG64c", oversized, "an oversized body is refused instead of buffered without bound");
+        WeatherIcon.Reading ok = WeatherIcon.parseCurrent(new String(f.fetch(base + "/ok"), StandardCharsets.UTF_8));
+        check("SG64d", ok != null && ok.tempC == 8.3 && ok.wmoCode == 3
+            && WeatherIcon.iconFor(ok.wmoCode.intValue(), true) == WeatherIcon.Icon.CLOUD,
+            "a live 200 answer parses and maps to the overcast glyph");
+        srv.stop(0);
+        boolean unreachable = false;
+        try { f.fetch("http://127.0.0.1:1/forecast"); } catch (Exception e) { unreachable = true; }
+        check("SG64e", unreachable, "no connection at all: an exception, never a crash on the UI thread");
+    }
+
+    static void weatherGarbled() throws Exception {
+        scenario("SG65", "weather: HTML rate-limit page / truncated JSON / missing fields -> nothing painted, no crash");
+        check("SG65", WeatherIcon.parseCurrent("<html>429 Too Many Requests</html>") == null
+            && WeatherIcon.parseCurrent("{\"current\":{\"temperature_2m\":8.3") == null
+            && WeatherIcon.parseCurrent("") == null,
+            "garbled bodies must read as offline, not as a half value");
+        check("SG65b", WeatherIcon.parseCurrent(null) == null, "an absent body is offline, never a NullPointerException");
+        WeatherIcon.Reading partial = WeatherIcon.parseCurrent("{\"current\":{\"temperature_2m\":-0.4}}");
+        check("SG65c", partial != null && partial.wmoCode == null && partial.day == null
+            && WeatherIcon.formatTemp(partial.tempC).equals("0\u00B0"),
+            "a missing weather code paints no icon; -0.4 C shows 0\u00B0, never -0\u00B0");
+        check("SG65d", WeatherIcon.iconFor(9999, true) == WeatherIcon.Icon.CLOUD,
+            "an unlisted WMO code falls back to the neutral glyph");
+        WeatherFetcher htmlFetcher = url -> "<html>429 Too Many Requests</html>".getBytes(StandardCharsets.UTF_8);
+        check("SG65e", WeatherIcon.parseCurrent(new String(htmlFetcher.fetch(WeatherIcon.urlFor(52.10, 5.18)),
+            StandardCharsets.UTF_8)) == null, "the activity's fetch+parse chain degrades on an HTML page");
+    }
+
+    static void weatherCarSensor() {
+        scenario("SG66", "weather: com.canbus.temperature format UNKNOWN -> junk frames ignored, fresh frame wins 10 min");
+        check("SG66", WeatherIcon.parseCanTemp("12.5\u00B0C") == 12.5 && WeatherIcon.parseCanTemp(" -3 ") == -3.0,
+            "the first signed decimal is read whatever decoration the frame carries");
+        check("SG66b", WeatherIcon.parseCanTemp("abc") == null && WeatherIcon.parseCanTemp(null) == null
+            && WeatherIcon.parseCanTemp("-") == null && WeatherIcon.parseCanTemp("--3") == null,
+            "an unrecognised frame must not overwrite Open-Meteo's value");
+        long now = System.currentTimeMillis();
+        check("SG66c", WeatherIcon.preferCarTemp(now - 9 * 60_000L, now) && !WeatherIcon.preferCarTemp(now - 11 * 60_000L, now),
+            "the local sensor beats Open-Meteo only while its frame is fresh");
+        check("SG66d", WeatherIcon.preferCarTemp(now + 5_000L, now),
+            "a boot/NTP clock jump backwards reads as fresh, not as a stale frame");
+    }
+
+    static void weatherPrivacy() {
+        scenario("SG67", "weather privacy: GPS precision is rounded to ~10 km before the URL; defaults when no fix");
+        check("SG67", WeatherIcon.urlFor(52.1098765, 5.1781234).equals(
+            "https://api.open-meteo.com/v1/forecast?latitude=52.1&longitude=5.2&current=temperature_2m,weather_code,is_day"));
+        check("SG67b", !WeatherIcon.urlFor(41.8781, -87.6598).contains("87.6598")
+            && WeatherIcon.urlFor(41.8781, -87.6598).contains("-87.7"),
+            "full-precision coordinates must never reach the request URL");
+        check("SG67c", WeatherIcon.urlFor(Double.NaN, Double.NaN).contains("latitude=52.1")
+            && WeatherIcon.urlFor(Double.NaN, Double.NaN).contains("longitude=5.2"),
+            "no position yet: the rounded De Bilt default is used, not garbage");
     }
 
     /** HCT broadcast source before any BT broadcast has been seen (boot / service down). */
