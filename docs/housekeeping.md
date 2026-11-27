@@ -1,173 +1,94 @@
-# Housekeeping - what was moved, where it lives now, what must stay put
+# Housekeeping - keeping the project from becoming a storage black hole
 
-Done Nov 11 night, after the stock rollback was verified. The goal was free space: the workstation's root
-filesystem was at **0 bytes free** and the NAS's SSData volume was at 100% too, which had already broken
-`lpmake` ("Disk quota exceeded") and the shell's output capture.
+**Status: adopted Nov 27 (owner approved).**
 
-## The cold target
+Why: by Nov 27 the project had spread over ~350 GB in five places (home dir, `/tmp` tmpfs, Opslagmonster, NAS
+`/tmp`, NAS build tree), with up to nine copies of one image and a chain of 3 GB super images per attempt. Four
+work folders were lost and the only copies of the rollback captures sat in RAM-backed `/tmp`. These rules keep
+one copy of what matters in a known place and let everything else go on a schedule.
 
-`/srv/50911774-19fb-46b6-bc9e-8cf81623d044/cold/vibe-baking/` on the NAS **DataPool**. The Nov 11 note
-called it a ZFS pool; measured Nov 22 it is `fuse.mergerfs` over four ext4 branches (`data1`, `Data2`,
-`data3` and the unnamed 7.3T disk `66ad5b69-…`), mounted `-o branches=…,category.create=mfs,minfreespace=4G`,
-and `zfs: command not found` on the host. `df` reports 29T total and 790G free before the Nov 22 copies below,
-784G after. Chosen over `SSData` (full, holds the live build tree) and `parity` (346 MiB free). Subdirectories:
+## 1. Where things live (and nowhere else)
 
-| dir | contents |
+| What | Where | Synced to git? |
+|---|---|---|
+| Repo (code, docs, facts) | `/run/media/Daan/Opslagmonster/VibeBakingFirmware` | yes |
+| Stock inputs (`update.zip`, `diatsia fw/`) and `analysis/` dumps incl. the full eMMC snapshot `analysis/gpt/disk.img` | inside the repo, git-ignored | no |
+| Logs and device captures | `<repo>/log/` (`log/attemptN/`, `log/launcher-*.txt`, ...) | no, never (git-ignored, not in any rsync) |
+| Current images (the card's state + the one being built) | `a14-work/images/attemptN/` | no |
+| Cold storage: latest verified stock backup, current card boot/recovery | `a14-work/cold/` | no |
+| Built artefacts that went into the current image (shims, overlays, launcher APK) | `a14-work/staging/` | no |
+| Temporary work (unpacked APKs, screenshots, splice inputs) | `a14-work/scratch/` | no |
+| Small tools (smali, test keys, avbtool) | `a14-work/tools/` | no |
+| Off-machine copy of `cold/` (the only NAS cold store) | NAS DataPool `/srv/50911774-19fb-46b6-bc9e-8cf81623d044/cold/vibe-baking/current/` | no |
+| NAS build tree (only `lineage21s` + `out/soong`, `out/host`) | `/srv/dev-disk-by-label-SSData/aospbuild/` | no |
+| NAS access | `~/.config/vbf/` (`omv.sh`, `askpass.sh`, `nas.env` mode 600) | no, never |
+
+`a14-work` = `/run/media/Daan/Opslagmonster/a14-work` (btrfs). **Never** the home dir, and **never `/tmp`** for
+anything that must survive: `/tmp` is tmpfs and is wiped on reboot. Scripts take these paths from the repo, not from
+memory.
+
+History of earlier moves: `docs/housekeeping-history.md`.
+
+## 2. Keep only the latest
+
+* **Images**: keep the current card state and the attempt being built. When attempt N is on the card and boots,
+  delete `images/attempt(N-1)/`. Never keep a chain of super images (3 GB each); a finding plus the sha in
+  `facts.tsv` is the record of an old attempt.
+* **Cold storage**: exactly two places hold the same set - `a14-work/cold/` and its NAS mirror `cold/vibe-baking/current/`
+  (different machines, so one disk failure loses nothing). The set: one verified stock backup (with `MANIFEST.sha256`, checked with `sha256sum -c` after every move)
+  and the current card boot/recovery. A new backup replaces the old one after it verifies; never two.
+* **Staging**: replaced on every rebuild; holds only what is in the current image.
+* **One copy per sha**: before copying an image, check whether that sha already exists (`MANIFEST.sha256`). Never
+  scatter `cp` copies "to be safe".
+
+## 3. Lifetimes
+
+| Item | Lives until |
 |---|---|
-| `nas-archive/` | old build passes from `aospbuild-archive/`: `extracted update.zip`, `vibe-rescue`, `vibe-fix`, `out`, `a11boot`, `update.zip` |
-| `nas-var-tmp/` | offline extraction scratch from the NAS's `/var/tmp`: `a10-system.img`, `rec-full.bin`, `recrd`, `rec-boot.bin`, `mkfs`, `otac`, `otac-dual`, `otac-dual.zip`, `huzip`, `out`, `a14repack`, `a14repack2`, `recprobe.sh` |
-| `workstation-tmpfs/` | images and dirs that were sitting in `/tmp` (RAM) on the workstation: `hu-rollback`, `hu-staged`, `hu-images`, `vendor-check`, `px6`, `super_raw.img`, `a10-system.img`, `vendor_slice.img`, `vendor-in-super.img`, `hu-stage.b64`, `recomp.br`, and `rkresearch-nov11` |
-| `research/` | vendor/WiFi research extracts from `/tmp/opencode`: `boothdr`, `drv`, `oemchk`, `rktools`, `ref_libs`, `rkrescue`, `rk`, `u`, `compat`, `hosttools`, `bootableSD`, `bench`, `ai`, `ai2`, plus `hu-stage.tar`, `index.xml`, `t.json`, `tags.json`, `aic_tree.json`, `am.xml`, `agentPlan.old` |
-| `huzip/` (workstation) | `/run/media/Daan/Opslagmonster/a14-work/huzip/` - signing scratch regenerated by `scripts/find_zip_digest_scope.py` from the OEM zip |
-| `hu-wrap-nov22/` | the Nov 22 wrapper work: `hu-wrap/` (source binaries + `build.log`), `hu-wrap-boot/` (the four staged boot images), `wraptest-nov22/` and `phaseA-nov22/` (HU_TEST + the arming-matrix evidence, each with its own `MANIFEST.sha256`), `nas-pull/` (`vendor_a10.img`, `vendor-shapeA.img`, `boot-tree.img`), `hu-stock-postflash-143452/` (the D76 rollback image) and `a14diag/`'s two cmdline images plus their manifests |
-| `nas-tree-images-nov22/` | copies of the tree's finished pass: `boot.img`, `vendor.img`, `system.img`, `system_ext.img`, `product.img`, `odm.img`, `recovery.img`, `ramdisk.img`, `super.img`, `lineage_rk3399-ota.zip` |
+| `scratch/` contents, screenshots | end of the session (scratch is empty when a session ends) |
+| `log/attemptN/` captures | the finding for that attempt is filed and committed; keep the last 3 attempts |
+| Evidence a finding cites by path (e.g. `log/panic-20261125/`) | the issue is resolved; listed in `log/KEEP` with the reason |
+| NAS `/tmp/hu-*`, `/tmp/vbl-build` build scratch | outputs are pulled into `staging/` and their sha is recorded |
+| NAS logs | not kept on the NAS: pull what is needed into `log/`, delete the rest |
+| Old build outputs (`out/`, image chains, unpacked packages) | superseded: they are reproducible from the recipe |
 
-Scripts that did it: `scripts/cold_storage_move.sh` (stages `payload` / `backup` / `tmpfs` / `nas`) and
-`scripts/cold_nas.sh` (the NAS-side half, transferred as base64 because nested ssh quoting eats operands).
-Logs are in `/run/media/Daan/Opslagmonster/`: `cold-move-payload.log`, `cold-move-backup.log`,
-`cold-move-tmpfs.log`, `cold-move-nas.log`, `nas-mapping.log`, `nas-archive-check.log`,
-`housekeeping-inventory.log`, `housekeeping-inventory2.log`, `syntax-check.log`.
+## 4. Budgets (checked at the end of each session)
 
-## Nov 22 - additive copies into the pool, nothing moved
+* `a14-work` excluding `cold/`: at most 15 GB (one image set is ~5 GB).
+* `log/`: at most 1 GB.
+* NAS SSData: at least 15 GB free before any soong run (graph regeneration needs ~3.6 GB plus outputs).
+* Home dir and `/tmp`: no project files at all.
 
-Both copies are additions. Nothing on the workstation or the NAS was deleted, and the tree's `out/` is
-still inside `lineage21s` (`SSData` unchanged at 2.7G free). Scratch on the NAS was not copied: the
-gate's `/tmp/a14gate` was removed after its run, which is what it is - scratch.
+## 5. Deleting safely
 
-* `cold/vibe-baking/hu-wrap-nov22/` - 82 files, 1,611,079,910 B of logical bytes, copied from
-  `/run/media/Daan/Opslagmonster/a14-work/` with
-  `rsync -a --relative --files-from=<list>`. Its digest list `hu-wrap-nov22.sha256` (7,880 B, sha256
-  `997e954e4dccc3…`) travels with it. On the NAS, `LC_ALL=C sha256sum -c` finished with exit status 0 and
-  reported 82 verified and 0 failed; the directory's byte total there is 1,611,087,790 B, which is the local
-  total plus exactly the manifest's 7,880 B. The four staged boot images, the wrapper binaries and the
-  D76 rollback image stay on the workstation too, because the flash loop reads them.
-* `cold/vibe-baking/nas-tree-images-nov22/` - the finished pass copied inside the NAS with `cp -a`: ten
-  images, 5,656,537,632 B, plus `tree-images-nov22.sha256` (784 B, sha256 `4bcc90a6cc15…`).
-  `sha256sum -c` finished with exit status 0 and reported 10 verified and 0 failed. Every digest equals
-  the registered one: `boot.img`
-  `cf05255148b8…`, `vendor.img` `90ed4009ce96…`, `system.img` `3f177a1bee01…`, `system_ext.img`
-  `41e0cd3047ac…`, `product.img` `45e70fbb69dd…`, `odm.img` `6135f61bc449…`, `recovery.img`
-  `eb0f86b37bf7…`, `ramdisk.img` `73966919b9dc…`, `super.img` `2a1246aaf055…`,
-  `lineage_rk3399-ota.zip` `931bbb45cff1…`. The pool went from 790G free to 784G free
-  (`df -Pk` avail 821,089,684 KiB after both copies).
+* Look at the target first (`ls`, `du`, sha); delete by explicit name, never by broad globs on shared places (NAS `/tmp`).
+* Before deleting anything whose sha is in `facts.tsv` as a rollback or stock image, confirm a verified copy exists
+  in `cold/` or `analysis/`.
+* Record bulk removals in `docs/findings.md` (what, size, where the surviving copy is).
+* Optional, cheap on btrfs: a read-only snapshot of `a14-work` before a destructive step
+  (`btrfs subvolume snapshot -r`), deleted when the step succeeded. Needs `a14-work` to be a subvolume.
 
-**Two directories called `cold/vibe-baking`.** `/srv/cold/vibe-baking/` (38 MB, on the NAS root
-filesystem, holds `recovery-patched/` with its `inject/` sources) and
-`/srv/50911774-19fb-46b6-bc9e-8cf81623d044/cold/vibe-baking/` (the mergerfs pool: 38 GB plus the Nov 22
-copies) are different locations. The patched recovery image in both hashes to the registered
-`a0cd9de318a8…`.
+## 6. End-of-session checklist
 
-**The pool's `aospbuild-archive/hu-stock-backup/` is a Nov 11 backup, not the iteration-1 rollback.**
-Read from its own `MANIFEST.sha256` on Nov 22: `recovery.bin 1fdf5ea77fc6…` matches live partition 8 and
-`misc.bin 909bdd979111…` matches live `misc`, but `boot.bin` is `3d2741f04f31…` - the registered Nov 11
-capture, not partition 7's stock digest `b449aee98c01…` (D76) - and `super.bin` is `74bd32f94331…`, which
-is not the refreshed backup `11e91ea677e1…`. The D76 rollback image is mirrored at
-`cold/vibe-baking/hu-wrap-nov22/hu-stock-postflash-143452/boot.bin`.
+1. `scratch/` empty; screenshots gone.
+2. Images: only the current and in-progress attempts.
+3. New captures in `log/`, older than the last 3 attempts removed (except `log/KEEP` entries).
+4. NAS `/tmp` build scratch pulled and cleaned.
+5. `du -sh a14-work/* log` within budget; nothing new in `~` or `/tmp`.
 
-## Path mapping (the old paths no longer exist)
+## 7. One-time cleanup of the NAS cold store (approved Nov 27)
 
-| old | new | verified by |
+What is there now (Nov 27), all from passes that have been superseded:
+
+| NAS path (DataPool unless noted) | Size | Proposal |
 |---|---|---|
-| `/var/tmp/a14chk/` (payload) | `/run/media/Daan/Opslagmonster/a14-work/a14chk/` | sha256: super `d4b4990931cc`, boot `933e2ecc4237` |
-| `/var/tmp/hu-stock-backup/` | `/run/media/Daan/Opslagmonster/a14-work/hu-stock-backup/` | `sha256sum -c MANIFEST.sha256` (exit status - Dutch locale prints `goed`, not `OK`) |
-| `/tmp/opencode/*` images and dirs | NAS `cold/vibe-baking/workstation-tmpfs/` | per-file byte sizes compared on the NAS before local removal |
-| NAS `/var/tmp/*` scratch, `aospbuild-archive/*` old passes | NAS `cold/vibe-baking/nas-var-tmp/`, `nas-archive/` | `mv` within the pool; archive listing re-checked |
-| `/var/tmp/huzip/` (signing scratch) | NAS `cold/vibe-baking/nas-var-tmp/huzip/` | `scripts/find_zip_digest_scope.py` now regenerates its own inputs into `/run/media/Daan/Opslagmonster/a14-work/huzip/` |
+| `cold/vibe-baking/aosp-out-nov15`, `nas-tree-images-nov22` | 13 + 5.3 GB | delete: old LineageOS build outputs, rebuilt by any `make` |
+| `cold/vibe-baking/workstation-tmpfs`, `nas-var-tmp`, `research` | 15 + 1.8 + 0.3 GB | delete: Nov 11 scratch and research extracts |
+| `cold/vibe-baking/nas-archive` (old passes, `vibe-rescue`, `update.zip`) | 8.2 GB | delete: superseded; `update.zip` is in the repo dir |
+| `cold/vibe-baking/hu-wrap-nov22`, `hu-card-p8-nov23*`, `recovery-patched` | 1.6 + 0.2 GB | delete: superseded by the current card boot/recovery in `cold/card-current` |
+| `/srv/cold/vibe-baking/recovery-patched` (NAS root disk) | 38 MB | delete: duplicate of the one above |
+| `aospbuild-archive/hu-stock-backup` (Nov 11) | 3.3 GB | delete after the Nov 17 backup is mirrored (it is the older of the two) |
+| `aospbuild-archive/hucheck`, `ref-a10`, `ref-a10-live`, `daisaita_a11.zip` | 7.7 GB | delete: gate scratch and reference extracts, reproducible from the OEM packages in the repo dir |
+| new: `cold/vibe-baking/current/` | 3.4 GB | mirror of `a14-work/cold/` (stock backup Nov 17 + card p7/p8), checked with `sha256sum -c` |
 
-Scripts whose defaults were repointed to the new home: `scripts/stage_a14_payload.sh` (now defaults to
-`a14-work/a14chk/a14-boot-fixed.img` + `raw-super.img`, replacing the stale `boot-a10k-a14rd.img` default),
-`scripts/pull_stock_backup.sh` (defaults to a fresh `hu-stock-backup-refresh` so tonight's verified
-rollback is never overwritten), `scripts/rebuild_boot_with_fstab.sh` (`OUT` now `a14-work/a14repack`).
-
-## Must stay put (inputs, not scratch)
-
-* `/run/media/Daan/Opslagmonster/a14-work/hu-stock-backup/` and its NAS mirror
-  `/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hu-stock-backup/` - the byte-exact rollback (D40).
-* `/run/media/Daan/Opslagmonster/a14-work/a14chk/` - the A14 payload (`raw-super.img` `d4b4990931cc`,
-  `a14-boot-fixed.img` `933e2ecc4237`, the five `*-slice.img`, `pristine-a14-boot.img` `83fd2a15c744`, `sha256.txt`).
-* `aospbuild-archive/ref-a10/` (vendor staging blobs for D15/D20), `daisaita_a11.zip`, and `diatsia fw/update(1).zip`
-  in the repo (the proven OEM rollback and the signing-format ground truth).
-* `/srv/dev-disk-by-label-SSData/aospbuild/lineage21s` - the build tree.
-* `/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/` itself; only old passes were moved out of it.
-
-## Rules that stayed in force
-
-* Move, never delete: every removal happened only after the copy was proven (sha256 or per-file byte size).
-* Never `dd` the workstation's `/dev/sda` - it is the 7.3 TiB array. Card burns use the laptop's `/dev/sda`.
-* `du -sh` is locale-dependent (`3,0G` vs `3.1G`), so directory comparisons use byte counts
-  (`du -s -B1`) or per-file sizes; `sha256sum -c` is judged on exit status.
-
-## Free space after
-
-| location | before | after |
-|---|---|---|
-| workstation `/` (nvme0n1p5) | 0 free (100%) | ~14 GiB free (96%) |
-| workstation `/tmp` (tmpfs = RAM) | 13 GiB used (81%) | **84 MiB used (1%)** - every image, research dir and one-off dump moved |
-| NAS `/` (sda2) | 22 GiB free | ~24 GiB free |
-| NAS `SSData` (sda4, build tree) | 797 MiB free | 797 MiB free - unchanged: its occupants are inputs |
-| NAS DataPool (cold storage) | 908 GiB free | ~892 GiB free (it absorbed ~15 GiB of moves) |
-
-What stayed in `/tmp/opencode` on purpose: the ssh wrappers (`omv.sh`, `askpass.sh`, `askpass_lap.sh`),
-the WiFi/HAL build scripts (`build_wifi_stack*.sh`, `build_rtk_hal.sh`), the probe scripts, and the
-`a14_libwifi_hal_Android.bp` / `a14-otacerts.zip` working copies. Those are still in use tomorrow; only
-images, source clones and dumps were moved.
-
-Directory verification is a single ssh call comparing `find . -type f -printf '%P %s\n' | LC_ALL=C sort`
-lists, which is why `rkresearch` (36,565 files) could be proven identical on the NAS before removing it
-from RAM. Two quoting/ordering bugs were found doing this: `sort` order differs between the workstation's
-Dutch locale and the NAS's C locale, and rsyncing a *renamed* target without a trailing slash on the
-source produced `rkresearch-nov11/rkresearch/...`, so the lists never matched.
-
-`SSData` remaining at 100% is the one thing still worth fixing before the next build: `lpmake` and
-`repack_bootimg` need scratch space, which is why scratch now lives on the repo volume
-(`/run/media/Daan/Opslagmonster/`, 442 GiB free) instead.
-
-
-## Scratch that the gates need, measured Nov 17
-
-Two of the offline gates need more room than SSData currently has (5.2 GiB free on `sda4`):
-
-* `scripts/check_super.py` simg2img's the whole sparse `super.img` into `<WORK>/super_raw.img`
-  (3,263,168,512 B, kept after the run) and then, per partition, holds a staged copy plus a carved
-  copy - the system partition alone is 1,012,871,168 B each, so the peak is ~5.3 GiB. Run it with
-  `WORK` pointed somewhere roomy; Nov 17 used the cold-storage archive
-  (`WORK=/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hucheck`, 869 GiB free) and it
-  passed all five partitions. `verify_artifacts.sh` passes `WORK=${WORK:-…SSData/aospbuild/tmp}`, so
-  invoke it as `WORK=<roomy dir> scripts/verify_artifacts.sh <tree>` while SSData is tight.
-* `scripts/smoke_recovery_installer.sh` needs ~7 GiB free in its `${TMPDIR:-/tmp/opencode}` scratch
-  dir (a real payload copy plus a `dd`-filled fake super partition, peaking near 6.6 GiB). Nov 17 used
-  `TMPDIR=/run/media/Daan/Opslagmonster/a14-work/smoke-tmp` on the repo volume (~439 GiB free). It
-  leaves its scratch behind afterwards; that directory is disposable - nothing in it is a payload.
-* `tests/test_doc_edit.py` writes small markdown files, so it needs almost nothing - but `/tmp` is a
-  16 GiB tmpfs with a per-user quota and it is currently full, which made every test fail with
-  `Disk quota exceeded` (Errno 122) instead of a real assertion failure. It now probes roots in order -
-  `HU_SCRATCH_ROOT`, then `/tmp/opencode`, then the system temp dir, then `REPO/.scratch_tests` - and
-  accepts a root only if a file can actually be written there, because creating a directory alone
-  succeeds on a quota-limited tmpfs. Measured Nov 18: 12/12 pass on the repo-volume fallback.
-* `tests/test_boot_faithful.py` (Nov 19) builds synthetic boot images - header page, kernel, ramdisk,
-  `second`, splash bytes and a resource record whose entry declares a SHA1 - and asserts **D60**/**D68**: the
-  stock round trip is byte-identical, a payload image may change only `ramdisk_size`, the cmdline field, its own
-  ramdisk and padding, and the tail past its content end must equal the OEM bytes. It uses the same scratch-root
-  probe. Measured Nov 19: 19/19 pass.
-* `scripts/repo_update.sh` writes the target-side sha verification script and the dry-run tree to scratch.
-  It used `/tmp/opencode` and failed there with "Schijfquotum is overschreden" (Errno 122 on a write, after a
-  successful `mktemp` directory), so it now uses `HU_SCRATCH_ROOT`, then the repo volume
-  (`/run/media/Daan/Opslagmonster/a14-work/tmp`), then `/tmp/opencode`, probed by an actual write. Measured
-  Nov 18 after the fix: the mirror reaches the NAS and the verify reports 241 mirrored files, 0 mismatches,
-  0 strays under a `--delete` dir, with the NAS-only device files kept.
-
-Scratch left behind on Nov 17, all regenerable and none of it payload-critical: NAS
-`/tmp/raw-super-a14.img` (the shape-A container, kept deliberately because it is the staged payload
-source), and two carved vendor partitions on the workstation that `debugfs` was used to read -
-`a14-work/shapeB-check/vendor-carved.img` (430,514,176 B, the shape-B container's vendor) and
-`a14-work/shapeB-check/vendorA-carved.img` (556,072,960 B, the shape-A container's vendor). Each is one
-command away: `dd bs=4096 skip=247552 count=105106` for shape B's and `skip=247552 count=135760` for
-shape A's, both from the container's vendor extent at byte offset 1,013,972,992. So they are scratch,
-not payload. NAS `aospbuild/tmp/super_raw.img` (3,263,168,512 B, written by the run that
-crashed before the fix) and the two 0-byte leftovers `probe_v26b_raw.img` and `vendor_raw.img` were
-deleted after the fixed run finished, which put SSData back to 7.5 GiB free; `check_super.py` recreates
-`super_raw.img` in `WORK` on every run, so nothing was lost.
-
-`verify_artifacts.sh` measures its own scratch now (`df -Pk "$WORK"`): under 5,600,000 KiB free it moves
-to `WORK=/srv/50911774-19fb-46b6-bc9e-8cf81623d044/aospbuild-archive/hucheck` and says so, so the
-super-layout gate cannot silently fail on a tight SSData; `WORK=<dir>` still overrides both.
+Net: about 56 GB freed on the DataPool (98 % full), one verified off-machine copy of the cold set kept.
