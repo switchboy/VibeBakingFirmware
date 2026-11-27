@@ -10,4 +10,9 @@
     <color name="battery_ok">#79A98E</color>
     <color name="battery_low">#D97A5F</color>
     <color name="map_placeholder_bg">#262B36</color>
+    <!-- Engine gauge palette at night: same hues as day, dimmed; no pure white (spec S33). -->
+    <color name="gauge_cold">#FF7FB6E3</color>   <!-- dimmed blue -->
+    <color name="gauge_ok">#FF79A98E</color>     <!-- same hue as night battery_ok -->
+    <color name="gauge_warn">#FFD9A854</color>   <!-- dimmed yellow -->
+    <color name="gauge_bad">#FFD96A6A</color>    <!-- dimmed red -->
 </resources>

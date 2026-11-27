@@ -10,4 +10,10 @@
     <color name="battery_ok">#2F6D57</color>
     <color name="battery_low">#C2432E</color>
     <color name="map_placeholder_bg">#E4D9C6</color>
+    <!-- Engine gauge palette (owner 2026-11-27): LauncherActivity maps EngineGauges.Level ->
+         these. gauge_ok reuses the day battery green. -->
+    <color name="gauge_cold">#FF4FA3FF</color>   <!-- cold coolant/oil -->
+    <color name="gauge_ok">#FF2F6D57</color>     <!-- nominal -->
+    <color name="gauge_warn">#FFFFC83D</color>   <!-- watch band -->
+    <color name="gauge_bad">#FFFF5A5A</color>    <!-- act now -->
 </resources>

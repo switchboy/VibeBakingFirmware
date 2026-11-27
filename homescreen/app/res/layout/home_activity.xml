@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Home layout for the 1024x600 landscape panel (spec S3/S5).
-     Round 3 (owner feedback): the media card is ~2/3 of its previous height (art 96->64dp,
-     transport buttons beside the text instead of under it, labels single-line), so the radar
-     card below it fits fully; the volt meter moved out of the top-right row to the bottom-right
-     corner above the favourites bar, and the clock/date block shares the row with layout_weight
-     so btn_apps and btn_settings are never pushed off-screen. -->
+     Round 5 (owner request 2026-11-27): ▦ and ⚙ move out of the top-right row into the bottom
+     strip beside the four-dot button (centred group, each 64dp, full strip height); the strip
+     grows to 40dp so the glyphs match the dots. The volt meter moves up to a gauge row directly
+     under the clock (voltage + engine temp + rpm, right-aligned, battery_size text). The radar
+     card keeps the leftover column weight (min 120dp), so nothing clips at 1024x600: the gauge
+     row costs ~24dp and the strip 8dp more than before, which the radar absorbs. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/home_root"
     android:layout_width="match_parent"
@@ -46,35 +47,44 @@
             android:layout_weight="0.42"
             android:orientation="vertical">
 
-            <!-- Top-right row: clock + date take the remaining width (ellipsized), the ▦ and ⚙
-                 glyphs stay wrap_content at the end so they are always visible at 1024x600. -->
+            <!-- Top-right row (Round 5): ▦/⚙ are gone (bottom strip), so clock + date use the
+                 full column width; the date ellipsizes, the valet badge stays at the end. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:padding="@dimen/card_padding">
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-                    <TextView android:id="@+id/clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:textColor="@color/clock" android:textSize="@dimen/clock_size" />
-                    <TextView android:id="@+id/clock_date" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp" android:textColor="@color/text_sub" android:textSize="@dimen/date_size"
-                        android:maxLines="1" android:ellipsize="end" />
-                </LinearLayout>
+                <TextView android:id="@+id/clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="@color/clock" android:textSize="@dimen/clock_size" />
+                <TextView android:id="@+id/clock_date" android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginStart="12dp" android:textColor="@color/text_sub"
+                    android:textSize="@dimen/date_size" android:maxLines="1" android:ellipsize="end" />
                 <TextView android:id="@+id/valet_badge" android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_marginStart="16dp" android:text="@string/valet_badge_text"
                     android:textColor="@color/battery_low" android:textSize="@dimen/badge_size" android:visibility="gone" />
-                <TextView android:id="@+id/btn_apps" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp" android:text="@string/apps_glyph"
-                    android:textColor="@color/text" android:textSize="28sp" android:clickable="true" />
-                <TextView android:id="@+id/btn_settings" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp" android:text="@string/settings_glyph"
-                    android:textColor="@color/text" android:textSize="28sp" android:clickable="true" />
+            </LinearLayout>
+
+            <!-- Engine gauges (owner 2026-11-27): one right-aligned row under the clock:
+                 "12.6 V   88 °C   2150 rpm". Same id battery as before (updateBattery()
+                 unchanged); colours come from EngineGauges.Level -> gauge_* (Round 5 policy),
+                 not battery_ok/battery_low. temp/rpm stay GONE until a value arrives. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:orientation="horizontal"
+                android:paddingStart="@dimen/card_padding"
+                android:paddingEnd="@dimen/card_padding">
+                <TextView android:id="@+id/battery" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="@color/gauge_ok" android:textSize="@dimen/battery_size"
+                    android:visibility="gone" />
+                <TextView android:id="@+id/engine_temp" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp" android:textColor="@color/gauge_ok" android:textSize="@dimen/battery_size"
+                    android:visibility="gone" />
+                <TextView android:id="@+id/engine_rpm" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp" android:textColor="@color/text_sub" android:textSize="@dimen/battery_size"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <!-- Media card: height now ~2/3 of before (~138dp -> ~88dp). Album art 64dp drives
@@ -112,12 +122,14 @@
             </LinearLayout>
 
             <!-- Radar card: keeps whatever is left of the column (weight), so its attribution
-                 text no longer overflows the bottom of the screen. -->
+                 text no longer overflows the bottom of the screen; minHeight 120dp keeps it
+                 usable even on a short panel (owner Round 5 floor). -->
             <FrameLayout
                 android:id="@+id/radar_card"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
+                android:minHeight="120dp"
                 android:layout_margin="@dimen/card_margin"
                 android:background="@drawable/card_bg">
                 <org.vibebaking.launcher.RadarView
@@ -130,20 +142,25 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Bottom strip (owner 2026-11-25): the favourites row is an overlay now, so the cards get its height.
-         The strip holds the four-dot button that opens it (centre) and the volt meter (right). -->
-    <FrameLayout
+    <!-- Bottom strip (owner 2026-11-27): the centred [btn_apps] [fav_handle] [btn_settings]
+         group, each 64dp wide and full strip height (40dp); same visual weight as the dots.
+         The volt meter is no longer here (gauge row above). btn_settings keeps its id, so
+         valet mode hides it exactly as before. -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="@dimen/bottom_strip_height">
+        android:layout_height="@dimen/bottom_strip_height"
+        android:orientation="horizontal"
+        android:gravity="center">
+        <TextView android:id="@+id/btn_apps" android:layout_width="64dp" android:layout_height="match_parent"
+            android:gravity="center" android:text="@string/apps_glyph" android:textColor="@color/text"
+            android:textSize="28sp" android:clickable="true" android:focusable="true" />
         <ImageView android:id="@+id/fav_handle" android:layout_width="64dp" android:layout_height="match_parent"
-            android:layout_gravity="center" android:src="@drawable/ic_four_dots" android:scaleType="center"
-            android:clickable="true" android:focusable="true" android:contentDescription="@string/fav_handle_desc" />
-        <!-- Volt meter (spec S19): bottom-right corner, in the strip so it never covers a card. -->
-        <TextView android:id="@+id/battery" android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical|end" android:layout_marginEnd="@dimen/card_margin"
-            android:textColor="@color/battery_ok" android:textSize="@dimen/battery_size"
-            android:visibility="gone" />
-    </FrameLayout>
+            android:src="@drawable/ic_four_dots" android:scaleType="center" android:clickable="true"
+            android:focusable="true" android:contentDescription="@string/fav_handle_desc" />
+        <TextView android:id="@+id/btn_settings" android:layout_width="64dp" android:layout_height="match_parent"
+            android:gravity="center" android:text="@string/settings_glyph" android:textColor="@color/text"
+            android:textSize="28sp" android:clickable="true" android:focusable="true" />
+    </LinearLayout>
 
     </LinearLayout>
 

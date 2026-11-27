@@ -9,6 +9,7 @@ import org.vibebaking.launcher.logic.ClockFormat;
 import org.vibebaking.launcher.logic.ColorTools;
 import org.vibebaking.launcher.logic.CombinedPhoneProbe;
 import org.vibebaking.launcher.logic.DayNight;
+import org.vibebaking.launcher.logic.EngineGauges;
 import org.vibebaking.launcher.logic.FavoritePolicy;
 import org.vibebaking.launcher.logic.Json;
 import org.vibebaking.launcher.logic.MapCardPolicy;
@@ -82,6 +83,7 @@ public class Main {
         t20CombinedPhoneProbe();
         t21FavoriteRow();
         t22RadarPosition();
+        t23EngineGauges();
         System.out.println(checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
             System.out.println("FAILED: " + String.join(", ", failures));
@@ -679,6 +681,44 @@ public class Main {
             "radio app fre=10135 (10 kHz steps, measured) and MCU kHz both become kHz; AM stays kHz");
         rs.setFreq(10135);
         check("U25.fre10k", rs.title().equals("101.35 MHz") && rs.subtitle().equals("FM"), "first unit run showed 10135 kHz AM");
+    }
+
+    // U26-U29: engine gauge colour policy + rpm parsing (owner request 2026-11-27):
+    // every band boundary of the EngineGauges tables, and the junk-tolerant rpm extra.
+    static void t23EngineGauges() {
+        check("U26.badLow", EngineGauges.batteryLevel(11.49) == EngineGauges.Level.BAD);
+        check("U26.warnLow", EngineGauges.batteryLevel(11.5) == EngineGauges.Level.WARN
+            && EngineGauges.batteryLevel(11.99) == EngineGauges.Level.WARN);
+        check("U26.okBand", EngineGauges.batteryLevel(12.0) == EngineGauges.Level.OK
+            && EngineGauges.batteryLevel(14.8) == EngineGauges.Level.OK,
+            "12.0 and 14.8 are inclusive OK (charging tops out at 14.7 V)");
+        check("U26.warnHigh", EngineGauges.batteryLevel(14.81) == EngineGauges.Level.WARN
+            && EngineGauges.batteryLevel(15.2) == EngineGauges.Level.WARN);
+        check("U26.badHigh", EngineGauges.batteryLevel(15.21) == EngineGauges.Level.BAD);
+        check("U26.nanBad", EngineGauges.batteryLevel(Double.NaN) == EngineGauges.Level.BAD,
+            "junk voltage must read BAD, never OK");
+        check("U27.coolCold", EngineGauges.coolantLevel(69) == EngineGauges.Level.COLD);
+        check("U27.coolOk", EngineGauges.coolantLevel(70) == EngineGauges.Level.OK
+            && EngineGauges.coolantLevel(104) == EngineGauges.Level.OK);
+        check("U27.coolWarn", EngineGauges.coolantLevel(105) == EngineGauges.Level.WARN
+            && EngineGauges.coolantLevel(114) == EngineGauges.Level.WARN);
+        check("U27.coolBad", EngineGauges.coolantLevel(115) == EngineGauges.Level.BAD);
+        check("U28.oilCold", EngineGauges.oilLevel(69) == EngineGauges.Level.COLD);
+        check("U28.oilOk", EngineGauges.oilLevel(70) == EngineGauges.Level.OK
+            && EngineGauges.oilLevel(124) == EngineGauges.Level.OK,
+            "load spikes to ~125 are fine on this engine: 124 stays OK");
+        check("U28.oilWarn", EngineGauges.oilLevel(125) == EngineGauges.Level.WARN
+            && EngineGauges.oilLevel(134) == EngineGauges.Level.WARN);
+        check("U28.oilBad", EngineGauges.oilLevel(135) == EngineGauges.Level.BAD);
+        check("U29.parsePlain", EngineGauges.parseRpm("2150") == 2150);
+        check("U29.parseSpaces", EngineGauges.parseRpm(" 800 ") == 800, "the extra is trimmed");
+        check("U29.junk", EngineGauges.parseRpm("-1") == null && EngineGauges.parseRpm("abc") == null
+            && EngineGauges.parseRpm("12000") == null && EngineGauges.parseRpm(null) == null,
+            "negative / non-numeric / >9000 / missing extras all yield null, never a throw");
+        check("U29.bounds", EngineGauges.parseRpm("0") == 0 && EngineGauges.parseRpm("9000") == 9000
+            && EngineGauges.parseRpm("9001") == null);
+        check("U29.floatJunk", EngineGauges.parseRpm("2150.0") == null && EngineGauges.parseRpm("") == null,
+            "parseInt rejects decimals and blanks: the gauge stays hidden");
     }
 
     static List<String> labels(List<AppDrawerPolicy.Entry> e) {

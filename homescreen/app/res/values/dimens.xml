@@ -12,6 +12,8 @@
     <dimen name="fav_glyph_size">22sp</dimen>
     <dimen name="card_margin">8dp</dimen>
     <dimen name="card_padding">12dp</dimen>
-    <!-- Battery chip sits above the favourites bar: bar height + its top and bottom margins. -->
-    <dimen name="bottom_strip_height">32dp</dimen>
+    <!-- Bottom strip (owner 2026-11-27): holds the centred [btn_apps] [fav_handle] [btn_settings]
+         group at full strip height; grown 32->40dp so the 28sp glyphs and the dots carry equal
+         visual weight. favorites_bar uses it as its bottom margin. -->
+    <dimen name="bottom_strip_height">40dp</dimen>
 </resources>

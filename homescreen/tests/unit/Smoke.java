@@ -11,6 +11,7 @@ import org.vibebaking.launcher.logic.ClockFormat;
 import org.vibebaking.launcher.logic.ColorTools;
 import org.vibebaking.launcher.logic.CombinedPhoneProbe;
 import org.vibebaking.launcher.logic.DayNight;
+import org.vibebaking.launcher.logic.EngineGauges;
 import org.vibebaking.launcher.logic.FavoritePolicy;
 import org.vibebaking.launcher.logic.MapTargetPolicy;
 import org.vibebaking.launcher.logic.MediaCardPolicy;
@@ -154,6 +155,7 @@ public class Smoke {
         appDrawer();
         phoneSources();
         favorites();
+        gaugesJunk();
 
         System.out.println(titles.size() + " scenarios, " + checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
@@ -646,6 +648,25 @@ public class Smoke {
             && FavoritePolicy.clear(FavoritePolicy.defaults(), -1).equals(FavoritePolicy.defaults()));
         check("SG59b", FavoritePolicy.clear(null, 0).size() == 4 && FavoritePolicy.clear(null, 0).get(0).equals(""),
             "a null row normalises to the factory row first, then slot 0 empties: never a crash");
+    }
+
+    /** Degradation scenarios for the engine gauge inputs (owner request 2026-11-27). */
+    static void gaugesJunk() {
+        scenario("SG60", "rpm broadcast junk: garbage/overflow/missing extras parse to null, gauge stays hidden");
+        check("SG60", EngineGauges.parseRpm(null) == null && EngineGauges.parseRpm("") == null
+            && EngineGauges.parseRpm("abc") == null && EngineGauges.parseRpm("-5") == null,
+            "an absent or junk 'rpm' extra must never paint a value");
+        check("SG60b", EngineGauges.parseRpm("9001") == null && EngineGauges.parseRpm("2147483648") == null,
+            "over-band and overflowing strings must not reach the panel");
+
+        scenario("SG61", "no engine-temp broadcast exists (only the onEngineTemp entry point): policy still total");
+        check("SG61", EngineGauges.coolantLevel(87) == EngineGauges.Level.OK
+            && EngineGauges.oilLevel(125) == EngineGauges.Level.WARN
+            && EngineGauges.oilLevel(135) == EngineGauges.Level.BAD,
+            "thermostat 87 C is OK; 125 is a fine load spike edge -> WARN; 135 must be BAD");
+        check("SG61b", EngineGauges.batteryLevel(12.6) == EngineGauges.Level.OK
+            && EngineGauges.batteryLevel(Double.NaN) == EngineGauges.Level.BAD,
+            "resting 12.6 V reads OK; a NaN voltage reads BAD, never a colour crash");
     }
 
     /** HCT broadcast source before any BT broadcast has been seen (boot / service down). */

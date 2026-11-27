@@ -1,8 +1,10 @@
 package org.vibebaking.launcher;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.location.Location;
@@ -18,6 +20,7 @@ import org.vibebaking.launcher.logic.BatteryState;
 import org.vibebaking.launcher.logic.CarEventParser;
 import org.vibebaking.launcher.logic.ClockFormat;
 import org.vibebaking.launcher.logic.DayNight;
+import org.vibebaking.launcher.logic.EngineGauges;
 import org.vibebaking.launcher.logic.FavoritePolicy;
 import org.vibebaking.launcher.logic.RadarPosition;
 import org.vibebaking.launcher.logic.SettingsKeys;
@@ -42,7 +45,7 @@ public class LauncherActivity extends Activity {
     private MapCardController map;
     private MediaCardController media;
     private RadarView radar;
-    private TextView clock, date, battery, badge, settingsButton;
+    private TextView clock, date, battery, badge, settingsButton, engineTemp, engineRpm;
     private View root;
     private View[] favSlots;
     private ImageView[] favIcons;
@@ -52,6 +55,13 @@ public class LauncherActivity extends Activity {
     private boolean headlightOn;
     private Double brightnessBeforeLights; // captured once per lights-on spell (spec S28)
     private int batteryRaw = 0;            // 0 = no event yet -> chip hidden (spec S19)
+    // Engine gauges (owner 2026-11-27): RPM arrives on the HCTCanBus broadcast
+    // com.microntek.canbus.rpm (String extra "rpm", decimal, sent via sendBroadcastAsUser).
+    // If no usable frame arrives for RPM_STALE_MS the gauge hides again (ignition off / a
+    // protocol without RPM). Temperature has no broadcast source yet - see onEngineTemp().
+    private static final String RPM_ACTION = "com.microntek.canbus.rpm";
+    private static final String RPM_EXTRA = "rpm";
+    private static final long RPM_STALE_MS = 10_000L;
     private long lastThemeSwitch = 0L;
     private String lastMapTarget;          // applied map card target (spec S7)
     private LocationManager locationManager;
@@ -68,6 +78,10 @@ public class LauncherActivity extends Activity {
         battery = findViewById(R.id.battery);
         badge = findViewById(R.id.valet_badge);
         settingsButton = findViewById(R.id.btn_settings);
+        // Engine gauge row under the clock (owner 2026-11-27): temp and rpm start GONE; they
+        // appear when a value arrives (onEngineTemp / the rpm broadcast).
+        engineTemp = findViewById(R.id.engine_temp);
+        engineRpm = findViewById(R.id.engine_rpm);
         // The owner saw no clock on the first run: the tick fired a minute after start, so paint
         // the clock/date right away; the minute tick keeps them updated from then on (spec S5).
         long startedAt = System.currentTimeMillis();
@@ -132,6 +146,7 @@ public class LauncherActivity extends Activity {
         car.attach(carListener);
         applyTheme();
         applyBacklight();
+        registerRpmReceiver(); // car signal attached last, per the first-run NPE lesson
 
         main.postDelayed(tick, ClockFormat.TICK_MS);
     }
@@ -202,9 +217,65 @@ public class LauncherActivity extends Activity {
         if (!BatteryState.known(batteryRaw)) { battery.setVisibility(View.GONE); return; }
         battery.setVisibility(View.VISIBLE);
         battery.setText(BatteryState.label(batteryRaw));
-        battery.setTextColor(getResources().getColor(
-            BatteryState.low(batteryRaw, BatteryState.DEFAULT_LOW_THRESHOLD_V)
-                ? R.color.battery_low : R.color.battery_ok));
+        // Round 5 policy (EngineGauges) instead of the old battery_ok/battery_low pair.
+        battery.setTextColor(levelColor(EngineGauges.batteryLevel(BatteryState.volts(batteryRaw))));
+    }
+
+    /** EngineGauges.Level -> gauge_* colour; the theme swaps day/night values via the qualifier. */
+    private int levelColor(EngineGauges.Level level) {
+        switch (level) {
+            case COLD: return getResources().getColor(R.color.gauge_cold);
+            case WARN: return getResources().getColor(R.color.gauge_warn);
+            case BAD:  return getResources().getColor(R.color.gauge_bad);
+            case OK:
+            default:   return getResources().getColor(R.color.gauge_ok);
+        }
+    }
+
+    /**
+     * Engine temperature entry point (owner 2026-11-27), main thread: updates `engine_temp`.
+     * No HCTCanBus protocol publishes coolant or oil temperature (com.canbus.temperature is
+     * the outside air temp), so nothing calls this yet - the view + pure policy are ready for
+     * the wiring round once the car's CAN box is known. Oil reads "88 °C oil", coolant "88 °C".
+     */
+    void onEngineTemp(int celsius, boolean isOil) {
+        if (engineTemp == null) return;
+        engineTemp.setText(isOil ? celsius + " °C oil" : celsius + " °C");
+        engineTemp.setTextColor(levelColor(isOil
+            ? EngineGauges.oilLevel(celsius) : EngineGauges.coolantLevel(celsius)));
+        engineTemp.setVisibility(View.VISIBLE);
+    }
+
+    /** HCTCanBus rpm broadcast: extras are parsed guarded - junk must never crash the launcher. */
+    private final BroadcastReceiver rpmReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            try {
+                Integer rpm = EngineGauges.parseRpm(i.getStringExtra(RPM_EXTRA));
+                if (rpm == null) return; // negative / > 9000 / non-numeric: leave the gauge as-is
+                if (engineRpm == null) return;
+                engineRpm.setText(rpm + " rpm");
+                engineRpm.setVisibility(View.VISIBLE);
+                main.removeCallbacks(rpmStale);
+                main.postDelayed(rpmStale, RPM_STALE_MS);
+            } catch (Throwable junkBroadcast) {
+                android.util.Log.w("LauncherActivity", "junk rpm broadcast", junkBroadcast);
+            }
+        }
+    };
+
+    /** RPM frame stale for RPM_STALE_MS -> hide the gauge (spec: no RPM protocol / ignition off). */
+    private final Runnable rpmStale = new Runnable() {
+        @Override public void run() { if (engineRpm != null) engineRpm.setVisibility(View.GONE); }
+    };
+
+    private void registerRpmReceiver() {
+        try {
+            // HCTCanBus sends via sendBroadcastAsUser: the receiver must be exported (A14).
+            registerReceiver(rpmReceiver, new IntentFilter(RPM_ACTION), Context.RECEIVER_EXPORTED);
+        } catch (Throwable t) {
+            // Denied or framework drift: the gauge stays hidden, the home screen still runs (S36).
+            android.util.Log.w("LauncherActivity", "rpm receiver registration failed", t);
+        }
     }
 
     @Override
@@ -396,5 +467,8 @@ public class LauncherActivity extends Activity {
         MediaListenerService.callback = null;
         if (radar != null) radar.stop();
         if (map != null) map.release();
+        main.removeCallbacks(rpmStale);
+        try { unregisterReceiver(rpmReceiver); }
+        catch (Throwable ignore) { /* never registered (guarded above) or already unregistered */ }
     }
 }

@@ -36,6 +36,11 @@ public class RadarView extends View {
     private final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private static final android.graphics.LightingColorFilter NIGHT_BASE =
             new android.graphics.LightingColorFilter(0xFF3A4250, 0x00000000);
+    // Owner 2026-11-27: draw the OSM base tiles see-through so the card background shows
+    // through and the rain overlay stands out. ~0.55 by day, ~0.45 by night (on top of the
+    // NIGHT_BASE tint); the radar overlay keeps its palette alpha (palette[1]) unchanged.
+    private static final int BASE_ALPHA_DAY = 140;    // 0.55 * 255
+    private static final int BASE_ALPHA_NIGHT = 115;  // 0.45 * 255
     private double lat, lon;
     private int zoom = RadarTiles.DEFAULT_ZOOM;
     private boolean night;
@@ -168,9 +173,10 @@ public class RadarView extends View {
         canvas.translate(getWidth() / 2f - RadarTiles.VIEW_W / 2f, getHeight() / 2f - RadarTiles.VIEW_H / 2f);
         // basemap first; OSM has no dark style, so at night the tiles are multiplied down to a dim blue-grey
         paint.setColorFilter(night ? NIGHT_BASE : null);
+        paint.setAlpha(night ? BASE_ALPHA_NIGHT : BASE_ALPHA_DAY); // see-through basemap (owner 2026-11-27)
         for (BitmapPos t : baseTiles) canvas.drawBitmap(t.b, t.px, t.py, paint);
         paint.setColorFilter(null);
-        paint.setAlpha(palette[1]); // day saturated, night muted (spec S16)
+        paint.setAlpha(palette[1]); // radar overlay keeps its alpha: day saturated, night muted (spec S16)
         for (BitmapPos t : tiles) canvas.drawBitmap(t.b, t.px, t.py, paint);
         canvas.restore();
     }

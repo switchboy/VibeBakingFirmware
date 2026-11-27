@@ -262,6 +262,30 @@ ok("C39", "allowed.contains(pkg)" in fp and "favSlots" in drw and "fav_pinned_pr
    and "favSummary()" in cs,
    "valet hides slots outside the allowed set; pinned apps marked in the drawer; settings shows the row")
 
+# ---- Round 5 (owner 2026-11-27): bottom-strip controls + engine gauges ----
+day_colors = read("app/res/values/colors.xml")
+dimens = read("app/res/values/dimens.xml")
+eg = read("app/src/org/vibebaking/launcher/logic/EngineGauges.java")
+ok("C41", "@+id/engine_temp" in lay and "@+id/engine_rpm" in lay
+   and lay.find("@+id/btn_apps") < lay.find("@+id/fav_handle") < lay.find("@+id/btn_settings")
+   and lay.find("@+id/battery") < lay.find("@+id/fav_handle")
+   and 'bottom_strip_height">40dp' in dimens
+   and '"com.microntek.canbus.rpm"' in la and "Context.RECEIVER_EXPORTED" in la
+   and "RPM_STALE_MS" in la and "onEngineTemp(int celsius, boolean isOil)" in la
+   and "import org.vibebaking.launcher.logic.EngineGauges;" in la
+   and all(c in day_colors for c in ["gauge_cold", "gauge_ok", "gauge_warn", "gauge_bad"])
+   and "VAG EA111 1.2 TSI 105 hp, owner 2026-11-27" in eg,
+   "strip holds [btn_apps][fav_handle][btn_settings]; battery moved up to the gauge row before"
+   " the strip; temp/rpm ids wired; exported rpm receiver + 10 s expiry; temp entry point;"
+   " gauge palette + named EA111 thresholds present")
+ok("C42", "BASE_ALPHA_DAY" in rv and "BASE_ALPHA_NIGHT" in rv
+   and "paint.setAlpha(night ? BASE_ALPHA_NIGHT : BASE_ALPHA_DAY)" in code(rv)
+   and 'android:minHeight="120dp"' in lay
+   and all(c in night_colors for c in ["gauge_cold", "gauge_ok", "gauge_warn", "gauge_bad"])
+   and not re.search(r"#(FFFF(FFFFFF)?|FFFFFF|ffffff|FFFFFFFF)\b", night_colors, re.I),
+   "base tiles drawn see-through (0.55 day / 0.45 night on the NIGHT_BASE tint), radar card"
+   " keeps a 120dp floor, night gauge palette dimmed with no pure white")
+
 # ---- Android 14 API surface (the tree's javac is the only real compile) ----
 ok("C40", "android.media.MediaPlayerControl;" not in read("app/src/org/vibebaking/launcher/MediaCardController.java")
    and "android.os.UiModeManager" not in ta and "android.input.InputType" not in cs
