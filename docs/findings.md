@@ -6414,3 +6414,18 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   their values (Material Design Icons, Apache 2.0, `homescreen/CREDITS.md`), four-dot contrast. Verified on the unit.
 
   Super attempt 45 `20121516d5c1…`.
+* **Field-test boot image prepared (not yet written):** `scripts/unwrap_hu_boot.py` removes the PID-1 wrapper from the card
+  boot image (the reverse of `inject_hu_wrap_boot.py`). From card p7 `9424c98a66dc…` (wrapper `c12f53e6b4c2…`, /init.real
+  `631f960cbb96…`) it builds `boot-nowrap.img` `527b10f265ac…`: no BCB arming, no dead-man, every boot goes to Android 14.
+  Round trip proves it: re-injecting the same wrapper with the existing injector reproduces `9424c98a66dc…` byte for byte.
+* **Map card watchdog fixed:** it pulled Maps back out of full screen, because a TextureView keeps its surface while the
+  launcher is merely stopped. The watchdog now acts only between `onResume` and `onPause`; returning home relaunches Maps into
+  the card. Verified: full-screen Maps stayed full screen for 30 s; Home brought it back into the card. A Maps ANR seen in the
+  same test was "No response to onStartJob" waiting on `QueuedWork` (shared-prefs disk writes): slow SD-card I/O, not the move.
+* **ZLink (stock):** `carplay.type=1` starts `z-link.sh` (HCT init): insmod `usb_f_iap2.ko`, configfs gadget functions `iap.gs0` +
+  `ncm.gs1`, loop `z-link -c hengchangtong` with `LD_LIBRARY_PATH=/data/data/com.zjinnova.zlink/lib`. The 11 KB `z-link` is a
+  loader; the implementation is the ZLink app `com.zjinnova.zlink`, which lived in the stock /data. Stock /data is file-based
+  encrypted (names unreadable; mounted read-only + norecovery from the card recovery, eMMC heads unchanged afterwards), so
+  the APK cannot be recovered from the unit. Stock also patches framework.jar, services.jar, wifi-service.jar,
+  libsurfaceflinger, libaudioflinger and libstagefright for it; dossier by the local model: `docs/zlink-dossier.md`.
+
