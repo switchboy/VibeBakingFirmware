@@ -286,6 +286,26 @@ ok("C42", "BASE_ALPHA_DAY" in rv and "BASE_ALPHA_NIGHT" in rv
    "base tiles drawn see-through (0.55 day / 0.45 night on the NIGHT_BASE tint), radar card"
    " keeps a 120dp floor, night gauge palette dimmed with no pure white")
 
+# ---- Round 6 (owner 2026-11-27): settings screen redesign ----
+ok("C43", "Car settings" in code(cs) and "finish()" in code(cs)
+   and "Display" in code(cs) and "Reverse gear" in code(cs) and "Home screen" in code(cs) and "Valet mode" in code(cs)
+   and "R.drawable.card_bg" in code(cs)
+   and '"Sun"' in code(cs) and '"Car lights"' in code(cs) and '"Unchanged"' in code(cs)
+   and '"Mute"' in code(cs) and '"Auto"' in code(cs) and '"Waze"' in code(cs)
+   and "android.widget.Switch" in cs and "SeekBar.OnSeekBarChangeListener" in code(cs)
+   and "SettingsCycle" in code(cs) and "SettingsValidation.validPin(" in code(cs)
+   and "SettingsValidation.timeoutOk(" in code(cs)
+   and "android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD" in code(cs)
+   and "EditorInfo.IME_ACTION_DONE" in code(cs) and "Typeface.MONOSPACE" in code(cs) and '"Saved"' in code(cs),
+   "title+close (finish), four section cards on card_bg, pill segments with human labels,"
+   " slider switches, snapping percent bars, password-number PIN field with Done-save and monospace digits")
+ok("C44", ("resyncSwitch(sw, l," in code(cs) or "resyncSwitch(sw, this," in code(cs)) and "sw.setOnCheckedChangeListener(null)" in code(cs)
+   and "SettingsKeys.KEY_VALET_TIMEOUT_S" in code(cs) and '" s"' in code(cs)
+   and "store.getString(key, def)" in code(cs) and "GradientDrawable" in code(cs)
+   and "R.color.field_bg" in code(cs),
+   "valet switches resync without re-triggering; timeout editable on its existing key with a unit label;"
+   " fresh store reads; styled rounded fields via GradientDrawable + field_bg")
+
 # ---- Android 14 API surface (the tree's javac is the only real compile) ----
 ok("C40", "android.media.MediaPlayerControl;" not in read("app/src/org/vibebaking/launcher/MediaCardController.java")
    and "android.os.UiModeManager" not in ta and "android.input.InputType" not in cs

@@ -22,7 +22,9 @@ import org.vibebaking.launcher.logic.PhonePresenceProbe;
 import org.vibebaking.launcher.logic.RadarPlan;
 import org.vibebaking.launcher.logic.RadarPosition;
 import org.vibebaking.launcher.logic.RadarTiles;
+import org.vibebaking.launcher.logic.SettingsCycle;
 import org.vibebaking.launcher.logic.SettingsKeys;
+import org.vibebaking.launcher.logic.SettingsValidation;
 import org.vibebaking.launcher.logic.ThemePolicy;
 import org.vibebaking.launcher.logic.ValetPin;
 import org.vibebaking.launcher.logic.ValetPolicy;
@@ -84,6 +86,8 @@ public class Main {
         t21FavoriteRow();
         t22RadarPosition();
         t23EngineGauges();
+        t24SettingsCycle();
+        t25SettingsValidation();
         System.out.println(checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
             System.out.println("FAILED: " + String.join(", ", failures));
@@ -719,6 +723,59 @@ public class Main {
             && EngineGauges.parseRpm("9001") == null);
         check("U29.floatJunk", EngineGauges.parseRpm("2150.0") == null && EngineGauges.parseRpm("") == null,
             "parseInt rejects decimals and blanks: the gauge stays hidden");
+    }
+
+    // U30/U31: settings cycle + percent band helpers (Round 6 fix for the stuck rows).
+    static void t24SettingsCycle() {
+        String[] dm = {"cycle", "always_light", "always_dark", "car_lights"};
+        String cur = "cycle";
+        List<String> seen = new ArrayList<>();
+        for (int i = 0; i < 6; i++) { cur = SettingsCycle.next(dm, cur); seen.add(cur); }
+        check("U30.walk", seen.equals(Arrays.asList("always_light", "always_dark", "car_lights",
+            "cycle", "always_light", "always_dark")),
+            "repeated application must walk every value and wrap - the old bug wrote the same value twice");
+        check("U30.unknownFirst", SettingsCycle.next(dm, "garbage").equals("cycle")
+            && SettingsCycle.next(dm, null).equals("cycle"), "unknown current -> first value");
+        check("U30.emptySafe", SettingsCycle.next(new String[0], "x") == null
+            && SettingsCycle.next(null, "x") == null, "empty/null value list never throws");
+        check("U30.indexOf", SettingsCycle.indexOf(dm, "car_lights") == 3 && SettingsCycle.indexOf(dm, "nope") == -1);
+        int[] band = {20, 40, 60, 80};
+        check("U31.intWalk", SettingsCycle.next(band, 20) == 40 && SettingsCycle.next(band, 80) == 20,
+            "int cycle wraps too");
+        check("U31.intUnknown", SettingsCycle.next(band, 55) == 20 && SettingsCycle.next(band, -3) == 20);
+        check("U31.intEmptySafe", SettingsCycle.next(new int[0], 7) == 7 && SettingsCycle.next(null, 7) == 7,
+            "nothing to cycle to: stay at the current value");
+        check("U31.nearest", SettingsCycle.nearest(band, 55) == 2 && SettingsCycle.nearest(band, 3) == 0
+            && SettingsCycle.nearest(band, 100) == 3, "garbage stored percent snaps the SeekBar to the nearest band value");
+        check("U31.nearestEdge", SettingsCycle.nearest(new int[0], 5) == 0
+            && SettingsCycle.nearest(band, Integer.MIN_VALUE) == 0
+            && SettingsCycle.nearest(band, Integer.MAX_VALUE) == 3,
+            "no long-math overflow on absurd stored values");
+    }
+
+    // U32/U33: PIN + timeout validation for the styled number fields (Round 6).
+    static void t25SettingsValidation() {
+        check("U32.pinOk", SettingsValidation.validPin("4321") && SettingsValidation.validPin("000042")
+            && SettingsValidation.validPin(" 4321 "), "4-6 digits ok, trimmed");
+        check("U32.pinShort", !SettingsValidation.validPin("123") && !SettingsValidation.validPin("")
+            && !SettingsValidation.validPin(null) && !SettingsValidation.validPin("   "),
+            "PIN shorter than 4 digits must be refused");
+        check("U32.pinLong", !SettingsValidation.validPin("1234567"));
+        check("U32.pinJunk", !SettingsValidation.validPin("12ab") && !SettingsValidation.validPin("1 2 3 4")
+            && !SettingsValidation.validPin("43.21"));
+        check("U33.timeoutBounds", SettingsValidation.timeoutOk(10) && SettingsValidation.timeoutOk(60)
+            && SettingsValidation.timeoutOk(3600), "10..3600 inclusive");
+        check("U33.timeoutOut", !SettingsValidation.timeoutOk(9) && !SettingsValidation.timeoutOk(3601)
+            && !SettingsValidation.timeoutOk(-5) && !SettingsValidation.timeoutOk(Integer.MAX_VALUE)
+            && !SettingsValidation.timeoutOk(Integer.MIN_VALUE));
+        check("U33.parse", SettingsValidation.parseTimeout("60").equals(60)
+            && SettingsValidation.parseTimeout(" 90 ") == 90, "trimmed parse");
+        check("U33.parseJunk", SettingsValidation.parseTimeout(null) == null
+            && SettingsValidation.parseTimeout("abc") == null && SettingsValidation.parseTimeout("") == null
+            && SettingsValidation.parseTimeout("2147483648") == null, "overflow yields null, never a throw");
+        check("U33.mirrorsKeys", SettingsValidation.TIMEOUT_MIN_S == 10 && SettingsValidation.TIMEOUT_MAX_S == 3600
+            && SettingsKeys.clampTimeoutS(9) == 10 && SettingsKeys.clampTimeoutS(3601) == 3600,
+            "the inline error band mirrors SettingsKeys.clampTimeoutS");
     }
 
     static List<String> labels(List<AppDrawerPolicy.Entry> e) {

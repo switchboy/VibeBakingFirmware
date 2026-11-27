@@ -15,4 +15,6 @@
     <color name="gauge_ok">#FF79A98E</color>     <!-- same hue as night battery_ok -->
     <color name="gauge_warn">#FFD9A854</color>   <!-- dimmed yellow -->
     <color name="gauge_bad">#FFD96A6A</color>    <!-- dimmed red -->
+    <!-- Settings number field fill (Round 6): lighter than the night card, no pure white. -->
+    <color name="field_bg">#FF262B36</color>
 </resources>

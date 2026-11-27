@@ -27,4 +27,5 @@
     <string name="map_open_full">%1$s cannot run inside the card - tap to open it full screen</string>
     <string name="fav_handle_desc">Show or hide the favourite apps</string>
     <string name="media_source_radio">Radio · tap the icon to open</string>
+    <string name="engine_off">Engine off</string>
 </resources>

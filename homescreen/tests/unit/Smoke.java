@@ -21,7 +21,9 @@ import org.vibebaking.launcher.logic.PhonePresenceProbe;
 import org.vibebaking.launcher.logic.RadarFetcher;
 import org.vibebaking.launcher.logic.RadarPlan;
 import org.vibebaking.launcher.logic.RadarTiles;
+import org.vibebaking.launcher.logic.SettingsCycle;
 import org.vibebaking.launcher.logic.SettingsKeys;
+import org.vibebaking.launcher.logic.SettingsValidation;
 import org.vibebaking.launcher.logic.ThemePolicy;
 import org.vibebaking.launcher.logic.ValetPin;
 import org.vibebaking.launcher.logic.ValetPolicy;
@@ -156,6 +158,7 @@ public class Smoke {
         phoneSources();
         favorites();
         gaugesJunk();
+        settingsInput();
 
         System.out.println(titles.size() + " scenarios, " + checks + " checks, " + failures.size() + " failed");
         if (!failures.isEmpty()) {
@@ -667,6 +670,28 @@ public class Smoke {
         check("SG61b", EngineGauges.batteryLevel(12.6) == EngineGauges.Level.OK
             && EngineGauges.batteryLevel(Double.NaN) == EngineGauges.Level.BAD,
             "resting 12.6 V reads OK; a NaN voltage reads BAD, never a colour crash");
+    }
+
+    /** Degradation scenarios for the settings cycle/band helpers + styled number inputs (Round 6). */
+    static void settingsInput() {
+        scenario("SG62", "settings cycle/band helpers: garbage current and empty bands degrade, never crash");
+        check("SG62", SettingsCycle.next(null, "x") == null && SettingsCycle.next(new String[0], "x") == null
+            && SettingsCycle.next(null, 5) == 5,
+            "empty/null option lists leave the row inert instead of throwing");
+        check("SG62b", SettingsCycle.nearest(new int[] {20, 40, 60, 80}, 1000) == 3
+            && SettingsCycle.nearest(new int[] {20, 40, 60, 80}, Integer.MIN_VALUE) == 0
+            && SettingsCycle.nearest(new int[0], 5) == 0,
+            "a garbage stored percent still lands the SeekBar on a legal band value");
+        check("SG62c", SettingsCycle.indexOf(new String[] {"a"}, null) == -1,
+            "null current must read as 'unknown -> first option' in the UI, not an index");
+
+        scenario("SG63", "settings manual input: junk PIN/timeout strings validate without exceptions");
+        check("SG63", SettingsValidation.parseTimeout(null) == null
+            && SettingsValidation.parseTimeout("2147483648") == null
+            && !SettingsValidation.validPin(null) && !SettingsValidation.validPin("nan"),
+            "the inline save path must never throw on absent or junk text");
+        check("SG63b", !SettingsValidation.timeoutOk(Integer.MAX_VALUE) && !SettingsValidation.timeoutOk(Integer.MIN_VALUE),
+            "overflowed timeout input is refused, the auto-entry timer keeps the stored sane value");
     }
 
     /** HCT broadcast source before any BT broadcast has been seen (boot / service down). */

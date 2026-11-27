@@ -62,6 +62,12 @@ public class LauncherActivity extends Activity {
     private static final String RPM_ACTION = "com.microntek.canbus.rpm";
     private static final String RPM_EXTRA = "rpm";
     private static final long RPM_STALE_MS = 10_000L;
+    // "Engine off" only once this protocol has proven it sends RPM (owner 2026-11-27): a protocol without RPM must
+    // not show "Engine off" while driving, so before the first frame the gauge stays hidden.
+    private boolean rpmSeen;
+    // Bench test hook: adb shell am broadcast -a org.vibebaking.launcher.TEST_ENGINE_TEMP --ei celsius 100 --ez oil true
+    // Only senders holding android.permission.DUMP (the adb shell) are delivered; apps cannot fake engine data.
+    private static final String TEST_TEMP_ACTION = "org.vibebaking.launcher.TEST_ENGINE_TEMP";
     private long lastThemeSwitch = 0L;
     private String lastMapTarget;          // applied map card target (spec S7)
     private LocationManager locationManager;
@@ -246,6 +252,13 @@ public class LauncherActivity extends Activity {
         engineTemp.setVisibility(View.VISIBLE);
     }
 
+    private final BroadcastReceiver testTempReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            int t = i.getIntExtra("celsius", Integer.MIN_VALUE);
+            if (t > -50 && t < 200) onEngineTemp(t, i.getBooleanExtra("oil", false));
+        }
+    };
+
     /** HCTCanBus rpm broadcast: extras are parsed guarded - junk must never crash the launcher. */
     private final BroadcastReceiver rpmReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
@@ -253,7 +266,8 @@ public class LauncherActivity extends Activity {
                 Integer rpm = EngineGauges.parseRpm(i.getStringExtra(RPM_EXTRA));
                 if (rpm == null) return; // negative / > 9000 / non-numeric: leave the gauge as-is
                 if (engineRpm == null) return;
-                engineRpm.setText(rpm + " rpm");
+                rpmSeen = true;
+                engineRpm.setText(rpm == 0 ? getString(R.string.engine_off) : rpm + " rpm");
                 engineRpm.setVisibility(View.VISIBLE);
                 main.removeCallbacks(rpmStale);
                 main.postDelayed(rpmStale, RPM_STALE_MS);
@@ -265,13 +279,19 @@ public class LauncherActivity extends Activity {
 
     /** RPM frame stale for RPM_STALE_MS -> hide the gauge (spec: no RPM protocol / ignition off). */
     private final Runnable rpmStale = new Runnable() {
-        @Override public void run() { if (engineRpm != null) engineRpm.setVisibility(View.GONE); }
+        @Override public void run() {
+            if (engineRpm == null) return;
+            if (rpmSeen) { engineRpm.setText(getString(R.string.engine_off)); engineRpm.setVisibility(View.VISIBLE); }
+            else engineRpm.setVisibility(View.GONE);
+        }
     };
 
     private void registerRpmReceiver() {
         try {
             // HCTCanBus sends via sendBroadcastAsUser: the receiver must be exported (A14).
             registerReceiver(rpmReceiver, new IntentFilter(RPM_ACTION), Context.RECEIVER_EXPORTED);
+            registerReceiver(testTempReceiver, new IntentFilter(TEST_TEMP_ACTION),
+                android.Manifest.permission.DUMP, null, Context.RECEIVER_EXPORTED);
         } catch (Throwable t) {
             // Denied or framework drift: the gauge stays hidden, the home screen still runs (S36).
             android.util.Log.w("LauncherActivity", "rpm receiver registration failed", t);
@@ -468,6 +488,7 @@ public class LauncherActivity extends Activity {
         if (radar != null) radar.stop();
         if (map != null) map.release();
         main.removeCallbacks(rpmStale);
+        try { unregisterReceiver(testTempReceiver); } catch (Throwable ignore) { }
         try { unregisterReceiver(rpmReceiver); }
         catch (Throwable ignore) { /* never registered (guarded above) or already unregistered */ }
     }

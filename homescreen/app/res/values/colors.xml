@@ -16,4 +16,8 @@
     <color name="gauge_ok">#FF2F6D57</color>     <!-- nominal -->
     <color name="gauge_warn">#FFFFC83D</color>   <!-- watch band -->
     <color name="gauge_bad">#FFFF5A5A</color>    <!-- act now -->
+    <!-- Settings number field fill (Round 6): the day card is already white (nothing can be
+         lighter), so the day fill equals the card and the stroke separates it; at night the
+         fill is lighter than the card. -->
+    <color name="field_bg">#FFFFFFFF</color>
 </resources>

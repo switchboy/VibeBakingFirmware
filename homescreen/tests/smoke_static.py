@@ -129,10 +129,10 @@ ok("SA15", "public void onAccOff()" in audio and "captured == null" in audio
 ok("SA15b", "VolumePolicy.delegateToMcu(store.reverseMcu()) && car.isAvailable()" in audio,
    "MCU delegation only when the car bridge is alive")
 
-# SA16 - settings: PIN save requires >=4 digits; master off exits active valet; warning refreshed.
-ok("SA16", "p.length() >= 4" in settings and "App.valet().exit()" in settings
+# SA16 - settings: PIN validation lives in pure logic; master off exits active valet; warning refreshed.
+ok("SA16", "SettingsValidation.validPin(" in settings and "App.valet().exit()" in settings
    and "updateWarn()" in settings and "valetEnabled" in settings,
-   "PIN validation + master-off exit + bootstrap warning wired")
+   "PIN validation via logic/SettingsValidation + master-off exit + bootstrap warning wired (Round 6)")
 
 # SA17 - PIN pad: hash re-read per attempt (a PIN saved while the pad is open works).
 ok("SA17", pinact.find("store.valetPinHash()") > pinact.find("setOnClickListener")
@@ -309,6 +309,17 @@ for root, dirs, files in os.walk(src_dir):
             missing_imports.append(f"{f}:{n}")
 ok("SA39", not missing_imports,
    "every logic type used outside logic/ is imported (" + "; ".join(missing_imports[:6]) + ")")
+
+# SA40-SA42 - Round 6 settings redesign: controls and the stuck-row fix must be wired.
+ok("SA40", "android.widget.Switch" in settings and "SeekBar" in code(settings)
+   and "SettingsCycle" in code(settings) and "android.text.InputFilter.LengthFilter" in code(settings)
+   and "SettingsValidation" in code(settings),
+   "slider switches + snapping percent SeekBars + pill selectors + length-filtered number fields wired")
+ok("SA41", "sw.setOnCheckedChangeListener(null)" in settings and ("resyncSwitch(sw, l," in settings or "resyncSwitch(sw, this," in settings),
+   "valet switches re-read the real state after enter/exit with the listener detached (no re-trigger loop)")
+ok("SA42", "addCycle" not in code(settings) and "store.getString(key, def)" in code(settings)
+   and "store.getBool(key, def)" in code(settings) and "store.getInt(key, def)" in code(settings),
+   "the captured-copy addCycle is gone; every control reads the store fresh at click time")
 
 fails = [r for r in results if not r[1]]
 print(f"{len(results)} scenario checks, {len(fails)} failed")
