@@ -52,15 +52,12 @@ Nothing else was changed on the NAS: no OMV config, no service restarts, no shar
 
 ## Access
 
-Password authentication through a wrapper that lives **outside** the repo (so the credential is never
-committed): `$HOME/.config/vbf/omv.sh`, which reads the credential from `$HOME/.config/vbf/nas.env`
-(mode 600) via `SSH_ASKPASS` and never puts it in argv. `askpass.sh` must be executable (`700`) - ssh execs
-it, and a non-executable askpass makes ssh fall back to interactive prompts and fail with
-`Permission denied (publickey,password)`.
-
-Restored Nov 15 after `/tmp` was cleared, and verified live: `sh $HOME/.config/vbf/omv.sh 'echo NAS_OK'` returns
-`NAS_OK` from host `apollo` (Debian 13, kernel 6.12.107). The three files are `build_host.env` (600),
-`askpass.sh` (700) and `omv.sh` (700); nothing credential-bearing is in the repo.
+Password authentication through a wrapper that lives **outside** the repo and outside `/tmp`:
+`~/.config/vbf/omv.sh '<command>'`. It reads the credential from `~/.config/vbf/nas.env` (mode 600) through
+`SSH_ASKPASS` (`askpass.sh`, 700) and never puts it in argv. Until Nov 27 the three files lived in `/tmp/opencode`,
+which is tmpfs: every workstation reboot lost them. Verified Nov 27: `omv.sh 'echo NAS_OK; hostname'` returns
+`NAS_OK` / `apollo`. For `rsync`, pass `SSH_ASKPASS=$HOME/.config/vbf/askpass.sh SSH_ASKPASS_REQUIRE=force` in the
+environment and `-e "ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no"`.
 
 **Upload discipline for the repo checkout.** `scripts/`, `tools/` and `docs/` are safe to sync with
 `rsync -a --delete` (the workstation is the source of truth). `device/rk3399-px6-hct4/` is **not**: the

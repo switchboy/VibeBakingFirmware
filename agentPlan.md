@@ -17,31 +17,37 @@ is right.
 3. Niceties: the launcher (`docs/homescreen.md`).
 4. Long-term blob-free mainline track (end of `docs/release.md`).
 
-## State (Nov 24, attempt 33 prepared)
-Working on the card: boot to the launcher, display, touch, ethernet (USB dongle), root adb over the network,
-WiFi (WPA2), stay-awake, three-button navigation bar, the back key; HCT framework layer step 1 (`android.microntek.*`
-on the boot classpath) and step 2 (`carservice` running inside HCTManagerService). Open: other hardware keys
-(the kernel drops them unless a sink is registered - being traced), HCT Bluetooth + CAN bus (attempt 33 restores
-`mtcser` and `HCTCanBus`), AV-in/DVD video (`libcvbs_jni.so`), GApps (super resize + MindTheGapps prepared),
-GPS. Latest entries in `docs/findings.md` are the truth.
+## State (Nov 27, attempt 41 on the card)
+Working on the card (owner-verified): display, touch, all hardware keys, ethernet + root adb, WiFi, HCT framework
+(`carservice`, MCU, CAN service - CAN data needs the car), HCT Bluetooth via the GOC daemon shim (pairing, calls,
+contacts, A2DP, AVRCP), MCU audio path on at boot (`av_active`), GApps + Play Store + Maps, radio (seek + station
+lock), GPS (stock module + `libhugnss` accuracy shim), AV/camera apps start and open `/dev/mtc-cvbs` (image test
+needs a camera). The launcher (`homescreen/`) runs as a test install, not yet in the image: live Maps in the map card
+(trusted virtual display), compact map, favourites overlay, radar, radio on the media card (uncommitted, unverified).
+Open: audible audio check (speaker on a proper pair), camera image, launcher into the image, release hardening
+(`docs/release.md`). Latest entries in `docs/findings.md` are the truth.
 
 ## Hard rules
 * **The eMMC is never written** until the release install. All writes go to the card (`mmcblk1`), digest-checked
   before and after; the eMMC partition heads are re-hashed around every write. Resolve devices by size/type,
   never by name (**D76**).
-* Owner decisions stay the owner's: anything outward-facing (GPL requests, publishing), the NTFS data drive
-  (`/dev/sda2`: read-only, it has corruption), removing features, hardware changes.
-* No UART. NAS credentials never in argv, docs or the repo. Never redistribute proprietary files.
+* Owner decisions stay the owner's: anything outward-facing (GPL requests, publishing), removing features,
+  hardware changes, the owner's other data on Opslagmonster and the NAS (only this project's paths are ours).
+* No UART. NAS credentials never in argv, docs or the repo: they live in `~/.config/vbf/` (`omv.sh '<cmd>'` runs a
+  command on the NAS). Never redistribute proprietary files.
+* **Storage follows `docs/housekeeping.md`**: repo and work dir on Opslagmonster only (never `~` or `/tmp`, which is
+  wiped on reboot), logs only in the git-ignored `log/`, keep only the latest image set and stock backup, scratch
+  empty at session end, budgets checked.
 * Destructive actions: look at the target first; keep every change reversible and recorded (what was removed,
   its sha, how to restore).
 * **Never run `getevent` (or anything that queries every input device's name) on the unit:** an HCT input device
   has an invalid name pointer and the kernel panics (Nov 25, findings). Avoid broad device probes on the live unit
   without knowing the driver; read the saved kernel logs instead.
-* Launcher test installs: only through `a14-work/deploy-launcher.sh` (tests, build must succeed, APK must contain
+* Launcher test installs: only through `scripts/deploy_launcher.sh` (tests, build must succeed, APK must contain
   `classes.dex`); never `adb install` a hand-built APK whose build log was not checked.
 
 ## How we work (the loop)
-1. **Build** the change on image copies in `/run/media/Daan/Opslagmonster/a14-work/super9/`: edit ext4 with `debugfs`
+1. **Build** the change on image copies in `a14-work/images/attemptN/` (copy the current set, never edit it in place): edit ext4 with `debugfs`
    (keep mode, owner and the `security.selinux` xattr incl. its trailing NUL; use `rm`, not `unlink`, to delete),
    `e2fsck -fn` must return 0; splice into super with `tools/splice_super.py splice` (verifies every byte outside
    the replaced extents), list changed 4 MiB chunks with `diffchunks`.
@@ -88,7 +94,9 @@ How to write the task:
 Review checklist for its output (each item caught a real defect this session): inverted conditions in patched
 code (a registration guard skipped exactly when needed); removed-API calls left in code it was told not to touch;
 claims that rest on its own collection artefact (a "duplicate" rc service that was one file globbed twice);
-verify the headline claim yourself with one cheap command before building on it.
+verify the headline claim yourself with one cheap command before building on it. Without an SDK it invents
+APIs and endpoints (35 compile errors, a non-existent TaskView API, a made-up RainViewer URL): compile against the
+tree's jars (`homescreen/build-on-build-host.sh`) and probe every URL with `curl` before it reaches the unit.
 
 ## Live risks
 | Risk | Mitigation |
@@ -99,4 +107,8 @@ verify the headline claim yourself with one cheap command before building on it.
 | Unsigned modified system APKs | accepted by Android 14 for `/system/priv-app` (attempt 32); for release, rebuild the patches as scripts applied to the user's own files |
 | Boot-classpath changes | append BOOTCLASSPATH-only after `core-icu4j.jar` so the boot image stays a valid prefix; first boot recompiles (`odrefresh`) and is slow |
 | A boot that hangs or loops | dead-man crasher + armed card BCB return every boot to the networked recovery with logs |
-| Bricking the unit | eMMC untouched; stock backup (**D40**); the card can always be pulled |
+| Bricking the unit | eMMC untouched; stock backup in `a14-work/cold/` + NAS mirror, full eMMC snapshot `analysis/gpt/disk.img` (**D40**); the card can always be pulled |
+| Power loss / interrupted boots arm RescueParty | unit comes up in card recovery: `scripts/flash_card_a14.sh bcb-clear`, then `scripts/watch_live_a14.sh N` |
+| Stock blobs that break on Android 14 (GOC daemon, GPS module) | LD_PRELOAD shims built from source (`hct/goc-shim`, `hct/gnss-shim`), the blob itself untouched |
+| GApps on an existing `/data` | default grants missing (Play services had no location): grant at first boot for upgrades (findings Nov 25) |
+| Kernel panics on input-device name queries | never `getevent` (hard rule) |

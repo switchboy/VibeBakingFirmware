@@ -6372,4 +6372,10 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   (A10 package in four forms, covered by the eMMC snapshot), an old repo checkout and its build outputs, and all project
   logs on the workstation and the NAS. Lost earlier (Nov 26, owner's disk resize): `hctport/`, `gapps/`, `gnss/`,
   `rollback-captures/`; everything in them is reproducible (card images, repo shims, GApps sha, eMMC unchanged).
+* **NAS cleanup (owner-approved `docs/housekeeping.md`, Nov 27).** Cold set mirrored first to DataPool
+  `cold/vibe-baking/current/` (20 files, `sha256sum -c` 20 OK on the NAS); then removed from DataPool
+  `cold/vibe-baking/` the superseded passes (old build outputs, Nov 11 scratch and research, old archive, wrapper and p8
+  work) and `aospbuild-archive/` (Nov 11 stock backup, gate scratch, reference extracts), plus the root-disk duplicate
+  `/srv/cold/vibe-baking`: DataPool 742 -> 797 GB free. NAS `/tmp` build scratch (2.4 GB) removed after its outputs were
+  in `a14-work/staging/`; `/tmp/vbl-build` stays (launcher deploy). `agentPlan.md` state/rules/paths brought to attempt 41.
 
