@@ -25,13 +25,13 @@
 # "hu-install: ABORT - dd super failed" - an out-of-space failure, not an installer bug. Run it against
 # a roomy volume: TMPDIR=/run/media/Daan/Opslagmonster/a14-work/smoke-tmp scripts/smoke_recovery_installer.sh
 #
-#   scripts/smoke_recovery_installer.sh            (scratch under ${TMPDIR:-/tmp/opencode}, ~7 GiB free)
+#   scripts/smoke_recovery_installer.sh            (scratch under ${TMPDIR:-/run/media/Daan/Opslagmonster/a14-work/scratch}, ~7 GiB free)
 #   SHAPE=a10 (default) exercises shape A's boot payload, SHAPE=a11 shape B's - see the size block below.
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 SRC="$REPO/scripts/hu_recovery_install.sh"
-S="${TMPDIR:-/tmp/opencode}/hu-installer-smoke"
+S="${TMPDIR:-/run/media/Daan/Opslagmonster/a14-work/scratch}/hu-installer-smoke"
 rm -rf "$S"
 mkdir -p "$S/by-name" "$S/card" "$S/hucard"
 

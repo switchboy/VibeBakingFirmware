@@ -32,7 +32,7 @@ def defs(fp):
     return {m.split()[-1].split("@")[0] for m in re.findall(r"^\S+ [A-Za-z] (\S+)$", out, re.M)}
 
 
-tmp = "/tmp/opencode/ref_libs"
+tmp = "/run/media/Daan/Opslagmonster/a14-work/scratch/ref_libs"
 os.makedirs(tmp, exist_ok=True)
 found = {}
 for img in IMAGES:

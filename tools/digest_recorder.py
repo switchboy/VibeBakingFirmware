@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """digest_recorder.py - condense a head-unit boot-log capture into a short report.
 
-  python3 tools/digest_recorder.py /home/Daan/vbf-work/a14-work/a14-attempt28-rec
+  python3 tools/digest_recorder.py /run/media/Daan/Opslagmonster/a14-work/a14-attempt28-rec
 
 Reads <dir>/card-log.bin, the hu-card-arm recorder's /dev/kmsg dump: text records of the form
 `PRI,SEQ,USEC,-;MESSAGE` glued between NUL bytes and binary junk, so the printable runs are pulled

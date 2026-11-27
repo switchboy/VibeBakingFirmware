@@ -1,9 +1,9 @@
 # step2 — HCTManagerService.apk ported to Android 14 (carservice registration + /dev/ttyV2 via FileInputStream)
 
-Built 2026-11-24 in `/home/Daan/vbf-work/a14-work/hctport/step2/`. Everything below was written under
+Built 2026-11-24 in `/run/media/Daan/Opslagmonster/a14-work/hctport/step2/`. Everything below was written under
 `step2/` only; nothing under `/run/media` was touched, `debugfs` ran read-only (`-R dump`), and no adb
 was used. Read-only inputs: `super9/system-new14.img` (APK dump), `a10fw/s10svc/com/android/server/microntek`
-(A10 service smali, copied), `/tmp/opencode/fw/**` (A14 boot jars + framework/services),
+(A10 service smali, copied), `/run/media/Daan/Opslagmonster/a14-work/scratch/fw/**` (A14 boot jars + framework/services),
 `hctport/out/classes.dex` (the `android.microntek` classes shipped in `hct-framework.jar`).
 
 Deliverable: **`step2/HCTManagerService.apk`** — 309483 bytes, 28 entries, only `classes.dex` replaced,
@@ -14,45 +14,45 @@ compression method of that entry still **Stored (0)**, all other entries byte-id
 ## 1. Exact commands
 
 ```sh
-mkdir -p /home/Daan/vbf-work/a14-work/hctport/step2
+mkdir -p /run/media/Daan/Opslagmonster/a14-work/hctport/step2
 
 # dump the renamed APK out of the A14 system image (debugfs -R is read-only)
 debugfs -R "dump /system/priv-app/HCTManagerService/HCTManagerService.apk.disabled-attempt26 \
-  /home/Daan/vbf-work/a14-work/hctport/step2/original.apk" \
-  /home/Daan/vbf-work/a14-work/super9/system-new14.img
+  /run/media/Daan/Opslagmonster/a14-work/hctport/step2/original.apk" \
+  /run/media/Daan/Opslagmonster/a14-work/super9/system-new14.img
 sha256sum original.apk            # 4df7d7f6b43ff2c5a4f91a859b24e90c9bc41bc2abf6e3b6ca7ae3cf816eec4c
 
 # 1. baksmali the APK's classes.dex
 unzip -o -q original.apk classes.dex
-java -jar /home/Daan/vbf-work/tools-dl/smali/baksmali-2.5.2.jar d classes.dex -o mgr_smali   # 88 classes
+java -jar /run/media/Daan/Opslagmonster/a14-work/tools/smali/baksmali-2.5.2.jar d classes.dex -o mgr_smali   # 88 classes
 
 # copy the A10 service classes in, EXCLUDING the Mfi ones (see §2)
 mkdir -p mgr_smali/com/android/server/microntek
-for f in /home/Daan/vbf-work/a14-work/a10fw/s10svc/com/android/server/microntek/*.smali; do
+for f in /run/media/Daan/Opslagmonster/a14-work/a10fw/s10svc/com/android/server/microntek/*.smali; do
   b=$(basename "$f")
   case "$b" in MfiService*.smali|OnMfiServiceCallback.smali) ;; *) cp "$f" mgr_smali/com/android/server/microntek/ ;; esac
 done
 find mgr_smali -name '*.smali' | wc -l          # -> 104 (88 APK + 16 service)
 
 # strip baksmali's hiddenapi access-flag tokens (same script as step 1)
-python3 /home/Daan/vbf-work/a14-work/hctport/scripts/strip_hiddenapi.py \
-  /home/Daan/vbf-work/a14-work/hctport/step2/mgr_smali
+python3 /run/media/Daan/Opslagmonster/a14-work/hctport/scripts/strip_hiddenapi.py \
+  /run/media/Daan/Opslagmonster/a14-work/hctport/step2/mgr_smali
 #   -> mgr_smali: 0 files rewritten, 0 hiddenapi tokens removed   (see §3)
 
 # 2/3. smali edits: CarService.smali, CarService$3.smali, ManageService.smali  (diffs in §4)
 
 # 4. assemble + verify
-java -jar /home/Daan/vbf-work/tools-dl/smali/smali-2.5.2.jar a --api 34 mgr_smali -o classes.dex
-python3 /home/Daan/vbf-work/VibeBakingFirmware/tools/dex_api_check.py \
-  --framework /tmp/opencode/fw/framework/*.dex /tmp/opencode/fw/x/*/classes.dex \
-  /home/Daan/vbf-work/a14-work/hctport/out/classes.dex --app classes.dex      # output in api_check.txt
-python3 /home/Daan/vbf-work/a14-work/hctport/scripts/dex_field_check.py \
-  --framework /tmp/opencode/fw/framework/*.dex /tmp/opencode/fw/x/*/classes.dex \
-  /home/Daan/vbf-work/a14-work/hctport/out/classes.dex --app-dir mgr_smali    # output in field_check.txt
-python3 /home/Daan/vbf-work/a14-work/hctport/scripts/dex_ref_summary.py classes.dex   # ref_summary.txt
+java -jar /run/media/Daan/Opslagmonster/a14-work/tools/smali/smali-2.5.2.jar a --api 34 mgr_smali -o classes.dex
+python3 /run/media/Daan/Opslagmonster/VibeBakingFirmware/tools/dex_api_check.py \
+  --framework /run/media/Daan/Opslagmonster/a14-work/scratch/fw/framework/*.dex /run/media/Daan/Opslagmonster/a14-work/scratch/fw/x/*/classes.dex \
+  /run/media/Daan/Opslagmonster/a14-work/hctport/out/classes.dex --app classes.dex      # output in api_check.txt
+python3 /run/media/Daan/Opslagmonster/a14-work/hctport/scripts/dex_field_check.py \
+  --framework /run/media/Daan/Opslagmonster/a14-work/scratch/fw/framework/*.dex /run/media/Daan/Opslagmonster/a14-work/scratch/fw/x/*/classes.dex \
+  /run/media/Daan/Opslagmonster/a14-work/hctport/out/classes.dex --app-dir mgr_smali    # output in field_check.txt
+python3 /run/media/Daan/Opslagmonster/a14-work/hctport/scripts/dex_ref_summary.py classes.dex   # ref_summary.txt
 
 # instruction-level proof: round-trip the assembled dex
-rm -rf rt && java -jar /home/Daan/vbf-work/tools-dl/smali/baksmali-2.5.2.jar d classes.dex -o rt
+rm -rf rt && java -jar /run/media/Daan/Opslagmonster/a14-work/tools/smali/baksmali-2.5.2.jar d classes.dex -o rt
 find rt -name '*.smali' | wc -l                                                # -> 104
 grep -rnE '^\s*\.(class|field|method).*\b(blacklist|greylist|whitelist|unsupported|core-platform-api)\b' rt | wc -l  # -> 0
 grep -rn 'android/hardware/SerialPort\|SerialManager' rt                        # -> no output (exit 1)

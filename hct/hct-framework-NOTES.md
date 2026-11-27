@@ -1,7 +1,7 @@
 # hct-framework.jar — A10 `android/microntek` classes rebuilt to load/verify on Android 14
 
-Built 2026-11-24 in `/home/Daan/vbf-work/a14-work/hctport/`. Read-only inputs: `hctport/s10fw2/`
-(baksmali of A10 `fw10/classes2.dex`) and `/tmp/opencode/fw/**` (A14 LineageOS 21 boot jars).
+Built 2026-11-24 in `/run/media/Daan/Opslagmonster/a14-work/hctport/`. Read-only inputs: `hctport/s10fw2/`
+(baksmali of A10 `fw10/classes2.dex`) and `/run/media/Daan/Opslagmonster/a14-work/scratch/fw/**` (A14 LineageOS 21 boot jars).
 Nothing was written under `/run/media`, no adb was used, and `s10fw2/` was never modified.
 
 Deliverable: `hctport/out/hct-framework.jar` — one entry, `classes.dex`, STORED (`zip -X -0`),
@@ -9,7 +9,7 @@ Deliverable: `hctport/out/hct-framework.jar` — one entry, `classes.dex`, STORE
 
 ---
 
-## 1. Exact commands (all run from `/home/Daan/vbf-work/a14-work`)
+## 1. Exact commands (all run from `/run/media/Daan/Opslagmonster/a14-work`)
 
 ```sh
 # 1. copy the 33 microntek smali files out of s10fw2 (s10fw2 itself untouched)
@@ -26,23 +26,23 @@ python3 hctport/scripts/stub_methods.py hctport/fwsrc/android/microntek/HCTApi.s
 #   -> 15 method bodies stubbed (list in §3)
 
 # 4. assemble + jar
-java -jar /home/Daan/vbf-work/tools-dl/smali/smali-2.5.2.jar a --api 34 hctport/fwsrc -o hctport/out/classes.dex
+java -jar /run/media/Daan/Opslagmonster/a14-work/tools/smali/smali-2.5.2.jar a --api 34 hctport/fwsrc -o hctport/out/classes.dex
 cd hctport/out && rm -f hct-framework.jar && zip -X -0 hct-framework.jar classes.dex
 
 # 5. verify
-python3 /home/Daan/vbf-work/VibeBakingFirmware/tools/dex_api_check.py \
-  --framework /tmp/opencode/fw/framework/*.dex /tmp/opencode/fw/x/*/classes.dex \
+python3 /run/media/Daan/Opslagmonster/VibeBakingFirmware/tools/dex_api_check.py \
+  --framework /run/media/Daan/Opslagmonster/a14-work/scratch/fw/framework/*.dex /run/media/Daan/Opslagmonster/a14-work/scratch/fw/x/*/classes.dex \
   --app hctport/out/classes.dex
 python3 hctport/scripts/dex_field_check.py \
-  --framework /tmp/opencode/fw/framework/*.dex /tmp/opencode/fw/x/*/classes.dex \
+  --framework /run/media/Daan/Opslagmonster/a14-work/scratch/fw/framework/*.dex /run/media/Daan/Opslagmonster/a14-work/scratch/fw/x/*/classes.dex \
   --app-dir hctport/fwsrc
 python3 hctport/scripts/dex_ref_summary.py hctport/out/classes.dex
 # instruction-level proof: round-trip the assembled dex and grep the disassembly
-rm -rf /tmp/opencode/rt && java -jar /home/Daan/vbf-work/tools-dl/smali/baksmali-2.5.2.jar d \
-  hctport/out/classes.dex -o /tmp/opencode/rt
-grep -rnE '^\s+[a-z0-9/-]+ .*(StackInfo|ActivityManager\$TaskInfo|getAllStackInfos|IActivityManager;->getFocusedStackInfo|IActivityTaskManager;->getStackInfo|IActivityManager;->removeStack|IActivityManager;->setFocusedStack|switchDualScreen|hasSecondScreenActivityStack|moveStackToDisplay|setToDefaultsDensity)' /tmp/opencode/rt   # -> no output, exit 1
-grep -rn 'blacklist\|greylist\|whitelist' /tmp/opencode/rt | wc -l                                # -> 0
-find /tmp/opencode/rt -name '*.smali' | wc -l                                                    # -> 33
+rm -rf /run/media/Daan/Opslagmonster/a14-work/scratch/rt && java -jar /run/media/Daan/Opslagmonster/a14-work/tools/smali/baksmali-2.5.2.jar d \
+  hctport/out/classes.dex -o /run/media/Daan/Opslagmonster/a14-work/scratch/rt
+grep -rnE '^\s+[a-z0-9/-]+ .*(StackInfo|ActivityManager\$TaskInfo|getAllStackInfos|IActivityManager;->getFocusedStackInfo|IActivityTaskManager;->getStackInfo|IActivityManager;->removeStack|IActivityManager;->setFocusedStack|switchDualScreen|hasSecondScreenActivityStack|moveStackToDisplay|setToDefaultsDensity)' /run/media/Daan/Opslagmonster/a14-work/scratch/rt   # -> no output, exit 1
+grep -rn 'blacklist\|greylist\|whitelist' /run/media/Daan/Opslagmonster/a14-work/scratch/rt | wc -l                                # -> 0
+find /run/media/Daan/Opslagmonster/a14-work/scratch/rt -name '*.smali' | wc -l                                                    # -> 33
 ```
 
 ## 2. Which `--api` was used, and why
@@ -68,7 +68,7 @@ modifier tokens (it prints them whenever the dex carries hiddenapi data — it p
 Dex version is **039** at every api level, which is what the A14 framework/services dexes use.
 The header is dexlib2's ART-style 112-byte header (sha1 signature at 0x0c, ids table at 0x38:
 strings/types/protos/fields/methods/classes/annotations at 0x38/0x40/0x48/0x50/0x58/0x60/0x68),
-identical in layout to `/tmp/opencode/fw/framework/*.dex`, which is why `dex_api_check.py` reads it.
+identical in layout to `/run/media/Daan/Opslagmonster/a14-work/scratch/fw/framework/*.dex`, which is why `dex_api_check.py` reads it.
 Consequence of dropping the flags: these classes are no longer marked hidden-API, so they behave as
 ordinary public framework members on A14 (see report.md §0 note).
 
@@ -130,7 +130,7 @@ not resolvable here: 12
   Ljava/util/List;
   Lorg/xmlpull/v1/XmlPullParser;
 ```
-MISSING is empty (exit 0). Adding `/tmp/opencode/fw/services/*.dex` to `--framework` (52810 classes)
+MISSING is empty (exit 0). Adding `/run/media/Daan/Opslagmonster/a14-work/scratch/fw/services/*.dex` to `--framework` (52810 classes)
 also gives an empty MISSING list — same 12 not-resolvable entries, which are core-library classes
 (`java.*`, ART APEX `java.lang.Object`) plus `WifiManager`/`WifiConfiguration` that live in a wifi jar
 that was never extracted. Saved copies: `out/api_check_framework.txt`,
@@ -163,7 +163,7 @@ out/classes.dex: dex version 039, header_size 112, 33 classes, 446 method refs
   Landroid/util/DisplayMetrics->setToDefaultsDensity  (gone)
 ```
 
-Instruction-level proof (round-trip disassembly of the assembled dex, `/tmp/opencode/rt`):
+Instruction-level proof (round-trip disassembly of the assembled dex, `/run/media/Daan/Opslagmonster/a14-work/scratch/rt`):
 `grep -rnE '^\s+[a-z0-9/-]+ .*(StackInfo|ActivityManager\$TaskInfo|getAllStackInfos|
 IActivityManager;->getFocusedStackInfo|IActivityTaskManager;->getStackInfo|IActivityManager;->removeStack|
 IActivityManager;->setFocusedStack|switchDualScreen|hasSecondScreenActivityStack|moveStackToDisplay|

@@ -6,7 +6,7 @@
 # source is removed. Run one stage at a time; each writes its own log.
 #
 #   WORK   local home for the ACTIVE payload   (default: /run/media/Daan/Opslagmonster/a14-work)
-#   NAS    ssh target                          (default: root@192.168.1.29 via /tmp/opencode/omv.sh)
+#   NAS    ssh target                          (default: root@192.168.1.29 via $HOME/.config/vbf/omv.sh)
 #   COLD   cold storage on the NAS storage pool (ZFS DataPool, ~908 GiB free)
 #          default: /srv/50911774-19fb-46b6-bc9e-8cf81623d044/cold/vibe-baking
 #   STAGE  payload | backup | tmpfs | nas
@@ -20,7 +20,7 @@ WORK=${WORK:-/run/media/Daan/Opslagmonster/a14-work}
 COLD=${COLD:-/srv/50911774-19fb-46b6-bc9e-8cf81623d044/cold/vibe-baking}
 STAGE=${STAGE:?set STAGE to payload|backup|tmpfs|nas}
 LOG=${LOG:-/run/media/Daan/Opslagmonster/cold-move.log}
-SSH="sh /tmp/opencode/omv.sh"
+SSH="sh $HOME/.config/vbf/omv.sh"
 
 say() { printf '%s\n' "$1" | tee -a "$LOG"; }
 
@@ -62,11 +62,11 @@ case "$STAGE" in
   tmpfs)
     # /tmp is tmpfs: 13 GiB of stale images are sitting in RAM, not on disk.
     # rsync -e is space-split, so the askpass env has to be part of the command string.
-    RS="env SSH_ASKPASS=/tmp/opencode/askpass.sh SSH_ASKPASS_REQUIRE=force ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -o ConnectTimeout=15"
+    RS="env SSH_ASKPASS=$HOME/.config/vbf/askpass.sh SSH_ASKPASS_REQUIRE=force ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -o ConnectTimeout=15"
     say "== rsync stale tmpfs images -> NAS cold ($COLD/workstation-tmpfs) =="
     sh -c "$SSH \"mkdir -p $COLD/workstation-tmpfs\"" 2>&1 | tail -1 | tee -a "$LOG"
     for d in hu-rollback hu-staged hu-images vendor-check rkresearch px6; do
-      [ -e "/tmp/opencode/$d" ] || continue
+      [ -e "/run/media/Daan/Opslagmonster/a14-work/scratch/$d" ] || continue
       # rkresearch is a u-boot source clone: the NAS copy from an earlier pass is a different revision,
       # so its per-file sizes legitimately differ. It goes to its own remote directory, and --delete
       # makes that directory an exact mirror of the local clone (it is ours, created tonight).
@@ -76,61 +76,61 @@ case "$STAGE" in
       # The trailing slash on the source copies the directory's CONTENTS into $rd/, otherwise a renamed
       # target like rkresearch-nov11 ends up holding rkresearch-nov11/rkresearch/... and the lists never
       # match the local paths.
-      rsync -a --no-progress $del -e "$RS" "/tmp/opencode/$d/" "root@192.168.1.29:$COLD/workstation-tmpfs/$rd/" 2>&1 | tail -2 | tee -a "$LOG"
+      rsync -a --no-progress $del -e "$RS" "/run/media/Daan/Opslagmonster/a14-work/scratch/$d/" "root@192.168.1.29:$COLD/workstation-tmpfs/$rd/" 2>&1 | tail -2 | tee -a "$LOG"
       # One ssh call, then compare the sorted name+size lists. Per-file ssh calls would take thousands
       # of round trips and thousands of log lines for a source tree like u-boot. The workstation sorts
       # under the Dutch locale and the NAS under C, so force C on both sides or the lists never match.
-      loc=$(cd "/tmp/opencode/$d" && find . -type f -printf '%P %s\n' | LC_ALL=C sort)
+      loc=$(cd "/run/media/Daan/Opslagmonster/a14-work/scratch/$d" && find . -type f -printf '%P %s\n' | LC_ALL=C sort)
       rem=$(sh -c "$SSH \"cd $COLD/workstation-tmpfs/$rd 2>/dev/null && find . -type f -printf '%P %s\n' | LC_ALL=C sort\"" 2>/dev/null)
       if [ "$loc" = "$rem" ]; then
         say "  $d: $(printf '%s\n' "$loc" | wc -l) files identical on the NAS -> removed from tmpfs"
-        rm -rf "/tmp/opencode/$d"
+        rm -rf "/run/media/Daan/Opslagmonster/a14-work/scratch/$d"
       else
         say "  $d KEPT: $(diff <(printf '%s\n' "$loc") <(printf '%s\n' "$rem") | head -3 | tr '\n' ' ')"
       fi
     done
     for f in super_raw.img a10-system.img vendor_slice.img vendor-in-super.img hu-stage.b64 recomp.br card-dump.img; do
-      [ -e "/tmp/opencode/$f" ] || continue
-      rsync -a --no-progress -e "$RS" "/tmp/opencode/$f" "root@192.168.1.29:$COLD/workstation-tmpfs/" 2>&1 | tail -2 | tee -a "$LOG"
-      loc=$(stat -c %s "/tmp/opencode/$f" 2>/dev/null)
+      [ -e "/run/media/Daan/Opslagmonster/a14-work/scratch/$f" ] || continue
+      rsync -a --no-progress -e "$RS" "/run/media/Daan/Opslagmonster/a14-work/scratch/$f" "root@192.168.1.29:$COLD/workstation-tmpfs/" 2>&1 | tail -2 | tee -a "$LOG"
+      loc=$(stat -c %s "/run/media/Daan/Opslagmonster/a14-work/scratch/$f" 2>/dev/null)
       rem=$(sh -c "$SSH \"stat -c %s $COLD/workstation-tmpfs/$f\"" 2>/dev/null | tr -d ' \n')
       say "  $f  local=$loc remote=$rem"
-      if [ "$loc" = "$rem" ]; then rm -f "/tmp/opencode/$f"; say "  $f removed from tmpfs"; else say "  $f KEPT: sizes differ"; fi
+      if [ "$loc" = "$rem" ]; then rm -f "/run/media/Daan/Opslagmonster/a14-work/scratch/$f"; say "  $f removed from tmpfs"; else say "  $f KEPT: sizes differ"; fi
     done
     say "== tmpfs after =="
     df -h /tmp | tail -1 | tee -a "$LOG"
     ;;
 
   research)
-    # The rest of /tmp/opencode: vendor/WiFi research extracts and one-off dumps. Not space-critical any
+    # The rest of /run/media/Daan/Opslagmonster/a14-work/scratch: vendor/WiFi research extracts and one-off dumps. Not space-critical any
     # more (tmpfs is down to ~800 MB), but they are clutter and all re-obtainable, so they go to cold
     # storage. The ssh wrappers and the small probe scripts stay on the workstation - they are still in
     # use tomorrow (omv.sh, askpass.sh, laptop_askpass.sh, build_wifi_*.sh, probe*.py).
-    RS="env SSH_ASKPASS=/tmp/opencode/askpass.sh SSH_ASKPASS_REQUIRE=force ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -o ConnectTimeout=15"
+    RS="env SSH_ASKPASS=$HOME/.config/vbf/askpass.sh SSH_ASKPASS_REQUIRE=force ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -o ConnectTimeout=15"
     say "== rsync research extracts -> NAS cold ($COLD/research) =="
     sh -c "$SSH \"mkdir -p $COLD/research\"" 2>&1 | tail -1 | tee -a "$LOG"
     for d in boothdr drv oemchk rktools ref_libs rkrescue rk u compat hosttools bootableSD bench ai ai2; do
-      [ -e "/tmp/opencode/$d" ] || continue
+      [ -e "/run/media/Daan/Opslagmonster/a14-work/scratch/$d" ] || continue
       # These remote directories are ours (created tonight), so --delete makes them an exact mirror.
       # Names with spaces (e.g. "Create Upgrade Disk Tool v1.53.exe") break a per-file read loop, so
       # compare one sorted name+size list per directory in a single ssh call.
-      rsync -a --no-progress --delete -e "$RS" "/tmp/opencode/$d" "root@192.168.1.29:$COLD/research/" 2>&1 | tail -2 | tee -a "$LOG"
-      loc=$(cd "/tmp/opencode/$d" && find . -type f -printf '%P\t%s\n' | LC_ALL=C sort)
+      rsync -a --no-progress --delete -e "$RS" "/run/media/Daan/Opslagmonster/a14-work/scratch/$d" "root@192.168.1.29:$COLD/research/" 2>&1 | tail -2 | tee -a "$LOG"
+      loc=$(cd "/run/media/Daan/Opslagmonster/a14-work/scratch/$d" && find . -type f -printf '%P\t%s\n' | LC_ALL=C sort)
       rem=$(sh -c "$SSH \"cd $COLD/research/$d 2>/dev/null && find . -type f -printf '%P\t%s\n' | LC_ALL=C sort\"" 2>/dev/null)
       if [ "$loc" = "$rem" ]; then
         say "  $d: $(printf '%s\n' "$loc" | wc -l) files identical on the NAS -> removed"
-        rm -rf "/tmp/opencode/$d"
+        rm -rf "/run/media/Daan/Opslagmonster/a14-work/scratch/$d"
       else
         say "  $d KEPT: $(diff <(printf '%s\n' "$loc") <(printf '%s\n' "$rem") | head -3 | tr '\t\n' ' ' | cut -c1-120)"
       fi
     done
     for f in hu-stage.tar index.xml t.json tags.json aic_tree.json am.xml agentPlan.old; do
-      [ -e "/tmp/opencode/$f" ] || continue
-      rsync -a --no-progress -e "$RS" "/tmp/opencode/$f" "root@192.168.1.29:$COLD/research/" 2>&1 | tail -2 | tee -a "$LOG"
-      loc=$(stat -c %s "/tmp/opencode/$f")
+      [ -e "/run/media/Daan/Opslagmonster/a14-work/scratch/$f" ] || continue
+      rsync -a --no-progress -e "$RS" "/run/media/Daan/Opslagmonster/a14-work/scratch/$f" "root@192.168.1.29:$COLD/research/" 2>&1 | tail -2 | tee -a "$LOG"
+      loc=$(stat -c %s "/run/media/Daan/Opslagmonster/a14-work/scratch/$f")
       rem=$(sh -c "$SSH \"stat -c %s $COLD/research/$f\"" 2>/dev/null | tr -d ' \n')
       say "  $f  local=$loc remote=$rem"
-      if [ "$loc" = "$rem" ]; then rm -f "/tmp/opencode/$f"; say "  $f removed"; else say "  $f KEPT: sizes differ"; fi
+      if [ "$loc" = "$rem" ]; then rm -f "/run/media/Daan/Opslagmonster/a14-work/scratch/$f"; say "  $f removed"; else say "  $f KEPT: sizes differ"; fi
     done
     say "== tmpfs after =="
     df -h /tmp | tail -1 | tee -a "$LOG"

@@ -22,7 +22,7 @@ set -u
 DEV=${DEV:-192.168.1.120:5555}
 SCRATCH=${HU_SCRATCH_ROOT:-/run/media/Daan/Opslagmonster/a14-work/tmp}
 if ! { mkdir -p "$SCRATCH" && : > "$SCRATCH/.pstore_probe"; } 2>/dev/null; then
-  SCRATCH=/tmp/opencode
+  SCRATCH=/run/media/Daan/Opslagmonster/a14-work/scratch
   mkdir -p "$SCRATCH" 2>/dev/null || true
 fi
 rm -f "$SCRATCH/.pstore_probe"

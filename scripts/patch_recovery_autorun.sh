@@ -26,13 +26,13 @@ OUTDIR="$WORK/recovery-patched"
 LOG="$OUTDIR/patch.log"
 W=/tmp/recwork
 
-RS="env SSH_ASKPASS=/tmp/opencode/askpass.sh SSH_ASKPASS_REQUIRE=force ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -o ConnectTimeout=15"
+RS="env SSH_ASKPASS=$HOME/.config/vbf/askpass.sh SSH_ASKPASS_REQUIRE=force ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -o ConnectTimeout=15"
 
 mkdir -p "$OUTDIR/inject"
 : > "$LOG"
 say() { printf '%s\n' "$1" >> "$LOG"; }
 # Run one command on the NAS and append its output to the log.
-nas() { sh /tmp/opencode/omv.sh "$1" 2>&1 | tee -a "$LOG" > /dev/null; }
+nas() { sh $HOME/.config/vbf/omv.sh "$1" 2>&1 | tee -a "$LOG" > /dev/null; }
 
 say "=== 1. NAS working dir ==="
 nas "mkdir -p $W/inject; ls -l $W 2>&1; df -h /tmp | tail -1"
@@ -107,7 +107,7 @@ nas "printf 'hu_install service lines: '; grep -c 'service hu_install' $W/rd-pat
   printf 'stock usb controller line still there: '; grep -c 'sys.usb.controller' $W/rd-patched/init.recovery.rk30board.rc"
 
 say "=== 8. pull the patched image back and hash both ==="
-sh /tmp/opencode/omv.sh "base64 -w0 $W/recovery-patched.img" 2>/dev/null | tee "$OUTDIR/recovery-patched.b64" > /dev/null
+sh $HOME/.config/vbf/omv.sh "base64 -w0 $W/recovery-patched.img" 2>/dev/null | tee "$OUTDIR/recovery-patched.b64" > /dev/null
 base64 -d "$OUTDIR/recovery-patched.b64" > "$OUTDIR/recovery-patched.img" 2>/dev/null
 printf 'pulled %s B\n' "$(stat -c %s "$OUTDIR/recovery-patched.img" 2>/dev/null)" >> "$LOG"
 rm -f "$OUTDIR/recovery-patched.b64"

@@ -26,7 +26,7 @@
 #     probe below) and runs the same verification there, so the rsync rules and the checks are exercisable
 #     offline.
 #   - authentication is password-only, no keys, no BatchMode. SSH_ASKPASS points at the credential
-#     wrapper /tmp/opencode/askpass.sh, same env as scripts/cold_storage_move.sh.
+#     wrapper $HOME/.config/vbf/askpass.sh, same env as scripts/cold_storage_move.sh.
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -49,7 +49,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-export SSH_ASKPASS=/tmp/opencode/askpass.sh
+export SSH_ASKPASS=$HOME/.config/vbf/askpass.sh
 export SSH_ASKPASS_REQUIRE=force
 SSH_OPTS="-o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o BatchMode=no -o ConnectTimeout=15"
 RSYNC_OPTS="-a --no-progress"
@@ -92,7 +92,7 @@ fi
 # HU_SCRATCH_ROOT.
 SCRATCH=${HU_SCRATCH_ROOT:-/run/media/Daan/Opslagmonster/a14-work/tmp}
 if ! { mkdir -p "$SCRATCH" && : > "$SCRATCH/.repo_update_probe"; } 2>/dev/null; then
-  SCRATCH=/tmp/opencode
+  SCRATCH=/run/media/Daan/Opslagmonster/a14-work/scratch
   mkdir -p "$SCRATCH" 2>/dev/null || true
 fi
 rm -f "$SCRATCH/.repo_update_probe"

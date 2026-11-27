@@ -9,7 +9,7 @@ IP=192.168.1.127
 export ANDROID_SERIAL=$IP:5555
 N=${1:?attempt number}
 KEEP=${KEEP:-1}     # 1 = leave Android 14 running after the capture; 0 = reboot it into recovery
-D=/home/Daan/vbf-work/a14-work/a14-attempt$N
+D=/run/media/Daan/Opslagmonster/VibeBakingFirmware/log/attempt$N
 mkdir -p "$D"
 echo "=== $(date +%H:%M:%S) rebooting into the card (epoch $(date +%s)) ==="
 adb root >/dev/null 2>&1; adb shell sync >/dev/null 2>&1; adb reboot >/dev/null 2>&1
@@ -44,7 +44,7 @@ while [ "$t" -lt 90 ]; do      # 15 min
       exit 0
     fi
     echo "--- not Android 14: running the recovery capture"
-    exec bash /home/Daan/vbf-work/a14-work/watch.sh "$N-rec" --no-reboot
+    exec bash /run/media/Daan/Opslagmonster/VibeBakingFirmware/scripts/watch_a14.sh "$N-rec" --no-reboot
   fi
   t=$((t+1)); sleep 10
 done

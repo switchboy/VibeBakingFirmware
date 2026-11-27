@@ -41,7 +41,7 @@ GPS. Latest entries in `docs/findings.md` are the truth.
   `classes.dex`); never `adb install` a hand-built APK whose build log was not checked.
 
 ## How we work (the loop)
-1. **Build** the change on image copies in `/home/Daan/vbf-work/a14-work/super9/`: edit ext4 with `debugfs`
+1. **Build** the change on image copies in `/run/media/Daan/Opslagmonster/a14-work/super9/`: edit ext4 with `debugfs`
    (keep mode, owner and the `security.selinux` xattr incl. its trailing NUL; use `rm`, not `unlink`, to delete),
    `e2fsck -fn` must return 0; splice into super with `tools/splice_super.py splice` (verifies every byte outside
    the replaced extents), list changed 4 MiB chunks with `diffchunks`.

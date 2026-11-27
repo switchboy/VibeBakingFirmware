@@ -6360,4 +6360,16 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   `CalledFromWrongThreadException` (swallowed by the HCT callback), so no layout pass ever ran again (favourites overlay
   0x0, compact map never applied). Events now go to the main thread. (3) The hand-build script packaged an APK without
   code after a javac error; it now stops (`BUILD FAILED`).
+* **Workspace moved and cleaned (owner request, Nov 27).** Opslagmonster is btrfs now; the repo lives at
+  `/run/media/Daan/Opslagmonster/VibeBakingFirmware` (git-ignored there: `analysis/` 80 GB incl. the 62.8 GB eMMC
+  snapshot `analysis/gpt/disk.img`, `diatsia fw/`, `update.zip` `dd3e2ac0610b…`), work dir `a14-work/` with `images/`
+  (attempt 41: super `2a7bdc092fea…` + system/vendor/product images), `cold/` (stock backup `hu-stock-backup-refresh`,
+  14/14 verify; card p7 `9424c98a66dc…` and p8 `b32bff398f3b…` pulled from the card), `staging/` (libhugoc, libhugnss
+  `82ff40a1b5f3…`, serial-port overlay, launcher APK), `scratch/`, `tools/`. Logs only in `<repo>/log/` (git-ignored).
+  NAS access wrapper moved from `/tmp/opencode` (lost at reboot) to `~/.config/vbf/`.
+  Removed: ~/vbf-work (24 GB: old super chain, captures, screenshots), the old Opslagmonster work dir
+  (~220 GB: attempts 1-8 material, smoke/tmp dirs, card dumps, duplicate stock zips and backups), `vibe-rescue`
+  (A10 package in four forms, covered by the eMMC snapshot), an old repo checkout and its build outputs, and all project
+  logs on the workstation and the NAS. Lost earlier (Nov 26, owner's disk resize): `hctport/`, `gapps/`, `gnss/`,
+  `rollback-captures/`; everything in them is reproducible (card images, repo shims, GApps sha, eMMC unchanged).
 

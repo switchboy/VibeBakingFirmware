@@ -301,9 +301,9 @@ def rsa_sign(pk8: pathlib.Path, content: bytes) -> bytes:
     """Signature = RSA PKCS#1 v1.5 over DigestInfo(sha256(content)). `openssl dgst -sha256 -sign` does
     exactly that; pkeyutl with a hand-built padded block hashes the block again, which is why an earlier
     self-check recovered sha256(padded block) instead of sha256(content)."""
-    contentfile = pathlib.Path('/tmp/opencode/sign-content.bin')
+    contentfile = pathlib.Path('/run/media/Daan/Opslagmonster/a14-work/scratch/sign-content.bin')
     contentfile.write_bytes(content)
-    sigfile = pathlib.Path('/tmp/opencode/sign.sig')
+    sigfile = pathlib.Path('/run/media/Daan/Opslagmonster/a14-work/scratch/sign.sig')
     r = subprocess.run(['openssl', 'dgst', '-sha256', '-sign', str(pk8), '-keyform', 'DER',
                         '-out', str(sigfile), str(contentfile)], capture_output=True, text=True)
     if r.returncode != 0:
@@ -324,7 +324,7 @@ def main() -> int:
     pk8, cert_path = pathlib.Path(args.pk8), pathlib.Path(args.cert)
     if not pk8.exists():
         print(f'ABORT: no private key {pk8}. Pull it from the build tree over the askpass ssh wrapper:')
-        print('  sh /tmp/opencode/omv.sh "cat /srv/dev-disk-by-label-SSData/aospbuild/lineage21s/'
+        print('  sh ~/.config/vbf/omv.sh "cat /srv/dev-disk-by-label-SSData/aospbuild/lineage21s/'
               'build/target/product/security/testkey.pk8" > /run/media/Daan/Opslagmonster/a14-work/keys/testkey.pk8')
         return 1
     if not cert_path.exists():

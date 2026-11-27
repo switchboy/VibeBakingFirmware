@@ -102,7 +102,7 @@ def main() -> int:
             sys.exit(f"missing reference image: {img}")
 
     live = parse_report(args.report)
-    scratch_dir = os.environ.get("TMPDIR", "/tmp/opencode")
+    scratch_dir = os.environ.get("TMPDIR", "/run/media/Daan/Opslagmonster/a14-work/scratch")
     os.makedirs(scratch_dir, exist_ok=True)
     scratch = os.path.join(scratch_dir, "vendor-blob-scratch.bin")
     hashed: dict[str, str] = {}

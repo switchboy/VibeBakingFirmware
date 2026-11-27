@@ -23,12 +23,12 @@
 # here with `bash --posix -n` and still has to be checked with `dash -n` and `busybox ash -n` on the build
 # host before partition 8 is written.
 #
-#   scripts/smoke_recovery_evidence.sh        (scratch under ${TMPDIR:-/tmp/opencode})
+#   scripts/smoke_recovery_evidence.sh        (scratch under ${TMPDIR:-/run/media/Daan/Opslagmonster/a14-work/scratch})
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 SRC="$REPO/scripts/hu_recovery_evidence.sh"
-S="${TMPDIR:-/tmp/opencode}/hu-evidence-smoke"
+S="${TMPDIR:-/run/media/Daan/Opslagmonster/a14-work/scratch}/hu-evidence-smoke"
 rm -rf "$S"
 mkdir -p "$S/cache" "$S/pstore" "$S/mntext" "$S/mntint" "$S/mntsd" "$S/hucard" "$S/by-name" \
         "$S/fakesbin" "$S/binfull" "$S/binbare" "$S/fakenet" "$S/fakelibmods"

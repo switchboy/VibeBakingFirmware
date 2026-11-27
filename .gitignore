@@ -52,3 +52,6 @@ bootableSD/
 
 # Scratch dirs for tests/test_doc_edit.py when /tmp is quota-limited.
 .scratch_tests/
+
+# Logs and device captures: local only, never committed or synced (owner rule, Nov 27).
+log/
