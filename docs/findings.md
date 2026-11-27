@@ -6378,4 +6378,17 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   work) and `aospbuild-archive/` (Nov 11 stock backup, gate scratch, reference extracts), plus the root-disk duplicate
   `/srv/cold/vibe-baking`: DataPool 742 -> 797 GB free. NAS `/tmp` build scratch (2.4 GB) removed after its outputs were
   in `a14-work/staging/`; `/tmp/vbl-build` stays (launcher deploy). `agentPlan.md` state/rules/paths brought to attempt 41.
+* **Play certification block (Nov 27).** Maps and the Play Store showed "Dit apparaat is niet gecertificeerd voor Play
+  Protect" (`gmscompliance.ui.UncertifiedDeviceActivity`). The GSF ID was registered at google.com/android/uncertified;
+  after clearing Play Store + Play services data (GSF untouched, the ID stayed the same) the Play Store opened normally,
+  Maps stayed blocked. The stock firmware cannot help: its fingerprint is `rockchip/rk3399/rk3399:10/...:userdebug/test-keys`
+  (never certified). HCT apps read `ro.product.model`/`device` only in update tools (RKUpdateService, CanBus UpdateApp,
+  RkMediaFile).
+* **Attempt 44 (owner decision: spoof the certification identity system-wide).** All five `build.prop`s
+  (system, system_ext, vendor, product, odm): fingerprint `google/husky_beta/husky:CANARY/ZP11.261016.008/16754936:user/release-keys`
+  (Pixel 8 Pro canary canary-202611, taken from Google's flash station the way PlayIntegrityFork's `autopif4.sh` does;
+  canary fingerprints expire after ~6 weeks), explicit `ro.build.fingerprint`, brand/manufacturer/model/name/device =
+  google/Google/Pixel 8 Pro/husky_beta/husky, `ro.build.type=user`, `ro.build.tags=release-keys`, security patch
+  2026-11-05. Hardware props (`ro.hardware`, `ro.board.platform`) and `ro.debuggable` unchanged.
 
+  Super attempt 44 `8da509c43b48…`.
