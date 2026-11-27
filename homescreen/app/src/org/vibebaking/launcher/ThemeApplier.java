@@ -26,8 +26,9 @@ public class ThemeApplier {
 
     /** night = ThemePolicy.night(...). Returns whether night is now in effect. */
     public boolean apply(boolean night) {
-        int mode = night ? android.content.res.Configuration.UI_MODE_NIGHT_YES
-                         : android.content.res.Configuration.UI_MODE_NIGHT_NO;
+        // UiModeManager.MODE_NIGHT_YES/NO (2/1). Not Configuration.UI_MODE_NIGHT_* (0x20/0x10): those belong to
+        // Configuration.uiMode and setNightMode rejects them, so the theme never changed (owner report 2026-11-27).
+        int mode = night ? UiModeManager.MODE_NIGHT_YES : UiModeManager.MODE_NIGHT_NO;
         try {
             uim.setNightMode(mode);           // @hide, system-wide: also flips the embedded map task
             return true;

@@ -226,8 +226,15 @@ public class AppDrawerActivity extends Activity {
         Set<String> s = new HashSet<>();
         try {
             Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
-            for (ResolveInfo r : getPackageManager().queryIntentActivities(home, 0)) {
-                if (r.activityInfo != null) s.add(r.activityInfo.packageName);
+            android.content.pm.PackageManager pm = getPackageManager();
+            for (ResolveInfo r : pm.queryIntentActivities(home, 0)) {
+                if (r.activityInfo == null) continue;
+                // Hide a package only if the activity the drawer would start IS its home screen. Settings also
+                // carries FallbackHome (a HOME activity), but its launcher entry is .Settings: it must stay visible
+                // (owner report 2026-11-27: "app drawer lacks settings").
+                Intent launch = pm.getLaunchIntentForPackage(r.activityInfo.packageName);
+                String launchCls = launch != null && launch.getComponent() != null ? launch.getComponent().getClassName() : null;
+                if (launchCls == null || launchCls.equals(r.activityInfo.name)) s.add(r.activityInfo.packageName);
             }
         } catch (Throwable ignore) { }
         return s;

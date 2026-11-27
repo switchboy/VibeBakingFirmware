@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /> <!-- day/night cycle (S30) -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /> <!-- reverse volume (S31) -->
     <!-- Signature|privileged / special: whitelisted in privapp-permissions-vibelauncher.xml -->
+    <uses-permission android:name="android.permission.MODIFY_DAY_NIGHT_MODE" />  <!-- day/night theme (S30); was implicit while the launcher ran as the system uid -->
     <uses-permission android:name="android.permission.ADD_TRUSTED_DISPLAY" />   <!-- live map: trusted virtual display (S6) -->
     <uses-permission android:name="android.permission.INJECT_EVENTS" />         <!-- live map: touches to the nav app (S6) -->
     <uses-permission android:name="android.permission.REAL_GET_TASKS" />        <!-- live map watchdog: tasks on the card display -->

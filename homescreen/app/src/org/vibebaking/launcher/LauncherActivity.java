@@ -68,6 +68,11 @@ public class LauncherActivity extends Activity {
     // Bench test hook: adb shell am broadcast -a org.vibebaking.launcher.TEST_ENGINE_TEMP --ei celsius 100 --ez oil true
     // Only senders holding android.permission.DUMP (the adb shell) are delivered; apps cannot fake engine data.
     private static final String TEST_TEMP_ACTION = "org.vibebaking.launcher.TEST_ENGINE_TEMP";
+    // Bench test hook (DUMP-protected like the one above): centre the radar on a rainy spot for 5 minutes to check it
+    // draws rain. adb shell am broadcast -a org.vibebaking.launcher.TEST_RADAR_CENTER --ef lat 41.9 --ef lon 12.5
+    private static final String TEST_RADAR_ACTION = "org.vibebaking.launcher.TEST_RADAR_CENTER";
+    private static final long RADAR_TEST_MS = 5 * 60_000L;
+    private long radarTestUntil;
     private long lastThemeSwitch = 0L;
     private String lastMapTarget;          // applied map card target (spec S7)
     private LocationManager locationManager;
@@ -252,6 +257,17 @@ public class LauncherActivity extends Activity {
         engineTemp.setVisibility(View.VISIBLE);
     }
 
+    private final BroadcastReceiver testRadarReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            float lat = i.getFloatExtra("lat", Float.NaN), lon = i.getFloatExtra("lon", Float.NaN);
+            if (radar == null || Float.isNaN(lat) || Float.isNaN(lon) || Math.abs(lat) > 85 || Math.abs(lon) > 180) return;
+            radarTestUntil = android.os.SystemClock.uptimeMillis() + RADAR_TEST_MS;
+            radar.setLatLon(lat, lon);
+            radar.restart();
+            main.postDelayed(() -> { radarTestUntil = 0; lastPosLat = Double.NaN; updateHomePosition(); }, RADAR_TEST_MS);
+        }
+    };
+
     private final BroadcastReceiver testTempReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             int t = i.getIntExtra("celsius", Integer.MIN_VALUE);
@@ -291,6 +307,8 @@ public class LauncherActivity extends Activity {
             // HCTCanBus sends via sendBroadcastAsUser: the receiver must be exported (A14).
             registerReceiver(rpmReceiver, new IntentFilter(RPM_ACTION), Context.RECEIVER_EXPORTED);
             registerReceiver(testTempReceiver, new IntentFilter(TEST_TEMP_ACTION),
+                android.Manifest.permission.DUMP, null, Context.RECEIVER_EXPORTED);
+            registerReceiver(testRadarReceiver, new IntentFilter(TEST_RADAR_ACTION),
                 android.Manifest.permission.DUMP, null, Context.RECEIVER_EXPORTED);
         } catch (Throwable t) {
             // Denied or framework drift: the gauge stays hidden, the home screen still runs (S36).
@@ -356,6 +374,7 @@ public class LauncherActivity extends Activity {
      * chosen position moved more than 5 km from the one currently drawn (spec S15/S30).
      */
     private void updateHomePosition() {
+        if (android.os.SystemClock.uptimeMillis() < radarTestUntil) return; // bench test centre active
         List<RadarPosition.Fix> fixes = new ArrayList<>();
         if (liveFix != null) fixes.add(liveFix);
         if (locationManager != null) {
@@ -489,6 +508,7 @@ public class LauncherActivity extends Activity {
         if (map != null) map.release();
         main.removeCallbacks(rpmStale);
         try { unregisterReceiver(testTempReceiver); } catch (Throwable ignore) { }
+        try { unregisterReceiver(testRadarReceiver); } catch (Throwable ignore) { }
         try { unregisterReceiver(rpmReceiver); }
         catch (Throwable ignore) { /* never registered (guarded above) or already unregistered */ }
     }
