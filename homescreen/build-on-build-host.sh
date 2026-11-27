@@ -49,6 +49,11 @@ echo "== aapt2 link (manifest + R.java) =="
     --min-sdk-version 26 --target-sdk-version 34 --java "$B/gen" "$B/res.zip" 2>&1 | head -20
 LINK=${PIPESTATUS[0]}
 RJ=$(find "$B/gen" -name 'R.java' 2>/dev/null | head -1)
+if { [ "$LINK" -ne 0 ] || [ -z "$RJ" ]; } && [ "${ALLOW_FAKE_R:-0}" != 1 ]; then
+  # Nov 27: a manifest syntax error failed the link, the fallback R.java below was used and the packaged APK carried
+  # resource ids that did not match it (crash: Resources$NotFoundException on setContentView). Never package that.
+  echo "BUILD FAILED: aapt2 link (set ALLOW_FAKE_R=1 for a syntax-only javac check)"; exit 1
+fi
 if [ "$LINK" -ne 0 ] || [ -z "$RJ" ]; then
   RJ="$B/gen/R.java"
   echo "-- link failed: generating R.java from the resource inventory so javac can still run --"

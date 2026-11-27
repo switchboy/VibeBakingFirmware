@@ -43,6 +43,12 @@ public class App extends Application {
     public static ThemeApplier theme() { return instance.theme; }
     public static CarClient car() { return instance.car; }
     public static ValetController valet() { return instance.valet; }
+
+    // The map card's controller outlives a LauncherActivity rebuild (day/night switch): its virtual display and the nav
+    // app on it keep running while the activity is recreated with the new theme's resources.
+    private static MapCardController mapCard;
+    public static MapCardController mapCard() { return mapCard; }
+    public static void setMapCard(MapCardController m) { mapCard = m; }
     public static CombinedPhoneProbe bt() { return instance.btProbe; }
 
     /**

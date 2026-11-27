@@ -33,11 +33,12 @@
 
         <!-- Home app (S1): MAIN + HOME + DEFAULT. uiMode handled here so the theme switch
              animates instead of recreating (S38). Landscape-only car panel (S4). -->
+        <!-- no uiMode: a day/night switch recreates the activity so layout colours follow; the map card's display survives (App.mapCard) -->
         <activity
             android:name=".LauncherActivity"
             android:exported="true"
             android:screenOrientation="landscape"
-            android:configChanges="uiMode|orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|navigation|density|colorMode">
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|navigation|density|colorMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />

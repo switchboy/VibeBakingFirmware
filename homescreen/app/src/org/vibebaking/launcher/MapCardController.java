@@ -58,9 +58,9 @@ public class MapCardController {
             | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_FOCUS
             | DisplayManager.VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL;
 
-    private final Context ctx;          // the activity (startActivity with a display id must come from an activity)
-    private final FrameLayout card;
-    private final TextView placeholder;
+    private Context ctx;                  // the activity (startActivity with a display id must come from an activity)
+    private FrameLayout card;
+    private TextView placeholder;
     private TextureView surface;
     private Surface vdSurface;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -262,6 +262,42 @@ public class MapCardController {
             m.recycle();
         }
         return true;
+    }
+
+    /** True while a virtual display hosts the nav app (the controller can survive an activity rebuild). */
+    public boolean hasDisplay() { return display != null && embedded; }
+
+    /** The map setting this controller was initialised with. */
+    public String setting() { return setting; }
+
+    /**
+     * Theme switch (owner, Nov 27): the activity is recreated so every resource colour follows day/night, but the nav app
+     * must keep running (navigation at dusk). The old activity calls this in onDestroy: drop its views, keep the display.
+     */
+    public void detachForRecreate() {
+        main.removeCallbacks(compactTick);
+        homeVisible = false;
+        if (display != null) display.setSurface(null);
+        if (vdSurface != null) { vdSurface.release(); vdSurface = null; }
+        if (surface != null) { surface.setSurfaceTextureListener(null); surface = null; }
+        expand = null;
+        compact = false;
+    }
+
+    /** The new activity hands over its card; a new TextureView is attached to the existing display. */
+    public void reattach(Context activity, FrameLayout newCard) {
+        ctx = activity;
+        card = newCard;
+        placeholder = newCard.findViewById(R.id.map_placeholder);
+        try {
+            attachSurface();
+        } catch (Throwable t) {
+            Log.w(TAG, "reattach failed", t);
+            showPlaceholder(true);
+            return;
+        }
+        main.removeCallbacks(compactTick);
+        main.postDelayed(compactTick, 2000L);
     }
 
     /** LauncherActivity.onResume: the card is visible again; bring the nav app back into it (the intended return path). */

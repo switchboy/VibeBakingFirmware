@@ -68,7 +68,11 @@ ids = ["map_card", "media_card", "radar_card", "radar_view", "clock", "clock_dat
        "map_placeholder"]
 ok("C05", all(f'@+id/{i}' in lay for i in ids))
 navm = re.search(r'name=".LauncherActivity".*?configChanges="([^"]+)"', man, re.S)
-ok("C05b", 'android:screenOrientation="landscape"' in man and navm and "uiMode" in navm.group(1))
+# Day/night: LauncherActivity is recreated (no uiMode) so layout colours follow the theme; the map card's controller
+# (virtual display + nav app) survives in App.mapCard (owner report Nov 27: only the radar switched to day).
+la = read("app/src/org/vibebaking/launcher/LauncherActivity.java")
+ok("C05b", 'android:screenOrientation="landscape"' in man and navm and "uiMode" not in navm.group(1)
+   and "App.mapCard()" in la and "isChangingConfigurations()" in la and "detachForRecreate" in la)
 
 # ---- S6/S7/S8 ----
 mc = read("app/src/org/vibebaking/launcher/MapCardController.java")

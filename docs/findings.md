@@ -6428,4 +6428,14 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   encrypted (names unreadable; mounted read-only + norecovery from the card recovery, eMMC heads unchanged afterwards), so
   the APK cannot be recovered from the unit. Stock also patches framework.jar, services.jar, wifi-service.jar,
   libsurfaceflinger, libaudioflinger and libstagefright for it; dossier by the local model: `docs/zlink-dossier.md`.
+* **Day/night switch only re-coloured the radar (owner report Nov 27).** LauncherActivity declared `configChanges=uiMode`,
+  so a theme switch never re-inflated the layout and every resource colour kept the old theme. Now the activity is
+  recreated (no `uiMode` in its configChanges) and the map card's controller survives in `App.mapCard`: the old activity
+  calls `detachForRecreate()` (keeps the virtual display), the new one `reattach()`es a fresh TextureView. Verified on the
+  unit: whole screen switches, Maps keeps the same process (no restart, navigation would continue), no crash.
+* **Second build-safety hole closed:** a manifest syntax error (my comment placed inside the `<activity>` start tag) failed
+  `aapt2 link`; `build-on-build-host.sh` then generated a substitute R.java and still packaged an APK whose resource ids
+  did not match (crash loop: `Resources$NotFoundException` in `setContentView`). The build now stops on a failed link
+  (`ALLOW_FAKE_R=1` only for syntax checks) and `scripts/deploy_launcher.sh` runs `xmllint` on all XML first.
+* **Screenshots** in `docs/screenshots/` (night/day home, favourites, drawer, settings), Maps on Utrecht, account picture blurred.
 

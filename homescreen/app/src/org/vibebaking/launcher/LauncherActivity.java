@@ -176,8 +176,16 @@ public class LauncherActivity extends Activity {
         valet.replayPending();        // crash-safe re-apply (spec S22)
         valet.scheduleAutoEnter();    // spec S25 - HCT BT probe decides; UNKNOWN never auto-enters
 
-        map = new MapCardController(this, findViewById(R.id.map_card));
-        map.init(store.mapTarget());
+        MapCardController kept = App.mapCard();
+        if (kept != null && kept.hasDisplay() && java.util.Objects.equals(kept.setting(), store.mapTarget())) {
+            map = kept;                                   // theme rebuild: the nav app keeps running on its display
+            map.reattach(this, findViewById(R.id.map_card));
+        } else {
+            if (kept != null) kept.release();
+            map = new MapCardController(this, findViewById(R.id.map_card));
+            map.init(store.mapTarget());
+            App.setMapCard(map);
+        }
         valet.setNavTarget(map.navTarget()); // valet allowed set follows the map card (S21)
         lastMapTarget = store.mapTarget();
         if (valet.isActive()) valet.refreshSuspension(); // replay ran before the target was known
@@ -736,7 +744,10 @@ public class LauncherActivity extends Activity {
         super.onDestroy();
         MediaListenerService.callback = null;
         if (radar != null) radar.stop();
-        if (map != null) map.release();
+        if (map != null) {
+            if (isChangingConfigurations()) map.detachForRecreate();   // day/night rebuild: keep the display
+            else { map.release(); App.setMapCard(null); }
+        }
         main.removeCallbacks(rpmStale);
         try { unregisterReceiver(testTempReceiver); } catch (Throwable ignore) { }
         try { unregisterReceiver(testRadarReceiver); } catch (Throwable ignore) { }
