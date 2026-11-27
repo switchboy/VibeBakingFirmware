@@ -66,6 +66,9 @@ public class MapCardController {
     private final Handler main = new Handler(Looper.getMainLooper());
     private long lastTouch = 0L;     // uptime ms of the last touch on the card, 0 = never
     private boolean compact;
+    // Home screen in front (onResume..onPause). A TextureView keeps its surface while the launcher is only stopped, so the
+    // surface is no proof the card is visible: the watchdog used it and pulled Maps back out of full screen (owner, Nov 27).
+    private boolean homeVisible;
     private TextView expand;
     private VirtualDisplay display;
     private boolean embedded;
@@ -190,7 +193,7 @@ public class MapCardController {
      * screen (the texture exists): a hidden home screen must not pull the app away from the owner.
      */
     private void watchdog() {
-        if (display == null || vdSurface == null || !launched) return;
+        if (!homeVisible || display == null || vdSurface == null || !launched) return;
         int id = display.getDisplay().getDisplayId();
         try {
             android.app.ActivityManager am = ctx.getSystemService(android.app.ActivityManager.class);
@@ -260,6 +263,17 @@ public class MapCardController {
         }
         return true;
     }
+
+    /** LauncherActivity.onResume: the card is visible again; bring the nav app back into it (the intended return path). */
+    public void onHomeVisible() {
+        homeVisible = true;
+        if (display != null && launched) {
+            try { launchOnDisplay(); } catch (Throwable t) { Log.w(TAG, "relaunch on resume failed", t); }
+        }
+    }
+
+    /** LauncherActivity.onPause: the owner left the home screen (full-screen Maps, another app): hands off. */
+    public void onHomeHidden() { homeVisible = false; }
 
     public void release() {
         main.removeCallbacks(compactTick);

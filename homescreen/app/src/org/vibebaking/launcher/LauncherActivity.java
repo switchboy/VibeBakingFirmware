@@ -552,6 +552,7 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (map != null) map.onHomeVisible();
         boolean valetOn = valet.isActive() && store.valetEnabled();
         badge.setVisibility(valetOn ? View.VISIBLE : View.GONE);
         // In valet mode Settings is suspended anyway: hide the gear so the screen stays clean.
@@ -715,6 +716,7 @@ public class LauncherActivity extends Activity {
     @Override
     public void onPause() {
         super.onPause();
+        if (map != null) map.onHomeHidden();
         if (media != null) media.onPause();
         if (favBar != null) { favBar.animate().cancel(); favBar.setVisibility(View.GONE); } // closed when home is left
         // The home screen stays as-is; valet state is owned by ValetController + persisted prefs.
