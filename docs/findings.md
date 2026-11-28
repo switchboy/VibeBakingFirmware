@@ -6438,4 +6438,11 @@ p7 `fac15a4b138e…`, p8 `b06dc33648a3…`.
   did not match (crash loop: `Resources$NotFoundException` in `setContentView`). The build now stops on a failed link
   (`ALLOW_FAKE_R=1` only for syntax checks) and `scripts/deploy_launcher.sh` runs `xmllint` on all XML first.
 * **Screenshots** in `docs/screenshots/` (night/day home, favourites, drawer, settings), Maps on Utrecht, account picture blurred.
+* **Field-test boot image written (Nov 28, owner request: every boot to Android 14).** Card p7 = `boot-nowrap.img`
+  `527b10f265ac…` (flash_card_a14.sh boot with the `.before` gate on `9424c98a66dc…`; VERIFIED, eMMC heads unchanged). Android 14
+  boots without the wrapper: no hu-crasher, no `hu-card-arm` lines, card BCB stays zero (`e5a00aa9991a…`); a plain `reboot`
+  comes back to Android 14 (.128), not the card recovery. `by-name/misc` in Android 14 is the card (`mmcblk1p3`), so
+  `reboot recovery` writes the card, not the eMMC. Restore routes: Android 10 from the eMMC (owner's button reset), or the
+  card recovery via `adb reboot recovery`. To go back to the dead-man loop: write card p7 `9424c98a66dc…`
+  (`a14-work/cold/card-current/card-p7.img`).
 

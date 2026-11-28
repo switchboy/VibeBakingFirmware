@@ -47,6 +47,10 @@ Open: audible audio check (speaker on a proper pair), camera image, launcher int
   `classes.dex`); never `adb install` a hand-built APK whose build log was not checked.
 
 ## How we work (the loop)
+**Current card boot (Nov 28): field-test image without the PID-1 wrapper** - no dead-man, no BCB arming, every boot is
+Android 14. Reach the card recovery with `adb reboot recovery` (writes the card's misc). For unattended iteration put the
+dead-man image back first (card p7 `9424c98a66dc…`, `a14-work/cold/card-current/card-p7.img`); the loop below assumes it.
+
 1. **Build** the change on image copies in `a14-work/images/attemptN/` (copy the current set, never edit it in place): edit ext4 with `debugfs`
    (keep mode, owner and the `security.selinux` xattr incl. its trailing NUL; use `rm`, not `unlink`, to delete),
    `e2fsck -fn` must return 0; splice into super with `tools/splice_super.py splice` (verifies every byte outside
